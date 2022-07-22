@@ -203,7 +203,7 @@ saveRDS(merged_samples, file=paste0(output_dir,"RData/merged_all_samples_filtere
 _____
 
 ### Get the markers, UMAP and DotPlot for the marker genes
-#### Resolution of 0.2
+### Resolution of 0.2
 ```
 Idents(merged_samples) <- "RNA_snn_res.0.2"
 clusters_identified <- sort(unique(unfactor(Idents(object=merged_samples))))
@@ -225,14 +225,14 @@ for(i in clusters_identified){
 saveWorkbook(OUT, paste0(output_dir,"markers/DEG_per_cluster_res_0.2.xlsx"))
 ```
 
-### UMAP
+#### UMAP
 ```
 pdf(paste0(output_dir,"umap/umap_at_resolution_0.2.pdf"), width=10, height=8)
 DimPlot(merged_samples, reduction = "umap", label = TRUE, pt.size = .1)+labs(title="Resolution 0.2")
 dev.off()
 ```
 
-### Dot Plot
+#### Dot Plot
 ```
 pdf(paste0(output_dir,"dot_plot/dot_plot_marker_genes_at_res_0.2_no_limits_defined.pdf"), width=18, height=8)
 DotPlot(merged_samples, features=unique(c("CD3D","CCR7","SELL","KLF2","CD69","ITGAE","CXCR6","CD4","TIGIT","FOXP3",
@@ -246,7 +246,7 @@ DotPlot(merged_samples, features=unique(c("CD3D","CCR7","SELL","KLF2","CD69","IT
 dev.off()
 ```
 
-#### Resolution of 1
+### Resolution of 1
 ```
 Idents(merged_samples) <- "RNA_snn_res.1"
 clusters_identified <- sort(unique(unfactor(Idents(object=merged_samples))))
