@@ -1,0 +1,126 @@
+---
+title: "Process raw data"
+author: "David Wu"
+output: html_notebook
+---
+## Purpose
+Process raw data. Provided data is already processed by cellranger; use this notebook to organize metadata
+
+## Setup
+Set working directory to project directory
+```{r setup}
+require(knitr)
+opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+```
+
+### Optionally convert this Rmd to R script 
+```{r eval=FALSE, message=FALSE}
+current_file <- rstudioapi::getActiveDocumentContext()$path
+output_file <- stringr::str_replace(current_file, '.Rmd', '.R')
+knitr::purl(current_file, output = output_file)
+file.edit(output_file)
+```
+
+### Directories
+```{r, message=FALSE}
+analysis_dir <- 'analysis/output/00_process' # analysis file output directory
+data_dir <- 'data/derived/pipestance' # data file output directory
+
+dir.create(analysis_dir, showWarnings = FALSE)
+dir.create(data_dir, showWarnings = FALSE)
+```
+
+### Load libraries
+```{r, message=FALSE}
+library(tidyverse)
+```
+
+### Copy files
+Start in project directory
+```{bash eval=FALSE} 
+cd data/derived
+rclone sync -P box:/Files pipestance
+```
+
+## Analysis
+### Metadata table
+```{r}
+metadata <- read_tsv('analysis/input/metadata.tsv')
+```
+
+### Examine metadata
+```{r}
+metadata
+```
+```{r}
+metadata %>% filter(`Skin id #` !=  `Skin #`)
+```
+
+```{r}
+metadata_subset <- 
+  metadata %>% 
+  filter(is.na(exclude)) %>% 
+  select(sample,
+         id,
+         condition,
+         treatment,
+         response,
+         path,
+         published = `In SI paper`,
+         citeseq = `Awaiting Cite Seq?`,
+         chemistry = `10x kit`,
+         n_cells = `est # of cells`,
+         n_reads = `RNA total reads`,
+         reads_per_cell = `mean reads/cell`,
+         genes_per_cell = `median genes per cell`,
+         saturation = `sequencing saturation`,
+         f_ab_reads = `fraction antibody reads`,
+         f_ab_reads_usable = `fraction antibody reads usable`,
+         f_ab_unrecog = `fraction unrecognized antibody`,
+         f_ab_reads_in_cells = `antibody reads in cells`,
+         n_ab_reads_usable_per_cell = `antibody reads usable/cell`) 
+
+metadata_subset
+```
+### Match to output directories
+
+```{r}
+paths <- list.files(data_dir)
+paths
+```
+### Check for missing paths
+```{r}
+metadata_subset[!(metadata_subset$path %in% paths),]
+```
+
+```{r}
+paths[!(paths %in% metadata$`Box folder Name`)]
+```
+### Transfer .h5 files to input directory
+```{r}
+dest_dir <- 'analysis/input/samples/'
+dir.create(dest_dir)
+
+transfer <- metadata_subset %>% 
+  mutate(origin = paste0('data/derived/pipestance/', path, '/filtered_feature_bc_matrix.h5'),
+         dest = paste0(dest_dir, id, '.h5')) %>% 
+  select(sample, id, origin, dest)
+
+transfer
+```
+```{r}
+file.copy(transfer$origin,
+          transfer$dest)
+```
+
+
+## Export
+```{r}
+metadata_subset %>% write_tsv(file.path(analysis_dir, 'metadata_subset.tsv'))
+```
+
+## Session info
+```{r}
+sessionInfo()
+```
+
