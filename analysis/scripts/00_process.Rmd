@@ -59,6 +59,7 @@ metadata %>% filter(`Skin id #` !=  `Skin #`)
 ```{r}
 metadata_subset <- 
   metadata %>% 
+  mutate(id = paste0('skin', id)) %>% 
   filter(is.na(exclude)) %>% 
   select(sample,
          id,
@@ -110,7 +111,8 @@ transfer
 ```
 ```{r}
 file.copy(transfer$origin,
-          transfer$dest)
+          transfer$dest, 
+          overwrite = TRUE)
 ```
 
 
