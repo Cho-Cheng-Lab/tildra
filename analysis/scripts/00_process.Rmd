@@ -79,7 +79,8 @@ metadata_subset <-
          f_ab_reads_usable = `fraction antibody reads usable`,
          f_ab_unrecog = `fraction unrecognized antibody`,
          f_ab_reads_in_cells = `antibody reads in cells`,
-         n_ab_reads_usable_per_cell = `antibody reads usable/cell`) 
+         n_ab_reads_usable_per_cell = `antibody reads usable/cell`) %>% 
+  mutate(adt = ifelse(is.na(f_ab_reads), 'No', 'Yes'))
 
 metadata_subset
 ```

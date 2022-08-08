@@ -20,7 +20,7 @@ file.edit(output_file)
 ### Directories
 ```{r, message=FALSE}
 output_dir <- 'analysis/output/01_import' # analysis file output directory
-data_dir <- 'data/derived/pipestance' # data file output directory
+data_dir <- 'data/derived/seurat' # data file output directory
 
 dir.create(output_dir, showWarnings = FALSE)
 dir.create(data_dir, showWarnings = FALSE)
@@ -31,6 +31,8 @@ dir.create(data_dir, showWarnings = FALSE)
 library(Seurat) 
 library(tidyverse)
 library(scDblFinder) 
+library(ggExtra)
+library(ggplotify)
 ```
 
 
@@ -87,7 +89,7 @@ for(f in metadata_df$id){
 	all_samples_data[[f]] <- Read10X_h5(paste0(samples_dir, f, '.h5'))
 
 	if(!is.null(names(all_samples_data[[f]]))){
-		all_samples_data[[f]][["Gene Expression"]] <- CollapseSpeciesExpressionMatrix(all_samples_data[[f]][["Gene Expression"]], prefix = "GRCh38_", controls = "mm10___", ncontrols = 200)
+		all_samples_data[[f]][["Gene Expression"]] <- CollapseSpeciesExpressionMatrix(all_samples_data[[f]][["Gene Expression"]], prefix = "GRCh38_", controls = "mm10___", ncontrols = 500)
 		all_samples_data[[f]][["Antibody Capture"]] <- trim.feature.names(all_samples_data[[f]][["Antibody Capture"]])	
 		all_samples[[f]] <- CreateSeuratObject(counts = all_samples_data[[f]][["Gene Expression"]], project = as.character(f))
 	} else {
@@ -98,12 +100,11 @@ for(f in metadata_df$id){
 	all_samples_sce[[f]] <- scDblFinder(all_samples_sce[[f]])
 	print(table(call=all_samples_sce[[f]]$scDblFinder.class))
 
-	#DefaultAssay(all_samples[[f]]) <- "RNA"
-
-	all_samples[[f]] <- as.Seurat(all_samples_sce[[f]], project=f)	
-	all_samples[[f]][["percent.mt"]] <- PercentageFeatureSet(all_samples[[f]], pattern="^MT-", assay="RNA")
-	all_samples[[f]][["percent.ribo"]] <- PercentageFeatureSet(all_samples[[f]], pattern="^RPS|^RPL|^MRPS|^MRPL", assay="RNA")
-	all_samples[[f]][["percent.stress"]] <- PercentageFeatureSet(all_samples[[f]], features=intersect(stress_genes$gene_symbol, rownames(all_samples[[f]])), assay="RNA")
+	all_samples[[f]] <- as.Seurat(all_samples_sce[[f]], project = f)	
+	all_samples[[f]][["percent.mt"]] <- PercentageFeatureSet(all_samples[[f]], pattern = "^MT-|mt-", assay = "RNA")
+	all_samples[[f]][["percent.ribo"]] <- PercentageFeatureSet(all_samples[[f]], pattern = "^RP[SL]|^MRP[SL]|Rp[sl]|Mrp[sl]", assay = "RNA")
+	all_samples[[f]][["percent.stress"]] <- PercentageFeatureSet(all_samples[[f]], features = intersect(stress_genes$gene_symbol, rownames(all_samples[[f]])), assay="RNA")
+	all_samples[[f]][["percent.mouse"]] <- PercentageFeatureSet(all_samples[[f]], pattern = '^mm10', assay = "RNA")
 	
 	if(!is.null(names(all_samples_data[[f]]))){
 		all_samples[[f]][["ADT"]] <- CreateAssayObject(counts = all_samples_data[[f]][["Antibody Capture"]])
@@ -123,11 +124,32 @@ for(f in metadata_df$id){
 	## scatterplot
 	pdf(paste0(output_dir,"/qc_plots/scatter_plot_per_sample/",f,".pdf"), width=14)
 	options(repr.plot.height = 6, repr.plot.width = 15)
-	p1 <- FeatureScatter(all_samples[[f]], feature1 = "nCount_RNA", feature2 = "percent.mt") + ggtitle(f)+ geom_point(shape=16, color="blue", alpha = 0.1) + 
-		geom_hline(yintercept=15, linetype="dashed", color = "black", size=1.5) + geom_vline(xintercept = 10000, linetype="dashed", color = "black", size=1.5)
+	
+	p1 <- all_samples[[f]]@meta.data %>% 
+	  filter(percent.mouse < 5) %>% 
+	  ggplot(aes(x = nCount_RNA, 
+	             y = percent.mt)) +
+	  ggtitle(f) + 
+	  geom_point(color = "blue", alpha = 0.1, size = 0.5) + 
+	  geom_hline(yintercept = 15, linetype = "dashed", color = "black", size = 1.5) + 
+	  geom_vline(xintercept = 10000, linetype="dashed", color = "black", size = 1.5) +
+	  theme_bw()
 
-	p2 <- FeatureScatter(all_samples[[f]], feature1 = "nCount_RNA", feature2 = "nFeature_RNA") + ggtitle(f)+ geom_point(shape=16, color="blue", alpha = 0.1)+
-		geom_hline(yintercept=2500, linetype="dashed", color = "black", size=1.5) + geom_vline(xintercept = 10000, linetype="dashed", color = "black", size=1.5)
+	p2 <-  all_samples[[f]]@meta.data %>% 
+	  filter(percent.mouse < 5) %>% 
+	  ggplot(aes(x = nCount_RNA, 
+	             y = nFeature_RNA)) +
+	  ggtitle(f) + 
+	  geom_point(color = "blue", alpha = 0.1, size = 0.5) + 
+		geom_hline(yintercept=2500, 
+		           linetype="dashed", 
+		           color = "black", 
+		           size=1.5) + 
+	  geom_vline(xintercept = 10000, 
+	             linetype = "dashed", 
+	             color = "black", 
+	             size=1.5) +
+	  theme_bw()
 
 	print(p1+p2)
 
@@ -148,7 +170,7 @@ for(f in metadata_df$id){
 ```{r}
 pdf(paste0(output_dir,"/qc_plots/mito_ribo_stress_qc_final.pdf"), width=14, height=6)
 for(s in names(all_samples)){
-  mt_ribo_stress <- FetchData(object = all_samples[[s]], vars = c("percent.mt", "percent.stress","percent.ribo"))
+  mt_ribo_stress <- all_samples[[s]]@meta.data %>% filter(percent.mouse < 5)
   
   p1 <- ggplot(mt_ribo_stress, aes(x=percent.ribo, y=percent.mt))+geom_point(alpha=0.25, size=0.5)+ylim(0,100)+xlim(0,100)+ggtitle(s)
   p2 <- ggplot(mt_ribo_stress, aes(x=percent.stress, y=percent.mt))+geom_point(alpha=0.25, size=0.5)+ylim(0,100)+xlim(0,100)+ggtitle(s)
@@ -162,19 +184,6 @@ for(s in names(all_samples)){
 dev.off()
 ```
 
-### according to the upper plots, I set the thresholds
-#### applying filters: nFeatures > 100 and < 6000, percent.mt < 20, percent.ribo < 50, and percent.stress < 30
-```{r}
-for(f in names(all_samples)){
-	all_samples[[f]] <- subset(all_samples[[f]], 
-		subset = nFeature_RNA > 100 & 
-		nFeature_RNA < 6000 & 
-		percent.mt < 20 & 
-		percent.ribo < 50 & 
-		percent.stress < 30)
-}
-```
-
 ### merge all samples in one object
 #### renaming the cells
 ```{r}
@@ -186,132 +195,125 @@ for(s in names(all_samples)){
 
 #### merge all
 ```{r}
-merged_samples <- all_samples[[1]]
-for (i in 2:length(all_samples)) {
-  merged_samples <- merge(merged_samples, y = all_samples[[i]], add.cell.ids = NULL)
-}
+merged_samples <- merge(all_samples[[1]], all_samples[-1])
+merged_samples
 ```
-____
+```{r}
+p <- merged_samples@meta.data %>% 
+  ggplot(aes(y = nFeature_RNA,
+             x = percent.mouse)) + 
+  geom_point(alpha = 0.1,
+             size = 0.05) +
+  geom_hline(yintercept = 200, linetype = 'dashed') +
+  geom_vline(xintercept = c(5, 95), linetype = 'dashed') +
+  scale_y_log10() +
+  theme_bw()
+
+p_marginal <- ggMarginal(p, type = 'densigram')
+
+ggsave(plot = p_marginal,
+       filename = 'nFeature_vs_percent.mouse.png',
+       h = 4,
+       w = 6,
+       path = file.path(output_dir, 'qc_plots'))
+```
+
+
+### according to the upper plots, I set the thresholds
+#### applying filters: nFeatures > 200 and < 6000, percent.mt < 20, percent.ribo < 50, and percent.stress < 30
+```{r}
+human_cells_to_keep <- merged_samples@meta.data %>% 
+  filter(percent.mouse < 5 &
+           nFeature_RNA > 200 & 
+           nFeature_RNA < 6000 & 
+           percent.mt > 1 &
+           percent.mt < 20 & 
+           percent.ribo > 0 &
+           percent.ribo < 50 &
+           percent.stress > 0 &
+           percent.stress < 30) %>% 
+  rownames()
+
+mouse_cells_to_keep <- merged_samples@meta.data %>% 
+  filter(percent.mouse > 95) %>% 
+  rownames()
+
+merged_samples <- subset(merged_samples, 
+                         cells = c(human_cells_to_keep, mouse_cells_to_keep))
+
+merged_samples
+```
+```{r}
+merged_samples@meta.data
+```
+
+### Combined QC violin plots
+```{r fig.width = 12, fig.height=5}
+adt <- merged_samples@meta.data %>% 
+  select(id, nCount_ADT) %>% 
+  group_by(id) %>% 
+  summarize(median = median(nCount_ADT)) %>% 
+  arrange(median) %>% 
+  mutate(ADT = ifelse(median > 0, 'Yes', 'No')) %>% 
+  select(id, ADT)
+
+qc_table <- merged_samples@meta.data %>% 
+  left_join(adt) %>% 
+  filter(percent.mouse < 5) %>% 
+  select('id', ends_with('RNA'), starts_with('percent')) %>% 
+  pivot_longer(cols = -1,
+               names_to = 'metric',
+               values_to = 'value')
+  
+  qc_table %>% head()
+```
+
+
+```{r fig.width = 12, fig.height=16}
+p <- qc_table %>% 
+  filter(metric != 'percent.mouse') %>% 
+  ggplot(aes(x = id,
+             y = value,
+             fill = id)) +
+  geom_violin() +
+  theme_bw() +
+  facet_wrap(~metric, scales = 'free_y', ncol = 1) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = 'none') +
+  labs(title = 'QC Metrics by Sample',
+       x = '',
+       y = '') 
+
+ggsave(plot = p,
+       filename = 'qc_by_sample.png',
+       h = 12,
+       w = 12,
+       path = file.path(output_dir, 'qc_plots'))
+p
+```
+
 
 ### Normalize, FindVariableFeatures, ScaleData and RunPCA
 ```{r}
-merged_samples <- Seurat::NormalizeData(merged_samples, assay="RNA") %>% 
-  FindVariableFeatures(selection.method = "vst", nfeatures = 2000, assay="RNA") %>%
-  ScaleData(verbose = FALSE, assay="RNA") %>%
-  RunPCA(pc.genes = merged_samples@var.genes, npcs = 30, verbose = FALSE, assay="RNA")
+merged_samples <- Seurat::NormalizeData(merged_samples, 
+                                        assay = "RNA") %>% 
+  FindVariableFeatures(selection.method = "vst", 
+                       nfeatures = 2000, 
+                       assay = "RNA") %>%
+  ScaleData(verbose = FALSE, 
+            assay = "RNA") %>%
+  RunPCA(npcs = 30, 
+         verbose = FALSE, 
+         assay = "RNA")
 ```
 
-### Run Harmony
+## Export
 ```{r}
-merged_samples <- merged_samples %>% 
-    RunHarmony(c("treatment", "kit"), plot_convergence = TRUE, assay.use='RNA')
+merged_samples %>% write_rds(file.path(data_dir, 'seuratobj_merged.rds'))
 ```
 
-### Make the elbow plot
+## Session Info
 ```{r}
-pdf(paste0(output_dir,"qc_plots/elbow_plot.pdf"))
-ElbowPlot(merged_samples, ndims=30)
-dev.off()
+sessionInfo()
 ```
 
-### RunUMAP, FindNeighbors and FindClusters using resolutions starting from 0.1 to 2, by 0.1
-```{r}
-merged_samples <- merged_samples %>% 
-    RunUMAP(reduction = "harmony", dims = 1:20, assay="RNA") %>% 
-    FindNeighbors(reduction = "harmony", dims = 1:20, assay="RNA") %>% 
-    FindClusters(resolution = seq(0.1,2,by=0.1), graph.name = "RNA_snn") %>% 
-    identity()
-```
-
-### Save the "merged_samples" object
-```{r}
-saveRDS(merged_samples, file=paste0(output_dir,"RData/merged_all_samples_filtered_with_metadata_with_findClusters.RDS"))
-```
-_____
-
-### Get the markers, UMAP and DotPlot for the marker genes
-### Resolution of 0.2
-```{r}
-Idents(merged_samples) <- "RNA_snn_res.0.2"
-clusters_identified <- sort(unique(unfactor(Idents(object=merged_samples))))
-
-OUT <- createWorkbook()
-for(i in clusters_identified){
-    tryCatch({
-	    cat(paste0("Finding Markers for cluster ",i,"\n"))
-	    markers <- FindMarkers(merged_samples, ident.1 = i, 
-	      verbose = FALSE, test.use="MAST", min.pct = 0, logfc.threshold = 0.25) %>% mutate(., gene = rownames(.))
-
-		addWorksheet(OUT, paste0("cluster_",i))
-		writeData(OUT, sheet = paste0("cluster_",i), x = markers)
-
-      cat(paste0("Finished Finding Markers for cluster ",i,"\n"))
-      }, error=function(e){message(paste0("We have an error here in cluster ", i))})
-}
-
-saveWorkbook(OUT, paste0(output_dir,"markers/DEG_per_cluster_res_0.2.xlsx"))
-```
-
-#### UMAP
-```{r}
-pdf(paste0(output_dir,"umap/umap_at_resolution_0.2.pdf"), width=10, height=8)
-DimPlot(merged_samples, reduction = "umap", label = TRUE, pt.size = .1)+labs(title="Resolution 0.2")
-dev.off()
-```
-
-#### Dot Plot
-```{r}
-pdf(paste0(output_dir,"dot_plot/dot_plot_marker_genes_at_res_0.2_no_limits_defined.pdf"), width=18, height=8)
-DotPlot(merged_samples, features=unique(c("CD3D","CCR7","SELL","KLF2","CD69","ITGAE","CXCR6","CD4","TIGIT","FOXP3",
-  "IL2RA","CTLA4","CD8A","CD8B","GZMB","PDCD1","LAG3","KLRB1","PRF1","KLRD1","GNLY",
-  "TNFRSF18","PRDM1","BATF","TRAT1","RORA","GATA3","PTGDR2","IL7R","HLA-DRA","HLA-DRB1",
-  "CD83","IDO1","CD207","EPCAM","CD68","C1QB","C1QC","CD163","CLEC10A","CD1C","CLEC10A",
-  "THBD","XCR1","SIRPA","F13A1","IGKC","JCHAIN","CD79A","MS4A1","NR4A1","NR4A2","KLF4",
-  "CEBPB","LYZ","MS4A7","SERPINA1","CD14","S100A9","IL23A","TPSB2","TPSAB1","MKI67","TOP2A",
-  "KLRB1","IL7R","ITGA4","NCR1","KLRB1C","IL17A","IL17F","IL23R")), cols=c("#5F4B8BFF", "#ED2B33FF"), cluster.idents=TRUE)+
-  RotatedAxis()
-dev.off()
-```
-
-### Resolution of 1
-```{r}
-Idents(merged_samples) <- "RNA_snn_res.1"
-clusters_identified <- sort(unique(unfactor(Idents(object=merged_samples))))
-
-OUT <- createWorkbook()
-for(i in clusters_identified){
-    tryCatch({
-	    cat(paste0("Finding Markers for cluster ",i,"\n"))
-	    markers <- FindMarkers(merged_samples, ident.1 = i, 
-	      verbose = FALSE, test.use="MAST", min.pct = 0, logfc.threshold = 0.25) %>% mutate(., gene = rownames(.))
-
-		addWorksheet(OUT, paste0("cluster_",i))
-		writeData(OUT, sheet = paste0("cluster_",i), x = markers)
-
-      cat(paste0("Finished Finding Markers for cluster ",i,"\n"))
-      }, error=function(e){message(paste0("We have an error here in cluster ", i))})
-}
-
-saveWorkbook(OUT, paste0(output_dir,"markers/DEG_per_cluster_res_1.xlsx"))
-```
-
-#### UMAP
-```{r}
-pdf(paste0(output_dir,"umap/umap_at_resolution_1.pdf"), width=10, height=8)
-DimPlot(merged_samples, reduction = "umap", label = TRUE, pt.size = .1)+labs(title="Resolution 1")
-dev.off()
-```
-
-#### Dot Plot
-```{r}
-pdf(paste0(output_dir,"/dot_plot/dot_plot_marker_genes_at_res_1_no_limits_defined.pdf"), width=18, height=8)
-DotPlot(merged_samples, features=unique(c("CD3D","CCR7","SELL","KLF2","CD69","ITGAE","CXCR6","CD4","TIGIT","FOXP3",
-  "IL2RA","CTLA4","CD8A","CD8B","GZMB","PDCD1","LAG3","KLRB1","PRF1","KLRD1","GNLY",
-  "TNFRSF18","PRDM1","BATF","TRAT1","RORA","GATA3","PTGDR2","IL7R","HLA-DRA","HLA-DRB1",
-  "CD83","IDO1","CD207","EPCAM","CD68","C1QB","C1QC","CD163","CLEC10A","CD1C","CLEC10A",
-  "THBD","XCR1","SIRPA","F13A1","IGKC","JCHAIN","CD79A","MS4A1","NR4A1","NR4A2","KLF4",
-  "CEBPB","LYZ","MS4A7","SERPINA1","CD14","S100A9","IL23A","TPSB2","TPSAB1","MKI67","TOP2A",
-  "KLRB1","IL7R","ITGA4","NCR1","KLRB1C","IL17A","IL17F","IL23R")), cols=c("#5F4B8BFF", "#ED2B33FF"), cluster.idents=TRUE)+
-  RotatedAxis()
-dev.off()
-```
