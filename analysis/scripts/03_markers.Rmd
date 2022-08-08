@@ -54,7 +54,7 @@ p <- seurat_feature(seuratobj, features = c('RNA_snn_res.1'), facet_hide = TRUE,
 
 p
 ```
-### Mouse cluster
+### Mouse clusters
 ```{r}
 p <- seurat_feature(seuratobj, c('percent.mouse', 'mm10---Actb'))
 
@@ -66,8 +66,17 @@ ggsave(plot = p,
 
 p
 ```
+### QC metrics
 ```{r}
-seurat_feature(seuratobj, 'percent.mouse')
+p <- seurat_feature(seuratobj, c('percent.mt', 'percent.ribo', 'percent.stress'))
+
+ggsave(plot = p,
+       filename = 'qc_features.png',
+       h = 3,
+       w = 9,
+       path = output_dir)
+
+p
 ```
 
 ### Get the markers
@@ -182,13 +191,13 @@ Start with a subset and exclude mouse genes
 library(parallel)
 plot_dir <- file.path(output_dir, 'feature_plots')
 markers <- markers_res_0.2
-genes_to_plot <- markers %>% filter(avg_log2FC > 1, !str_detect(gene, 'mm10---')) %>% pull(gene) %>% unique()
+genes_to_plot <- markers %>% filter(avg_log2FC > 0, !str_detect(gene, 'mm10---')) %>% pull(gene) %>% unique()
 completed_genes <- list.files(plot_dir) %>% str_remove('.png')
 remaining_genes <- setdiff(genes_to_plot, completed_genes)
 
 tic()
 mclapply(1:length(remaining_genes),
-         mc.cores = 40,
+         mc.cores = 60,
          FUN = function(i) {
            
            gene <- remaining_genes[i]
@@ -199,9 +208,9 @@ mclapply(1:length(remaining_genes),
            ggsave(plot = p,
                   filename = paste0(gene, '.png'),
                   path = plot_dir,
-                  h = 3,
-                  w = 3,
-                  dpi = 75)
+                  h = 4,
+                  w = 4,
+                  dpi = 100)
            
          })
 toc()
