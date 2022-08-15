@@ -34,27 +34,10 @@ library(ggExtra)
 library(openxlsx)
 library(harmony)
 library(SeuratWrappers)
-library(wutilities)
+library(wutilities) # devtools::install_github('symbiologist/wutilities')
 library(tictoc)
 ```
 
-
-```{r, message=FALSE}
-# library(metap) 
-# library(MAST) 
-# 
-# library(ggplot2) 
-# library(cowplot) 
-# library(patchwork) 
-# library(writexl)
-# library(dplyr)
-
-# library(harmony)
-
-# library(rgl)
-# library(ggExtra)
-# library(ggplotify)
-```
 
 ```{r}
 seuratobj <- read_rds(file.path(data_dir, 'seuratobj_merged.rds'))
@@ -71,18 +54,32 @@ seuratobj <- seuratobj %>%
 
 ### Make the elbow plot
 ```{r}
-pdf(paste0(output_dir,"elbow_plot.pdf"))
-ElbowPlot(seuratobj, ndims=30, reduction = 'harmony')
+pdf(paste0(output_dir, "/elbow_plot.pdf"))
+ElbowPlot(seuratobj, ndims = 30, reduction = 'harmony')
 dev.off()
 ```
 
-### RunUMAP, FindNeighbors and FindClusters using resolutions starting from 0.1 to 2, by 0.1
+### RunUMAP, FindNeighbors, and FindClusters 
 ```{r}
 seuratobj <- seuratobj %>% 
-    RunUMAP(reduction = "harmony", dims = 1:20, assay="RNA") %>% 
-    FindNeighbors(reduction = "harmony", dims = 1:20, assay="RNA") %>% 
-    FindClusters(resolution = seq(0.1, 2, by = 0.1), graph.name = "RNA_snn")
+    RunUMAP(reduction = "harmony", dims = 1:20, assay = "RNA") %>% 
+    FindNeighbors(reduction = "harmony", dims = 1:20, assay = "RNA") %>% 
+    FindClusters(resolution = seq(0.1, 2, by = 0.1))
 ```
+
+### Fix cluster factor levels
+```{r}
+clusterings <- colnames(seuratobj@meta.data) %>% str_subset('_res')
+
+for(i in clusterings) {
+  clusters <- seuratobj@meta.data[[i]]
+  seuratobj[[i]] <- factor(clusters, levels = levels(clusters) %>% as.numeric() %>% sort())
+}
+
+Idents(seuratobj) <- 'RNA_snn_res.0.2'
+```
+
+
 ### Visualize
 ```{r}
 p <- seurat_feature(seuratobj, features = c('RNA_snn_res.0.2'), facet_hide = TRUE, legend_position = 'none', title = 'Resolution: 0.2')
@@ -95,7 +92,6 @@ ggsave(plot = p,
 p
 ```
 ```{r}
-
 p <- seurat_feature(seuratobj, features = c('RNA_snn_res.1'), facet_hide = TRUE, color_package = 'ggplot', legend_position = 'none', title = 'Resolution: 1.0')
 
 ggsave(plot = p,
@@ -104,6 +100,11 @@ ggsave(plot = p,
        w = 5,
        dpi = 150,
        path = file.path(output_dir, 'umap'))
+p
+```
+```{r}
+p <- seurat_feature(seuratobj, features = c('RNA_snn_res.1'), facet_hide = TRUE, color_package = 'generate', color_palette = 'custom1', legend_position = 'none', title = 'Resolution: 1.0')
+
 p
 ```
 
