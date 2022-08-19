@@ -1,0 +1,224 @@
+---
+title: "Subclustering"
+author: "David Wu"
+---
+
+Set working directory to project directory
+```{r setup}
+require(knitr)
+opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+```
+
+### Optionally convert this Rmd to R script 
+```{r eval=FALSE, message=FALSE}
+current_file <- rstudioapi::getActiveDocumentContext()$path
+output_file <- stringr::str_replace(current_file, '.Rmd', '.R')
+knitr::purl(current_file, output = output_file)
+file.edit(output_file)
+```
+
+### Directories
+```{r, message=FALSE}
+output_dir <- 'analysis/output/03_subcluster' # analysis file output directory
+data_dir <- 'data/derived/seurat' # data file output directory
+
+dir.create(output_dir, showWarnings = FALSE)
+dir.create(data_dir, showWarnings = FALSE)
+```
+
+### Loading the libraries
+```{r, message=FALSE}
+library(Seurat) 
+library(tidyverse)
+library(ggExtra)
+library(SeuratWrappers)
+library(wutilities) # devtools::install_github('symbiologist/wutilities')
+library(tictoc)
+library(harmony)
+library(Nebulosa)
+```
+
+```{r}
+seuratobj <- read_rds(file.path(data_dir, 'seuratobj_clustered.rds'))
+seuratobj
+```
+
+### Visualize
+```{r fig.height = 4, fig.width=4}
+p <- seurat_feature(seuratobj, features = c('RNA_snn_res.0.2'), facet_hide = TRUE, legend_position = 'none', title = 'Resolution: 0.2')
+
+p
+```
+
+```{r}
+seurat_feature(seuratobj, feature = 'RNA_snn_res.0.2', facets = 'RNA_snn_res.0.2', label = FALSE)
+```
+```{r fig.height=10, fig.width=12}
+seurat_feature(seuratobj, feature = 'RNA_snn_res.0.4', facets = 'RNA_snn_res.0.4', label = FALSE)
+```
+
+
+
+### Reynolds et al markers
+
+```{r}
+markers_reynolds <- c('KRT14', 'KRT5', 
+                      'GATA3', 'KRTDAP',
+                      'CRYAB', 'TYRP1',
+                      'DKK3', 'PLEKHA4',
+                      'LUM', 'APOD',
+                      'PHLDA2', 'CCL2',
+                      'IL6', 'PDGFRA',
+                      'COL1A1', 'CXCL12',
+                      'CD82', 'CCL19', 'KCNE4', 'CPE', 'TAGLN', 'MYL9', 'HEY1', 'CCL14', 'PECAM1',
+                      'ACKR1', 'SELE', 'SNCG', 'HES1', 'MMRN1', 'XCL1' ,'XCL2', 'KLRC1', 'CCL5', 'GZMA', 
+                      'CD8A', 'CD8B', 'IL7R', 'FOXP3', 'TIGIT', 'TPSB2', 'TPSAB1', 'CD79A', 'JCHAIN', 'CD163',
+                      'C1QB', 'FCGR2A', 'MS4A6A', 'IL23A', 'CLEC9A', 'CLEC10A', 'CD1C', 'CD207', 'CD1A', 
+                      'CD14', 'IL1B', 'CCR7', 'IDO1')
+
+
+```
+
+```{r fig.height=10, fig.width=10}
+Idents(seuratobj) <- 'RNA_snn_res.0.2'
+p <- DotPlot(seuratobj, features = rev(markers_reynolds), cluster.idents = FALSE) + coord_flip()
+p
+```
+
+
+
+
+### Keratinocytes
+```{r fig.height = 3, fig.width = 12}
+markers_keratinocytes <- c('KRT5', 'KRT14', 'GATA3', 'KRTDAP')
+seurat_feature(seuratobj, features = markers_keratinocytes, nrow = 1)
+```
+
+
+### Mast Cell
+```{r}
+seurat_feature(seuratobj, features = c('CD3D','TPSAB1', 'COL6A2'))
+```
+### Subclusters
+Use UMAP as input to clustering for cleanly selecting clusters
+```{r}
+seuratobj <- seuratobj %>% 
+  FindNeighbors(reduction = 'umap', 
+                dims = 1:2) %>% 
+  FindClusters(resolution = 0.01)
+
+seuratobj %>% seurat_feature(features = 'seurat_clusters')
+```
+
+```{r}
+apc_clusters <- 2
+lymphocyte_clusters <- c(0, 1)
+apcs <- subset(seuratobj, subset = seurat_clusters %in% apc_clusters)
+lymphocytes <- subset(seuratobj, subset = seurat_clusters %in% lymphocyte_clusters)
+
+p1 <- seurat_feature(apcs, facet_hide = TRUE)
+p2 <- seurat_feature(lymphocytes, facet_hide = TRUE)
+p1 + p2
+```
+
+### Identify variable genes in these subgroups separately, then recombine objects for grouped analysis
+```{r}
+apcs <- FindVariableFeatures(apcs, nfeatures = 3000)
+lymphocytes <- FindVariableFeatures(lymphocytes, nfeatures = 3000)
+
+combined_features <- union(apcs@assays$RNA@var.features, lymphocytes@assays$RNA@var.features)
+combined_features %>% length()
+```
+### Recombine and recluster
+```{r}
+subcluster <- subset(seuratobj, 
+                     subset = seurat_clusters %in% c(apc_clusters, lymphocyte_clusters))
+
+VariableFeatures(subcluster) <- combined_features
+
+subcluster %>% 
+  NormalizeData() %>% 
+  ScaleData() %>% 
+  RunPCA(features = combined_features) %>% 
+  RunHarmony(c("treatment", "chemistry"), 
+             plot_convergence = TRUE, 
+             assay.use = 'RNA')
+
+ElbowPlot(subcluster, ndims = 30, reduction = 'harmony')
+```
+
+### RunUMAP, FindNeighbors, and FindClusters 
+```{r}
+dims <- 1:30
+assay <- 'RNA'
+resolution <- seq(0.2, 2.4, by = 0.2)
+  
+subcluster <- subcluster %>% 
+  RunUMAP(reduction = "harmony", dims = dims, assay = assay) %>% 
+  FindNeighbors(reduction = "harmony", dims = dims, assay = assay) %>% 
+  FindClusters(resolution = resolution)
+
+### Fix cluster factor levels
+clusterings <- colnames(subcluster@meta.data) %>% str_subset('_res')
+
+for(i in clusterings) {
+  clusters <- subcluster@meta.data[[i]]
+  subcluster[[i]] <- factor(clusters, levels = levels(clusters) %>% as.numeric() %>% sort())
+}
+
+subcluster %>% seurat_feature(facet_hide = TRUE, title = 'Resolution: 2.4', color_package = 'generate', color_palette = 'pimp')
+```
+
+
+```{r}
+subcluster %>% write_rds(file.path(data_dir, 'subcluster.rds'))
+```
+
+
+### Pipeline
+```{r}
+recluster <- function(seuratobj, 
+                      assay = 'RNA',
+                      batch = c('treatment', 'chemistry'),
+                      dims,
+                      resolution = seq(0.2, 2, by = 0.2),
+                      default_ident = 'RNA_snn_res.0.2') {
+  
+  seuratobj <- seuratobj %>% 
+    FindVariableFeatures() %>% 
+    RunPCA() %>% 
+    RunHarmony(c("treatment", "chemistry"), 
+               plot_convergence = TRUE, 
+               assay.use = 'RNA')
+  
+  ElbowPlot(seuratobj, ndims = 30, reduction = 'harmony')
+  
+  ### RunUMAP, FindNeighbors, and FindClusters 
+  
+  seuratobj <- seuratobj %>% 
+    RunUMAP(reduction = "harmony", dims = dims, assay = assay) %>% 
+    FindNeighbors(reduction = "harmony", dims = dims, assay = assay) %>% 
+    FindClusters(resolution = resolution)
+  
+  ### Fix cluster factor levels
+  clusterings <- colnames(seuratobj@meta.data) %>% str_subset('_res')
+  
+  for(i in clusterings) {
+    clusters <- seuratobj@meta.data[[i]]
+  seuratobj[[i]] <- factor(clusters, levels = levels(clusters) %>% as.numeric() %>% sort())
+}
+
+Idents(seuratobj) <- default_ident
+
+seuratobj
+}
+```
+
+
+## Session Info
+```{r}
+sessionInfo()
+```
+
+
+

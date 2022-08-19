@@ -61,10 +61,11 @@ dev.off()
 
 ### RunUMAP, FindNeighbors, and FindClusters 
 ```{r}
+dims <- 1:10
 seuratobj <- seuratobj %>% 
-    RunUMAP(reduction = "harmony", dims = 1:20, assay = "RNA") %>% 
-    FindNeighbors(reduction = "harmony", dims = 1:20, assay = "RNA") %>% 
-    FindClusters(resolution = seq(0.1, 2, by = 0.1))
+    RunUMAP(reduction = "harmony", dims = dims, assay = "RNA") %>% 
+    FindNeighbors(reduction = "harmony", dims = dims, assay = "RNA") %>% 
+    FindClusters(resolution = seq(0.2, 1, by = 0.2))
 ```
 
 ### Fix cluster factor levels
