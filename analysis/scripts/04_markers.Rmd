@@ -60,7 +60,16 @@ p <- DotPlot(seuratobj, features = main_markers) + theme(axis.text.x = element_t
 
 p
 ```
+```{r}
+p2 <- DotPlot(seuratobj, features = main_markers, cluster.idents = TRUE) + theme(axis.text.x = element_text(angle = 90, hjust = 1))
 
+p2
+```
+
+```{r}
+seuratobj <- BuildClusterTree(seuratobj, dims = 1:30, reduction = 'harmony')
+PlotClusterTree(seuratobj)
+```
 
 ```{r}
 markers_reynolds <- c('KRT14', 'KRT5', 
