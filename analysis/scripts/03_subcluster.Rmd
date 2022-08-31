@@ -169,8 +169,10 @@ for(i in clusterings) {
 subcluster %>% seurat_feature(facet_hide = TRUE, title = 'Resolution: 2.4', color_package = 'generate', color_palette = 'pimp')
 ```
 
+### Remove mouse cells from final object
 ```{r}
-subcluster %>% write_rds(file.path(data_dir, 'subcluster.rds'))
+subcluster <- subset(subcluster, subset = percent.mouse < 5)
+subcluster %>% write_rds(file.path(data_dir, 'seuratobj_subcluster.rds'))
 ```
 
 

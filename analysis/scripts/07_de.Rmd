@@ -1,0 +1,418 @@
+---
+title: "DE analysis"
+author: "David Wu"
+---
+
+Set working directory to project directory
+```{r setup}
+require(knitr)
+opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+```
+
+### Optionally convert this Rmd to R script 
+```{r eval=FALSE, message=FALSE}
+current_file <- rstudioapi::getActiveDocumentContext()$path
+output_file <- stringr::str_replace(current_file, '.Rmd', '.R')
+knitr::purl(current_file, output = output_file)
+file.edit(output_file)
+```
+
+### Directories
+```{r, message=FALSE}
+output_dir <- 'analysis/output/07_de' # analysis file output directory
+data_dir <- 'data/derived/seurat' # data file output directory
+
+dir.create(output_dir, showWarnings = FALSE)
+dir.create(data_dir, showWarnings = FALSE)
+```
+
+### Loading the libraries
+```{r, message=FALSE}
+library(Seurat) 
+library(tidyverse)
+library(ggExtra)
+library(SeuratWrappers)
+library(wutilities) # devtools::install_github('symbiologist/wutilities')
+library(tictoc)
+library(openxlsx)
+```
+
+```{r}
+seuratobj <- read_rds(file.path(data_dir, 'seuratobj_annotated.rds'))
+meta <- seuratobj@meta.data %>% rownames_to_column()
+seuratobj
+```
+### Proportion of cells in each cluster
+```{r}
+analyze <- meta %>% 
+  select(rowname, id, sample, condition, treatment, cluster, label) %>% 
+  mutate(description = factor(paste(condition, treatment) %>% str_remove(' None'),
+                              levels = c('PV Pre',
+                                         'PV Post',
+                                         'PV',
+                                         'AD',
+                                         'HC')))
+
+analyze %>% head()
+```
+
+```{r}
+plot_input <- analyze %>% 
+  group_by(description, cluster, label) %>% 
+  tally() %>% 
+  group_by(cluster, label) %>% 
+  mutate(total = sum(n),
+         fraction = n/total)
+
+plot_input
+```
+
+```{r}
+p <- plot_input %>% 
+  ggplot(aes(x = label,
+             y = fraction,
+             fill = description)) +
+  geom_bar(stat = 'identity',
+           position = 'stack') +
+  coord_flip() +
+  rcartocolor::scale_fill_carto_d(palette = 'Bold') +
+  labs(x = '',
+       y = 'Proportion')
+
+ggsave(plot = p,
+       filename = 'bar_percentages.png',
+       path = output_dir,
+       h = 6,
+       w = 8)
+
+p
+```
+
+
+### Comparisons per cluster functions
+```{r}
+de_pipeline <- function(seuratobj,
+                        cluster,
+                        condition1,
+                        condition2,
+                        treatment1,
+                        treatment2,
+                        comparison,
+                        exclude_id = NULL,
+                        min.pct = 0.1,
+                        logfc.threshold = 0.25,
+                        test.use = 'MAST') {
+  
+  metadata <- seuratobj@meta.data %>% rownames_to_column()
+  
+  if(comparison == 'condition') {
+    group1_id <- paste0(condition1, collapse = '_')
+    group2_id <- paste0(condition2, collapse = '_')
+  } else {
+    group1_id <- treatment1
+    group2_id <- treatment2
+  }
+  
+  group1 <- metadata %>% 
+    filter(label == {{cluster}},
+           condition %in% condition1,
+           treatment %in% treatment1) %>% 
+    pull(rowname)
+  
+  group2 <- metadata %>% 
+    filter(label == {{cluster}},
+           condition %in% condition2,
+           treatment %in% treatment2) %>% 
+    pull(rowname)
+  
+  n_group1 <- length(group1)
+  n_group2 <- length(group2)
+  
+  de_genes <- FindMarkers(object = seuratobj, 
+                          ident.1 = group1,
+                          ident.2 = group2, 
+                          min.pct = min.pct,
+                          logfc.threshold = logfc.threshold,
+                          test.use = test.use) %>% 
+    rownames_to_column('gene') %>% 
+    mutate(pct.diff = pct.1 - pct.2,
+           cluster = cluster,
+           group1 = group1_id,
+           group2 = group2_id,
+           n_group1 = n_group1,
+           n_group2 = n_group2) %>% 
+    select(cluster, gene, group1, group2, n_group1, n_group2, everything())
+  
+  de_genes
+}
+
+write_excel_notebook <- function(input_table, output_file) {
+  OUT <- createWorkbook()
+  
+  clusters <- input_table$cluster %>% unique()
+  
+  for(i in clusters){
+    tryCatch({
+      table_subset <- input_table %>% filter(cluster == i)
+      
+      sheet_name <- paste0('cluster_', i) %>% str_remove('[\\?/]') %>% str_remove('[\\/]')
+      addWorksheet(OUT, sheet_name)
+      writeData(OUT, sheet = sheet_name, x = table_subset)
+      
+    }, error=function(e){message(paste0("We have an error here in cluster ", i))})
+  }
+  
+  saveWorkbook(OUT, output_file, overwrite = TRUE)
+}
+```
+
+```{r}
+patient_meta <- meta %>% 
+  select(id, sample, treatment, condition) %>% 
+  unique()
+
+patient_meta
+```
+
+### AD vs HC (11 v 11)
+```{r}
+condition1 <- 'AD'
+condition2 <- 'HC'
+treatment1 <- 'None'
+treatment2 <- 'None'
+comparison <- 'condition'
+
+clusters_ad_vs_hc <- analyze %>% 
+  filter(condition %in% c(condition1, condition2),
+         treatment %in% c(treatment1, treatment2)) %>% 
+  group_by(label, condition, treatment, id) %>% 
+  tally() %>% 
+  filter(n > 10) %>% # at least 10 cells per sample
+  group_by(label, condition, treatment) %>% 
+  tally() %>% 
+  filter(n > 3) %>% # at least 3 samples per comparison group
+  select(label, all_of(comparison)) %>% 
+  unique() %>% 
+  group_by(label) %>% 
+  tally() %>% 
+  filter(n > 1)
+
+de_ad_vs_hc <- map(clusters_ad_vs_hc$label, function(i) {
+  
+  de_pipeline(seuratobj = seuratobj,
+              cluster = i, 
+              comparison = comparison,
+              condition1 = condition1,
+              condition2 = condition2,
+              treatment1 = treatment1,
+              treatment2 = treatment2) 
+  
+}) %>% 
+  bind_rows()
+
+de_ad_vs_hc %>% write_tsv(file.path(output_dir, 'de_ad_vs_hc.tsv.gz'))
+
+write_excel_notebook(input_table = de_ad_vs_hc,
+                     output_file = file.path(output_dir, 'de_ad_vs_hc.xlsx'))
+
+de_ad_vs_hc %>% head()
+```
+
+### PV vs HC (13 v 11)
+```{r}
+condition1 <- 'PV'
+condition2 <- 'HC'
+treatment1 <- c('None', 'Pre')
+treatment2 <- 'None'
+comparison <- 'condition'
+
+clusters_pv_vs_hc <- analyze %>% 
+  filter(condition %in% c(condition1, condition2),
+         treatment %in% c(treatment1, treatment2)) %>% 
+  group_by(label, condition, treatment, id) %>% 
+  tally() %>% 
+  filter(n > 10) %>% # at least 10 cells per sample
+  group_by(label, condition, treatment) %>% 
+  tally() %>% 
+  filter(n > 3) %>% # at least 3 samples per comparison group
+  select(label, all_of(comparison)) %>% 
+  unique() %>% 
+  group_by(label) %>% 
+  tally() %>% 
+  filter(n > 1)
+
+
+de_pv_vs_hc <- map(clusters_pv_vs_hc$label, function(i) {
+  
+  print2(i)
+  de_pipeline(seuratobj = seuratobj,
+              cluster = i, 
+              comparison = comparison,
+              condition1 = condition1,
+              condition2 = condition2,
+              treatment1 = treatment1,
+              treatment2 = treatment2) 
+  
+}) %>% bind_rows()
+
+de_pv_vs_hc %>% write_tsv(file.path(output_dir, 'de_pv_vs_hc.tsv.gz'))
+
+write_excel_notebook(input_table = de_pv_vs_hc,
+                     output_file = file.path(output_dir, 'de_pv_vs_hc.xlsx'))
+
+de_pv_vs_hc %>% head()
+
+
+```
+
+### PV+AD vs HC (24 v 11)
+```{r}
+condition1 <- c('AD', 'PV')
+condition2 <- 'HC'
+treatment1 <- c('None', 'Pre')
+treatment2 <- 'None'
+comparison <- 'condition'
+
+clusters_adpv_vs_hc <- analyze %>% 
+  filter(condition %in% c(condition1, condition2),
+         treatment %in% c(treatment1, treatment2)) %>% 
+  group_by(label, condition, treatment, id) %>% 
+  tally() %>% 
+  filter(n > 10) %>% # at least 10 cells per sample
+  group_by(label, condition, treatment) %>% 
+  tally() %>% 
+  filter(n > 3) %>% # at least 3 samples per comparison group
+  select(label, all_of(comparison)) %>% 
+  unique() %>% 
+  group_by(label) %>% 
+  tally() %>% 
+  filter(n > 2)
+
+
+de_adpv_vs_hc <- map(clusters_adpv_vs_hc$label, function(i) {
+  
+  print2(i)
+  de_pipeline(seuratobj = seuratobj,
+              cluster = i, 
+              comparison = comparison,
+              condition1 = condition1,
+              condition2 = condition2,
+              treatment1 = treatment1,
+              treatment2 = treatment2) 
+  
+}) %>% bind_rows()
+
+de_adpv_vs_hc %>% write_tsv(file.path(output_dir, 'de_adpv_vs_hc.tsv.gz'))
+
+write_excel_notebook(input_table = de_adpv_vs_hc,
+                     output_file = file.path(output_dir, 'de_adpv_vs_hc.xlsx'))
+
+de_adpv_vs_hc %>% head()
+```
+
+### PV vs AD (13 v 11)
+```{r}
+condition1 <- 'AD'
+condition2 <- 'PV'
+treatment1 <- 'None'
+treatment2 <- c('None', 'Pre')
+comparison <- 'condition'
+
+clusters_ad_vs_pv <- analyze %>% 
+  filter(condition %in% c(condition1, condition2),
+         treatment %in% c(treatment1, treatment2)) %>% 
+  group_by(label, condition, treatment, id) %>% 
+  tally() %>% 
+  filter(n > 10) %>% # at least 10 cells per sample
+  group_by(label, condition, treatment) %>% 
+  tally() %>% 
+  filter(n > 3) %>% # at least 3 samples per comparison group
+  select(label, all_of(comparison)) %>% 
+  unique() %>% 
+  group_by(label) %>% 
+  tally() %>% 
+  filter(n > 1)
+
+
+de_ad_vs_pv <- map(clusters_ad_vs_pv$label, function(i) {
+  
+  print2(i)
+  de_pipeline(seuratobj = seuratobj,
+              cluster = i, 
+              comparison = comparison,
+              condition1 = condition1,
+              condition2 = condition2,
+              treatment1 = treatment1,
+              treatment2 = treatment2) 
+  
+}) %>% bind_rows()
+
+de_ad_vs_pv %>% write_tsv(file.path(output_dir, 'de_ad_vs_pv.tsv.gz'))
+write_excel_notebook(input_table = de_ad_vs_pv,
+                     output_file = file.path(output_dir, 'de_ad_vs_pv.xlsx'))
+
+de_ad_vs_pv %>% head() 
+
+
+```
+
+
+### Pre vs Post 
+```{r}
+condition1 <- 'PV'
+condition2 <- 'PV'
+treatment1 <- 'Pre'
+treatment2 <- 'Post'
+comparison <- 'treatment'
+
+clusters_pre_vs_post <- analyze %>% 
+  filter(condition %in% c(condition1, condition2),
+         treatment %in% c(treatment1, treatment2)) %>% 
+  group_by(label, condition, treatment, id) %>% 
+  tally() %>% 
+  filter(n > 10) %>% # at least 10 cells per sample
+  group_by(label, condition, treatment) %>% 
+  tally() %>% 
+  filter(n > 3) %>% # at least 3 samples per comparison group
+  select(label, all_of(comparison)) %>% 
+  unique() %>% 
+  group_by(label) %>% 
+  tally() %>% 
+  filter(n > 1)
+
+
+de_pre_vs_post <- map(clusters_pre_vs_post$label, function(i) {
+  
+  print2(i)
+  de_pipeline(seuratobj = seuratobj,
+              cluster = i, 
+              comparison = comparison,
+              condition1 = condition1,
+              condition2 = condition2,
+              treatment1 = treatment1,
+              treatment2 = treatment2) 
+   
+}) %>% bind_rows()
+
+de_pre_vs_post %>% write_tsv(file.path(output_dir, 'de_pre_vs_post.tsv.gz'))
+write_excel_notebook(input_table = de_pre_vs_post,
+                     output_file = file.path(output_dir, 'de_pre_vs_post.xlsx'))
+
+de_pre_vs_post %>% head()
+
+
+```
+
+
+```{r}
+VlnPlot(seuratobj, features = c('mm10---Gm42418'), idents = '1 Tcm', group.by = 'treatment')
+```
+
+
+## Session Info
+```{r}
+sessionInfo()
+```
+
+
+

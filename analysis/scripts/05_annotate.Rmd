@@ -1,5 +1,5 @@
 ---
-title: "Subclustering"
+title: "Annotation"
 author: "David Wu"
 ---
 
@@ -38,7 +38,7 @@ library(googlesheets4)
 ```
 
 ```{r}
-seuratobj <- read_rds(file.path(data_dir, 'subcluster.rds'))
+seuratobj <- read_rds(file.path(data_dir, 'seuratobj_subcluster.rds'))
 seuratobj
 ```
 ### Import annotation table
@@ -47,8 +47,14 @@ annotations <- read_sheet('https://docs.google.com/spreadsheets/d/1pLMOaXkSGq3qS
   filter(!is.na(cluster)) %>% 
   mutate(cluster = factor(cluster))
 
+annotations$label <- factor(annotations$label, levels = annotations$label)
 annotations
 ```
+### Ensure factor level ordering
+```{r}
+levels(annotations$label)
+```
+
 #### Get current clusters and integrate with annotations
 ```{r}
 cluster_annotation <- seuratobj@meta.data %>% 
