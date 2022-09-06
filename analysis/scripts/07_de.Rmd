@@ -99,11 +99,11 @@ de_pipeline <- function(seuratobj,
                         treatment2,
                         comparison,
                         exclude_id = NULL,
-                        min.pct = 0.1,
-                        logfc.threshold = 0.25,
-                        test.use = 'MAST') {
+                        min.pct = 0.01,
+                        logfc.threshold = log2(1.1),
+                        test.use = 'Presto') {
   
-  metadata <- seuratobj@meta.data %>% rownames_to_column()
+   metadata <- seuratobj@meta.data %>% rownames_to_column()
   
   if(comparison == 'condition') {
     group1_id <- paste0(condition1, collapse = '_')
@@ -128,12 +128,26 @@ de_pipeline <- function(seuratobj,
   n_group1 <- length(group1)
   n_group2 <- length(group2)
   
-  de_genes <- FindMarkers(object = seuratobj, 
-                          ident.1 = group1,
-                          ident.2 = group2, 
-                          min.pct = min.pct,
-                          logfc.threshold = logfc.threshold,
-                          test.use = test.use) %>% 
+  if(test.use == 'Presto') {
+    
+    de_genes <- RunPresto(object = seuratobj, 
+                            ident.1 = group1,
+                            ident.2 = group2, 
+                            min.pct = min.pct,
+                            logfc.threshold = logfc.threshold)
+    
+  } else {
+    
+    de_genes <- FindMarkers(object = seuratobj, 
+                            ident.1 = group1,
+                            ident.2 = group2, 
+                            min.pct = min.pct,
+                            logfc.threshold = logfc.threshold,
+                            test.use = test.use) 
+   
+  }
+  
+  de_genes %>%
     rownames_to_column('gene') %>% 
     mutate(pct.diff = pct.1 - pct.2,
            cluster = cluster,
@@ -142,8 +156,7 @@ de_pipeline <- function(seuratobj,
            n_group1 = n_group1,
            n_group2 = n_group2) %>% 
     select(cluster, gene, group1, group2, n_group1, n_group2, everything())
-  
-  de_genes
+
 }
 
 write_excel_notebook <- function(input_table, output_file) {
@@ -405,7 +418,10 @@ de_pre_vs_post %>% head()
 
 
 ```{r}
-VlnPlot(seuratobj, features = c('mm10---Gm42418'), idents = '1 Tcm', group.by = 'treatment')
+VlnPlot(seuratobj, 
+        features = c('mm10---Gm42418'), 
+        idents = '1 Tcm', 
+        group.by = 'treatment', pt.size = 0)
 ```
 
 

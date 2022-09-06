@@ -1,0 +1,295 @@
+---
+title: "DE analysis"
+author: "David Wu"
+---
+
+Set working directory to project directory
+```{r setup}
+require(knitr)
+opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+```
+
+### Optionally convert this Rmd to R script 
+```{r eval=FALSE, message=FALSE}
+current_file <- rstudioapi::getActiveDocumentContext()$path
+output_file <- stringr::str_replace(current_file, '.Rmd', '.R')
+knitr::purl(current_file, output = output_file)
+file.edit(output_file)
+```
+
+### Directories
+```{r, message=FALSE}
+output_dir <- 'analysis/output/08_de_analyses' # analysis file output directory
+data_dir <- 'data/derived/seurat' # data file output directory
+
+dir.create(output_dir, showWarnings = FALSE)
+dir.create(data_dir, showWarnings = FALSE)
+```
+
+### Loading the libraries
+```{r, message=FALSE}
+library(Seurat) 
+library(tidyverse)
+library(ggExtra)
+library(SeuratWrappers)
+library(wutilities) # devtools::install_github('symbiologist/wutilities')
+library(tictoc)
+library(openxlsx)
+```
+
+### functions
+```{r}
+de_pipeline <- function(seuratobj,
+                        cluster,
+                        condition1,
+                        condition2,
+                        treatment1,
+                        treatment2,
+                        comparison,
+                        exclude_id = NULL,
+                        min.pct = 0.1,
+                        logfc.threshold = 0.25,
+                        test.use = 'MAST') {
+  
+  metadata <- seuratobj@meta.data %>% rownames_to_column()
+  
+  if(comparison == 'condition') {
+    group1_id <- paste0(condition1, collapse = '_')
+    group2_id <- paste0(condition2, collapse = '_')
+  } else {
+    group1_id <- treatment1
+    group2_id <- treatment2
+  }
+  
+  group1 <- metadata %>% 
+    filter(label == {{cluster}},
+           condition %in% condition1,
+           treatment %in% treatment1) %>% 
+    pull(rowname)
+  
+  group2 <- metadata %>% 
+    filter(label == {{cluster}},
+           condition %in% condition2,
+           treatment %in% treatment2) %>% 
+    pull(rowname)
+  
+  n_group1 <- length(group1)
+  n_group2 <- length(group2)
+  
+  if(test.use == 'Presto') {
+    
+    de_genes <- RunPresto(object = seuratobj, 
+                            ident.1 = group1,
+                            ident.2 = group2, 
+                            min.pct = min.pct,
+                            logfc.threshold = logfc.threshold)
+    
+  } else {
+    
+    de_genes <- FindMarkers(object = seuratobj, 
+                            ident.1 = group1,
+                            ident.2 = group2, 
+                            min.pct = min.pct,
+                            logfc.threshold = logfc.threshold,
+                            test.use = test.use) 
+   
+  }
+  
+  de_genes %>%
+    rownames_to_column('gene') %>% 
+    mutate(pct.diff = pct.1 - pct.2,
+           cluster = cluster,
+           group1 = group1_id,
+           group2 = group2_id,
+           n_group1 = n_group1,
+           n_group2 = n_group2) %>% 
+    select(cluster, gene, group1, group2, n_group1, n_group2, everything())
+}
+```
+
+```{r}
+seuratobj <- read_rds(file.path(data_dir, 'seuratobj_annotated.rds'))
+meta <- seuratobj@meta.data %>% rownames_to_column()
+seuratobj
+```
+
+```{r}
+patient_meta <- meta %>% 
+  select(id, sample, treatment, condition) %>% 
+  unique()
+
+patient_meta
+```
+
+```{r}
+pv_vs_hc <- read_tsv('analysis/output/07_de/de_pv_vs_hc.tsv.gz')
+```
+```{r}
+pv_vs_hc %>% 
+  filter(str_detect(gene, 'IL17'))
+```
+
+```{r}
+analyze <- meta %>% 
+  select(rowname, id, sample, condition, treatment, cluster, label) %>% 
+  mutate(description = factor(paste(condition, treatment) %>% str_remove(' None'),
+                              levels = c('PV Pre',
+                                         'PV Post',
+                                         'PV',
+                                         'AD',
+                                         'HC')))
+
+analyze %>% head()
+```
+
+```{r}
+condition1 <- 'PV'
+condition2 <- 'HC'
+treatment1 <- c('None', 'Pre')
+treatment2 <- 'None'
+comparison <- 'condition'
+
+clusters_pv_vs_hc <- analyze %>% 
+  filter(condition %in% c(condition1, condition2),
+         treatment %in% c(treatment1, treatment2)) %>% 
+  group_by(label, condition, treatment, id) %>% 
+  tally() %>% 
+  filter(n > 10) %>% # at least 10 cells per sample
+  group_by(label, condition, treatment) %>% 
+  tally() %>% 
+  filter(n > 3) %>% # at least 3 samples per comparison group
+  select(label, all_of(comparison)) %>% 
+  unique() %>% 
+  group_by(label) %>% 
+  tally() %>% 
+  filter(n > 1)
+
+tic()
+de_testing <- map(clusters_pv_vs_hc$label[4], function(i) {
+  
+  print2(i)
+  de_pipeline(seuratobj = seuratobj,
+              cluster = i, 
+              comparison = comparison,
+              condition1 = condition1,
+              condition2 = condition2,
+              treatment1 = treatment1,
+              treatment2 = treatment2,
+              test.use = 'Presto', 
+              min.pct = 0.01,
+              logfc.threshold = log(1.1)) 
+  
+}) %>% bind_rows()
+toc()
+```
+
+```{r}
+de_testing %>% 
+  filter(str_detect(gene, 'IL17|IFNG'))
+```
+
+```{r}
+de_testing %>% 
+  filter(#str_detect(gene, 'IL17|IFNG'),
+         p_val_adj < 0.05)
+```
+
+```{r}
+tic()
+de_testing_mast <- map(clusters_pv_vs_hc$label[4], function(i) {
+  
+  print2(i)
+  de_pipeline(seuratobj = seuratobj,
+              cluster = i, 
+              comparison = comparison,
+              condition1 = condition1,
+              condition2 = condition2,
+              treatment1 = treatment1,
+              treatment2 = treatment2,
+              test.use = 'MAST', 
+              min.pct = 0.01,
+              logfc.threshold = log2(1.1)) 
+  
+}) %>% bind_rows()
+toc()
+```
+
+```{r}
+de_testing <- map(clusters_pv_vs_hc$label[4], function(i) {
+  
+  print2(i)
+  de_pipeline(seuratobj = seuratobj,
+              cluster = i, 
+              comparison = comparison,
+              condition1 = condition1,
+              condition2 = condition2,
+              treatment1 = treatment1,
+              treatment2 = treatment2,
+              test.use = 'Presto', 
+              min.pct = 0.05,
+              logfc.threshold = 0.1) 
+  
+}) %>% bind_rows()
+```
+
+```{r}
+p <- VlnPlot(seuratobj,
+        features = c('IL17A', 'IL17F', 'IFNG'),
+        group.by = 'label',
+        split.by = 'condition')
+```
+
+```{r}
+data_subset <- FetchData(seuratobj, vars = c('label', 'IL17A', 'IL17F', 'IFNG')) %>% rownames_to_column() %>% inner_join(analyze)
+data_subset %>% head()
+```
+
+```{r}
+data_subset %>% 
+  #filter(condition == 'PV') %>% 
+  filter(treatment == 'None') %>% 
+  filter(condition %in% c('PV', 'HC')) %>% 
+  group_by(condition) %>% 
+  summarize(n_cells = n(),
+            il17a_n = sum(IL17A > 0),
+            il17f_n = sum(IL17F > 0),
+            ifng_n = sum(IFNG > 0)) 
+```
+```{r}
+p <- data_subset %>% 
+  filter(treatment == 'None') %>% 
+  filter(condition %in% c('PV', 'HC')) %>% 
+  group_by(condition, label) %>% 
+  summarize(n_cells = n(),
+            IL17A = sum(IL17A > 0),
+            IL17F = sum(IL17F > 0),
+            IFNG = sum(IFNG > 0)) %>% 
+  pivot_longer(cols = -c(condition:n_cells),
+               names_to = 'gene',
+               values_to = 'n') %>% 
+  mutate(pct = 100 * n / n_cells) %>% 
+  mutate(n_cells = ifelse(gene == 'IFNG', n_cells, '')) %>% 
+  ggplot(aes(x = label,
+             y = pct,
+             fill = gene,
+             label = n_cells)) +
+  geom_bar(stat = 'identity') +
+  geom_text(aes(y = -10), hjust = 1) +
+  ylim(c(-10, 100)) + 
+  coord_flip() +
+  facet_wrap(~condition + gene) +
+  labs(x = '',
+       y = '% of cluster where gene is detected') +
+  theme_dwu()
+
+p
+```
+
+
+## Session Info
+```{r}
+sessionInfo()
+```
+
+
+
