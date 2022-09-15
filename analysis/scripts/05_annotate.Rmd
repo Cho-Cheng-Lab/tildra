@@ -48,6 +48,7 @@ annotations <- read_sheet('https://docs.google.com/spreadsheets/d/1pLMOaXkSGq3qS
   mutate(cluster = factor(cluster))
 
 annotations$label <- factor(annotations$label, levels = annotations$label)
+annotations$merged_label <- factor(annotations$merged_label, levels = unique(annotations$merged_label))
 annotations
 ```
 ### Ensure factor level ordering
@@ -60,17 +61,28 @@ levels(annotations$label)
 cluster_annotation <- seuratobj@meta.data %>% 
   select(cluster = seurat_clusters) %>% 
   rownames_to_column() %>% 
-  left_join(annotations %>% select(cluster, label)) %>% 
+  left_join(annotations %>% select(cluster, label, merged_label)) %>% 
   column_to_rownames('rowname')
 cluster_annotation
 ```
 
 ```{r}
 seuratobj <- AddMetaData(seuratobj, cluster_annotation)
-Idents(seuratobj) <- 'label'
+Idents(seuratobj) <- 'merged_label'
 Idents(seuratobj) %>% head()
 ```
 
+```{r}
+p <- seuratobj %>% seurat_feature(features = 'merged_label', facet_hide = TRUE, size = 0.1, alpha = 0.1)
+
+ggsave(plot = p,
+       filename = 'umap_annotated.png',
+       path = output_dir,
+       dpi = 100,
+       w = 20, 
+       h = 10)
+p
+```
 ### Export
 ```{r}
 seuratobj@meta.data %>% rownames_to_column() %>% write_tsv(file.path(output_dir, 'metadata.tsv.gz'))

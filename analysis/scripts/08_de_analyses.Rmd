@@ -34,79 +34,9 @@ library(ggExtra)
 library(SeuratWrappers)
 library(wutilities) # devtools::install_github('symbiologist/wutilities')
 library(tictoc)
-library(openxlsx)
 ```
 
-### functions
-```{r}
-de_pipeline <- function(seuratobj,
-                        cluster,
-                        condition1,
-                        condition2,
-                        treatment1,
-                        treatment2,
-                        comparison,
-                        exclude_id = NULL,
-                        min.pct = 0.1,
-                        logfc.threshold = 0.25,
-                        test.use = 'MAST') {
-  
-  metadata <- seuratobj@meta.data %>% rownames_to_column()
-  
-  if(comparison == 'condition') {
-    group1_id <- paste0(condition1, collapse = '_')
-    group2_id <- paste0(condition2, collapse = '_')
-  } else {
-    group1_id <- treatment1
-    group2_id <- treatment2
-  }
-  
-  group1 <- metadata %>% 
-    filter(label == {{cluster}},
-           condition %in% condition1,
-           treatment %in% treatment1) %>% 
-    pull(rowname)
-  
-  group2 <- metadata %>% 
-    filter(label == {{cluster}},
-           condition %in% condition2,
-           treatment %in% treatment2) %>% 
-    pull(rowname)
-  
-  n_group1 <- length(group1)
-  n_group2 <- length(group2)
-  
-  if(test.use == 'Presto') {
-    
-    de_genes <- RunPresto(object = seuratobj, 
-                            ident.1 = group1,
-                            ident.2 = group2, 
-                            min.pct = min.pct,
-                            logfc.threshold = logfc.threshold)
-    
-  } else {
-    
-    de_genes <- FindMarkers(object = seuratobj, 
-                            ident.1 = group1,
-                            ident.2 = group2, 
-                            min.pct = min.pct,
-                            logfc.threshold = logfc.threshold,
-                            test.use = test.use) 
-   
-  }
-  
-  de_genes %>%
-    rownames_to_column('gene') %>% 
-    mutate(pct.diff = pct.1 - pct.2,
-           cluster = cluster,
-           group1 = group1_id,
-           group2 = group2_id,
-           n_group1 = n_group1,
-           n_group2 = n_group2) %>% 
-    select(cluster, gene, group1, group2, n_group1, n_group2, everything())
-}
-```
-
+### Import
 ```{r}
 seuratobj <- read_rds(file.path(data_dir, 'seuratobj_annotated.rds'))
 meta <- seuratobj@meta.data %>% rownames_to_column()
@@ -120,9 +50,232 @@ patient_meta <- meta %>%
 
 patient_meta
 ```
+```{r}
+analyze <- meta %>% 
+  select(rowname, id, sample, condition, treatment, cluster, merged_label) %>% 
+  mutate(description = factor(paste(condition, treatment) %>% str_remove(' None'),
+                              levels = c('PV Pre',
+                                         'PV Post',
+                                         'PV',
+                                         'AD',
+                                         'HC')))
+
+```
 
 ```{r}
-pv_vs_hc <- read_tsv('analysis/output/07_de/de_pv_vs_hc.tsv.gz')
+de_combined <- read_tsv('analysis/output/07_de/de_combined.tsv.gz')
+```
+### Is the IL17 difference detected in PV vs HC?
+```{r}
+de_combined %>% 
+  filter(comparison == 'PV vs HC',
+         gene %in% c('IL17A', 'IL17F', 'IFNG')) %>% 
+  filter(p_val_adj < 0.05) %>% 
+  select(comparison, cluster, gene, avg_log2FC, pct.1, pct.2, pct.diff)
+```
+
+
+### Analyze
+#### How many DEGs in each cluster per comparison?
+```{r}
+comparisons <- de_combined$comparison %>% unique()
+
+deg_tally <- de_combined %>% 
+  filter(p_val_adj < 0.05) %>% 
+  mutate(direction = ifelse(avg_log2FC > 0, 'group1', 'group2')) %>% 
+  group_by(comparison, cluster, direction) %>% 
+  tally() 
+
+deg_tally
+```
+```{r}
+deg_tally_wide <- deg_tally %>% 
+  pivot_wider(names_from = direction,
+              values_from = n) %>% 
+  mutate(total = group1 + group2)
+```
+
+```{r}
+deg_tally %>% 
+  ggplot(aes(x = cluster,
+             y = n,
+             fill = direction)) +
+  geom_col(position = 'dodge') +
+  theme_dwu() +
+  coord_flip() 
+```
+
+#### Which clusters are enriched for specific conditions?
+```{r}
+
+```
+
+
+```{r}
+trm_labels <- analyze %>% filter(str_detect(merged_label, 'Trm')) %>% pull(merged_label) %>% unique() 
+condition1 <- 'PV'
+condition2 <- 'HC'
+treatment1 <- c('None', 'Pre')
+treatment2 <- 'None'
+comparison <- 'condition'
+
+p <- analyze %>% 
+  filter(condition %in% c(condition1, condition2)) %>% 
+  filter(merged_label %in% trm_labels) %>% 
+  group_by(merged_label, condition, treatment, id, sample, description) %>% 
+  tally() %>% 
+  filter(condition == 'PV') %>% 
+  arrange(-n) %>% 
+  ggplot(aes(x = sample,
+             y = n,
+             fill = description)) +
+  geom_bar(stat = 'identity') +
+  coord_flip() +
+  facet_wrap(~merged_label, nrow = 2, scales = 'free_x') +
+  theme_dwu(legend.position = 'right')
+
+p
+```
+
+
+
+### Percent of all T cells
+```{r}
+t_cell_clusters <- analyze %>% 
+  filter(str_detect(merged_label, 'T')) %>% 
+  pull(merged_label) %>% 
+  unique()
+
+total_t_cells <- analyze %>% filter(merged_label %in% t_cell_clusters) %>% nrow()
+
+total_t_cells_by_sample <- analyze %>% 
+  filter(merged_label %in% t_cell_clusters) %>% 
+  group_by(sample, id) %>% 
+  tally(name = 'n_t_cells_sample')
+```
+
+```{r}
+p <- analyze %>% 
+  filter(condition %in% c(condition1, condition2)) %>% 
+  filter(merged_label %in% trm_labels) %>% 
+  group_by(merged_label, condition, treatment, id, sample, description) %>% 
+  tally() %>% 
+  filter(condition == 'PV') %>% 
+  mutate(pct = 100 *n / total_t_cells) %>% 
+  arrange(-n) %>% 
+  ggplot(aes(x = sample,
+             y = pct,
+             fill = description)) +
+  geom_bar(stat = 'identity') +
+  coord_flip() +
+  facet_wrap(~merged_label, nrow = 2, scales = 'free_x') +
+  theme_dwu(legend.position = 'right') +
+  labs(y = '% of all T cells',
+       x = '')
+
+p
+```
+```{r}
+p <- analyze %>% 
+  left_join(total_t_cells_by_sample) %>% 
+  filter(condition %in% c(condition1, condition2)) %>% 
+  filter(merged_label %in% trm_labels) %>% 
+  group_by(merged_label, condition, treatment, id, sample, description, n_t_cells_sample) %>% 
+  tally() %>% 
+  filter(condition == 'PV') %>% 
+  mutate(pct = 100 *n / n_t_cells_sample) %>% 
+  arrange(-n) %>% 
+  ggplot(aes(x = sample,
+             y = pct,
+             fill = description)) +
+  geom_bar(stat = 'identity') +
+  coord_flip() +
+  facet_wrap(~merged_label, nrow = 2, scales = 'free_x') +
+  theme_dwu(legend.position = 'right') +
+  labs(y = '% of T cells (per sample)',
+       x = '')
+
+p
+```
+
+```{r}
+p <- analyze %>% 
+  filter(condition %in% c(condition1, condition2)) %>% 
+  filter(merged_label %in% trm_labels) %>% 
+  group_by(label, condition, treatment, id, sample, description) %>% 
+  tally() %>% 
+  filter(condition == 'PV') %>% 
+  mutate(pct = 100 *n / total_t_cells) %>% 
+  arrange(-n) %>% 
+  ggplot(aes(x = sample,
+             y = pct,
+             fill = description)) +
+  geom_bar(stat = 'identity') +
+  coord_flip() +
+  facet_wrap(~label, nrow = 2, scales = 'free_x') +
+  theme_dwu(legend.position = 'right') +
+  labs(y = '% of all T cells',
+       x = '')
+
+p
+```
+```{r}
+
+
+
+p <- analyze %>% 
+  left_join(total_t_cells_by_sample) %>% 
+  filter(condition %in% c(condition1, condition2)) %>% 
+  filter(merged_label %in% trm_labels) %>% 
+  group_by(label, condition, treatment, id, sample, description, n_t_cells_sample) %>% 
+  tally() %>% 
+  filter(condition == 'PV') %>% 
+  mutate(pct = 100 *n / n_t_cells_sample) %>% 
+  arrange(-n) %>% 
+  ggplot(aes(x = sample,
+             y = pct,
+             fill = description)) +
+  geom_bar(stat = 'identity') +
+  coord_flip() +
+  facet_wrap(~label, nrow = 2, scales = 'free_x') +
+  theme_dwu(legend.position = 'right') +
+  labs(y = '% of T cells (per sample)',
+       x = '')
+
+p
+```
+
+
+### Combining 3 Trm clusters: Trm1, Trm2, CTLac:Trm?
+```{r}
+trm_sublabels <- c('3 Trm1', '13CTLac:Trm?', '17 Trm2')
+p <- analyze %>% 
+  filter(condition %in% c(condition1, condition2)) %>% 
+  filter(merged_label %in% trm_sublabels) %>% 
+  group_by(condition, treatment, id, description) %>% 
+  tally() %>% 
+  filter(condition == 'PV') %>% 
+  mutate(pct = 100 *n / total_t_cells) %>% 
+  arrange(-n) %>% 
+  ggplot(aes(x = id,
+             y = pct,
+             fill = description)) +
+  geom_bar(stat = 'identity') +
+  coord_flip() +
+  #facet_wrap(~merged_label, nrow = 2, scales = 'free_x') +
+  theme_dwu(legend.position = 'right') +
+  labs(y = '% of all T cells',
+       x = '')
+
+p
+
+```
+
+
+#### PV vs HC
+
+```{r}
+de_pv_vs_hc <- read_tsv('analysis/output/07_de/de_pv_vs_hc.tsv.gz')
 ```
 ```{r}
 pv_vs_hc %>% 
@@ -131,7 +284,7 @@ pv_vs_hc %>%
 
 ```{r}
 analyze <- meta %>% 
-  select(rowname, id, sample, condition, treatment, cluster, label) %>% 
+  select(rowname, id, sample, condition, treatment, cluster, label, merged_label) %>% 
   mutate(description = factor(paste(condition, treatment) %>% str_remove(' None'),
                               levels = c('PV Pre',
                                          'PV Post',
@@ -152,20 +305,20 @@ comparison <- 'condition'
 clusters_pv_vs_hc <- analyze %>% 
   filter(condition %in% c(condition1, condition2),
          treatment %in% c(treatment1, treatment2)) %>% 
-  group_by(label, condition, treatment, id) %>% 
+  group_by(merged_label, condition, treatment, id) %>% 
   tally() %>% 
   filter(n > 10) %>% # at least 10 cells per sample
-  group_by(label, condition, treatment) %>% 
+  group_by(merged_label, condition, treatment) %>% 
   tally() %>% 
   filter(n > 3) %>% # at least 3 samples per comparison group
-  select(label, all_of(comparison)) %>% 
+  select(merged_label, all_of(comparison)) %>% 
   unique() %>% 
-  group_by(label) %>% 
+  group_by(merged_label) %>% 
   tally() %>% 
   filter(n > 1)
 
 tic()
-de_testing <- map(clusters_pv_vs_hc$label[4], function(i) {
+de_testing <- map(clusters_pv_vs_hc$merged_label[4], function(i) {
   
   print2(i)
   de_pipeline(seuratobj = seuratobj,
@@ -196,7 +349,7 @@ de_testing %>%
 
 ```{r}
 tic()
-de_testing_mast <- map(clusters_pv_vs_hc$label[4], function(i) {
+de_testing_mast <- map(clusters_pv_vs_hc$merged_label[4], function(i) {
   
   print2(i)
   de_pipeline(seuratobj = seuratobj,
@@ -215,13 +368,12 @@ toc()
 ```
 
 ```{r}
-de_testing <- map(clusters_pv_vs_hc$label[4], function(i) {
+de_testing <- map(clusters_pv_vs_hc$merged_label[4], function(i) {
   
   print2(i)
   de_pipeline(seuratobj = seuratobj,
               cluster = i, 
               comparison = comparison,
-              condition1 = condition1,
               condition2 = condition2,
               treatment1 = treatment1,
               treatment2 = treatment2,
@@ -235,12 +387,12 @@ de_testing <- map(clusters_pv_vs_hc$label[4], function(i) {
 ```{r}
 p <- VlnPlot(seuratobj,
         features = c('IL17A', 'IL17F', 'IFNG'),
-        group.by = 'label',
+        group.by = 'merged_label',
         split.by = 'condition')
 ```
 
 ```{r}
-data_subset <- FetchData(seuratobj, vars = c('label', 'IL17A', 'IL17F', 'IFNG')) %>% rownames_to_column() %>% inner_join(analyze)
+data_subset <- FetchData(seuratobj, vars = c('merged_label', 'IL17A', 'IL17F', 'IFNG')) %>% rownames_to_column() %>% inner_join(analyze)
 data_subset %>% head()
 ```
 
@@ -259,7 +411,7 @@ data_subset %>%
 p <- data_subset %>% 
   filter(treatment == 'None') %>% 
   filter(condition %in% c('PV', 'HC')) %>% 
-  group_by(condition, label) %>% 
+  group_by(condition, merged_label) %>% 
   summarize(n_cells = n(),
             IL17A = sum(IL17A > 0),
             IL17F = sum(IL17F > 0),
@@ -269,7 +421,7 @@ p <- data_subset %>%
                values_to = 'n') %>% 
   mutate(pct = 100 * n / n_cells) %>% 
   mutate(n_cells = ifelse(gene == 'IFNG', n_cells, '')) %>% 
-  ggplot(aes(x = label,
+  ggplot(aes(x = merged_label,
              y = pct,
              fill = gene,
              label = n_cells)) +

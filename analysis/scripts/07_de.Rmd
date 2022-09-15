@@ -45,7 +45,7 @@ seuratobj
 ### Proportion of cells in each cluster
 ```{r}
 analyze <- meta %>% 
-  select(rowname, id, sample, condition, treatment, cluster, label) %>% 
+  select(rowname, id, sample, condition, treatment, cluster, merged_label) %>% 
   mutate(description = factor(paste(condition, treatment) %>% str_remove(' None'),
                               levels = c('PV Pre',
                                          'PV Post',
@@ -58,9 +58,9 @@ analyze %>% head()
 
 ```{r}
 plot_input <- analyze %>% 
-  group_by(description, cluster, label) %>% 
+  group_by(description, cluster, merged_label) %>% 
   tally() %>% 
-  group_by(cluster, label) %>% 
+  group_by(cluster, merged_label) %>% 
   mutate(total = sum(n),
          fraction = n/total)
 
@@ -69,7 +69,7 @@ plot_input
 
 ```{r}
 p <- plot_input %>% 
-  ggplot(aes(x = label,
+  ggplot(aes(x = merged_label,
              y = fraction,
              fill = description)) +
   geom_bar(stat = 'identity',
@@ -114,13 +114,13 @@ de_pipeline <- function(seuratobj,
   }
   
   group1 <- metadata %>% 
-    filter(label == {{cluster}},
+    filter(merged_label == {{cluster}},
            condition %in% condition1,
            treatment %in% treatment1) %>% 
     pull(rowname)
   
   group2 <- metadata %>% 
-    filter(label == {{cluster}},
+    filter(merged_label == {{cluster}},
            condition %in% condition2,
            treatment %in% treatment2) %>% 
     pull(rowname)
@@ -198,19 +198,19 @@ comparison <- 'condition'
 clusters_ad_vs_hc <- analyze %>% 
   filter(condition %in% c(condition1, condition2),
          treatment %in% c(treatment1, treatment2)) %>% 
-  group_by(label, condition, treatment, id) %>% 
+  group_by(merged_label, condition, treatment, id) %>% 
   tally() %>% 
   filter(n > 10) %>% # at least 10 cells per sample
-  group_by(label, condition, treatment) %>% 
+  group_by(merged_label, condition, treatment) %>% 
   tally() %>% 
   filter(n > 3) %>% # at least 3 samples per comparison group
-  select(label, all_of(comparison)) %>% 
+  select(merged_label, all_of(comparison)) %>% 
   unique() %>% 
-  group_by(label) %>% 
+  group_by(merged_label) %>% 
   tally() %>% 
   filter(n > 1)
 
-de_ad_vs_hc <- map(clusters_ad_vs_hc$label, function(i) {
+de_ad_vs_hc <- map(clusters_ad_vs_hc$merged_label, function(i) {
   
   de_pipeline(seuratobj = seuratobj,
               cluster = i, 
@@ -242,20 +242,20 @@ comparison <- 'condition'
 clusters_pv_vs_hc <- analyze %>% 
   filter(condition %in% c(condition1, condition2),
          treatment %in% c(treatment1, treatment2)) %>% 
-  group_by(label, condition, treatment, id) %>% 
+  group_by(merged_label, condition, treatment, id) %>% 
   tally() %>% 
   filter(n > 10) %>% # at least 10 cells per sample
-  group_by(label, condition, treatment) %>% 
+  group_by(merged_label, condition, treatment) %>% 
   tally() %>% 
   filter(n > 3) %>% # at least 3 samples per comparison group
-  select(label, all_of(comparison)) %>% 
+  select(merged_label, all_of(comparison)) %>% 
   unique() %>% 
-  group_by(label) %>% 
+  group_by(merged_label) %>% 
   tally() %>% 
   filter(n > 1)
 
 
-de_pv_vs_hc <- map(clusters_pv_vs_hc$label, function(i) {
+de_pv_vs_hc <- map(clusters_pv_vs_hc$merged_label, function(i) {
   
   print2(i)
   de_pipeline(seuratobj = seuratobj,
@@ -278,6 +278,7 @@ de_pv_vs_hc %>% head()
 
 ```
 
+
 ### PV+AD vs HC (24 v 11)
 ```{r}
 condition1 <- c('AD', 'PV')
@@ -289,20 +290,20 @@ comparison <- 'condition'
 clusters_adpv_vs_hc <- analyze %>% 
   filter(condition %in% c(condition1, condition2),
          treatment %in% c(treatment1, treatment2)) %>% 
-  group_by(label, condition, treatment, id) %>% 
+  group_by(merged_label, condition, treatment, id) %>% 
   tally() %>% 
   filter(n > 10) %>% # at least 10 cells per sample
-  group_by(label, condition, treatment) %>% 
+  group_by(merged_label, condition, treatment) %>% 
   tally() %>% 
   filter(n > 3) %>% # at least 3 samples per comparison group
-  select(label, all_of(comparison)) %>% 
+  select(merged_label, all_of(comparison)) %>% 
   unique() %>% 
-  group_by(label) %>% 
+  group_by(merged_label) %>% 
   tally() %>% 
   filter(n > 2)
 
 
-de_adpv_vs_hc <- map(clusters_adpv_vs_hc$label, function(i) {
+de_adpv_vs_hc <- map(clusters_adpv_vs_hc$merged_label, function(i) {
   
   print2(i)
   de_pipeline(seuratobj = seuratobj,
@@ -334,20 +335,20 @@ comparison <- 'condition'
 clusters_ad_vs_pv <- analyze %>% 
   filter(condition %in% c(condition1, condition2),
          treatment %in% c(treatment1, treatment2)) %>% 
-  group_by(label, condition, treatment, id) %>% 
+  group_by(merged_label, condition, treatment, id) %>% 
   tally() %>% 
   filter(n > 10) %>% # at least 10 cells per sample
-  group_by(label, condition, treatment) %>% 
+  group_by(merged_label, condition, treatment) %>% 
   tally() %>% 
   filter(n > 3) %>% # at least 3 samples per comparison group
-  select(label, all_of(comparison)) %>% 
+  select(merged_label, all_of(comparison)) %>% 
   unique() %>% 
-  group_by(label) %>% 
+  group_by(merged_label) %>% 
   tally() %>% 
   filter(n > 1)
 
 
-de_ad_vs_pv <- map(clusters_ad_vs_pv$label, function(i) {
+de_ad_vs_pv <- map(clusters_ad_vs_pv$merged_label, function(i) {
   
   print2(i)
   de_pipeline(seuratobj = seuratobj,
@@ -381,20 +382,20 @@ comparison <- 'treatment'
 clusters_pre_vs_post <- analyze %>% 
   filter(condition %in% c(condition1, condition2),
          treatment %in% c(treatment1, treatment2)) %>% 
-  group_by(label, condition, treatment, id) %>% 
+  group_by(merged_label, condition, treatment, id) %>% 
   tally() %>% 
   filter(n > 10) %>% # at least 10 cells per sample
-  group_by(label, condition, treatment) %>% 
+  group_by(merged_label, condition, treatment) %>% 
   tally() %>% 
   filter(n > 3) %>% # at least 3 samples per comparison group
-  select(label, all_of(comparison)) %>% 
+  select(merged_label, all_of(comparison)) %>% 
   unique() %>% 
-  group_by(label) %>% 
+  group_by(merged_label) %>% 
   tally() %>% 
   filter(n > 1)
 
 
-de_pre_vs_post <- map(clusters_pre_vs_post$label, function(i) {
+de_pre_vs_post <- map(clusters_pre_vs_post$merged_label, function(i) {
   
   print2(i)
   de_pipeline(seuratobj = seuratobj,
@@ -415,15 +416,18 @@ de_pre_vs_post %>% head()
 
 
 ```
-
-
+### Combined DE table
 ```{r}
-VlnPlot(seuratobj, 
-        features = c('mm10---Gm42418'), 
-        idents = '1 Tcm', 
-        group.by = 'treatment', pt.size = 0)
+list(de_ad_vs_hc,
+     de_pv_vs_hc,
+     de_adpv_vs_hc,
+     de_ad_vs_pv,
+     de_pre_vs_post) %>% 
+  bind_rows() %>% 
+  mutate(comparison = paste(group1, 'vs', group2)) %>% 
+  select(comparison, everything()) %>% 
+  write_tsv(file.path(output_dir, 'de_combined.tsv.gz'))
 ```
-
 
 ## Session Info
 ```{r}
