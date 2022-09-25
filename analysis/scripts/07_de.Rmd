@@ -60,7 +60,7 @@ analyze %>% head()
 plot_input <- analyze %>% 
   group_by(description, cluster, merged_label) %>% 
   tally() %>% 
-  group_by(cluster, merged_label) %>% 
+  group_by(merged_label) %>% 
   mutate(total = sum(n),
          fraction = n/total)
 
@@ -159,20 +159,69 @@ de_pipeline <- function(seuratobj,
 
 }
 
-write_excel_notebook <- function(input_table, output_file) {
+de_pipeline_barcodes <- function(seuratobj,
+                                 cluster,
+                                 barcodes1,
+                                 barcodes2,
+                                 group1_id,
+                                 group2_id,
+                                 exclude_id = NULL,
+                                 min.pct = 0.01,
+                                 logfc.threshold = log2(1.1),
+                                 test.use = 'Presto') {
+  
+  metadata <- seuratobj@meta.data %>% rownames_to_column() %>% filter(rowname %in% c(barcodes1, barcodes2))
+  
+  n_group1 <- length(barcodes1)
+  n_group2 <- length(barcodes2)
+  
+  if(test.use == 'Presto') {
+    
+    de_genes <- RunPresto(object = seuratobj, 
+                            ident.1 = barcodes1,
+                            ident.2 = barcodes2, 
+                            min.pct = min.pct,
+                            logfc.threshold = logfc.threshold)
+    
+  } else {
+    
+    de_genes <- FindMarkers(object = seuratobj, 
+                            ident.1 = barcodes1,
+                            ident.2 = barcodes2, 
+                            min.pct = min.pct,
+                            logfc.threshold = logfc.threshold,
+                            test.use = test.use) 
+   
+  }
+  
+  de_genes %>%
+    rownames_to_column('gene') %>% 
+    mutate(pct.diff = pct.1 - pct.2,
+           cluster = cluster,
+           group1 = group1_id,
+           group2 = group2_id,
+           n_group1 = n_group1,
+           n_group2 = n_group2) %>% 
+    select(cluster, gene, group1, group2, n_group1, n_group2, everything())
+
+}
+
+write_excel_notebook <- function(input_table, output_file, tabs = 'cluster', prefix = 'cluster_') {
   OUT <- createWorkbook()
   
-  clusters <- input_table$cluster %>% unique()
+  input_table$tabs <- input_table[[tabs]]
+  tabs <- input_table[[tabs]] %>% unique()
   
-  for(i in clusters){
+  
+  for(i in tabs){
     tryCatch({
-      table_subset <- input_table %>% filter(cluster == i)
+      table_subset <- input_table %>% filter(tabs == i)
       
-      sheet_name <- paste0('cluster_', i) %>% str_remove('[\\?/]') %>% str_remove('[\\/]')
+      sheet_name <- paste0(prefix, i) %>% str_remove('[\\?/]') %>% str_remove('[\\/]')
       addWorksheet(OUT, sheet_name)
       writeData(OUT, sheet = sheet_name, x = table_subset)
       
-    }, error=function(e){message(paste0("We have an error here in cluster ", i))})
+    }, error=function(e){message(paste0("We have an error here in ", i))})
   }
   
   saveWorkbook(OUT, output_file, overwrite = TRUE)
@@ -181,7 +230,7 @@ write_excel_notebook <- function(input_table, output_file) {
 
 ```{r}
 patient_meta <- meta %>% 
-  select(id, sample, treatment, condition) %>% 
+  select(id, sample, treatment, condition, response) %>% 
   unique()
 
 patient_meta
@@ -416,6 +465,41 @@ de_pre_vs_post %>% head()
 
 
 ```
+```{r}
+condition1 <- 'PV'
+condition2 <- 'PV'
+treatment1 <- 'Pre'
+treatment2 <- 'Post'
+comparison <- 'treatment'
+
+patients <- patient_meta %>% 
+  filter(treatment %in% c(treatment1, treatment2)) %>% 
+  separate(sample, into = c('patient', NA)) %>% 
+  pivot_wider(names_from = treatment, values_from = id)
+
+de_pre_vs_post <- map(patients$patient, function(i) {
+  
+  print2(i)
+  de_pipeline(seuratobj = seuratobj,
+              cluster = i, 
+              comparison = comparison,
+              condition1 = condition1,
+              condition2 = condition2,
+              treatment1 = treatment1,
+              treatment2 = treatment2) 
+  
+  
+   
+}) %>% bind_rows()
+
+de_pre_vs_post %>% write_tsv(file.path(output_dir, 'de_pre_vs_post.tsv.gz'))
+write_excel_notebook(input_table = de_pre_vs_post,
+                     output_file = file.path(output_dir, 'de_pre_vs_post.xlsx'))
+
+de_pre_vs_post %>% head()
+
+```
+
 ### Combined DE table
 ```{r}
 list(de_ad_vs_hc,
@@ -427,6 +511,105 @@ list(de_ad_vs_hc,
   mutate(comparison = paste(group1, 'vs', group2)) %>% 
   select(comparison, everything()) %>% 
   write_tsv(file.path(output_dir, 'de_combined.tsv.gz'))
+```
+
+
+### Per sample analysis of Trm
+```{r}
+condition1 <- 'PV'
+condition2 <- 'PV'
+treatment1 <- 'Pre'
+treatment2 <- 'Post'
+comparison <- 'treatment'
+
+patients <- patient_meta %>% 
+  filter(treatment %in% c(treatment1, treatment2)) %>% 
+  separate(sample, into = c('patient', NA)) %>% 
+  pivot_wider(names_from = treatment, values_from = id)
+
+cluster <- 'Trm_merge'
+
+de_pre_vs_post_patients <- map(patients$patient, function(i) {
+  
+  single_patient <- patients %>% filter(patient == i)
+  response <- single_patient$response
+  cluster_subset <- meta %>% filter(merged_label == {{cluster}})
+  pre_barcodes <- cluster_subset %>% filter(id == single_patient$Pre) %>% pull(rowname)
+  post_barcodes <- cluster_subset %>% filter(id == single_patient$Post) %>% pull(rowname)
+  
+  print2(i)
+  de_pipeline_barcodes(seuratobj = seuratobj,
+                       cluster = cluster, 
+                       barcodes1 = pre_barcodes,
+                       barcodes2 = post_barcodes,
+                       group1_id = paste0(i, '_Pre'),
+                       group2_id = paste0(i, '_Post')) %>% 
+    mutate(patient = i,
+           response = response) %>% 
+    select(patient, response, everything())
+  
+  
+   
+}) %>% bind_rows()
+```
+
+
+```{r}
+de_pre_vs_post_patients %>% write_tsv(file.path(output_dir, 'de_pre_vs_post_patients.tsv.gz'))
+write_excel_notebook(input_table = de_pre_vs_post_patients,
+                     output_file = file.path(output_dir, 'de_pre_vs_post_patients.xlsx'),
+                     tabs = 'patient',
+                     prefix = 'patient_')
+
+
+
+```
+
+### responders vs non-responders
+```{r}
+condition1 <- 'PV'
+condition2 <- 'PV'
+treatment1 <- 'Pre'
+treatment2 <- 'Post'
+comparison <- 'treatment'
+
+patients <- patient_meta %>% 
+  filter(treatment %in% c(treatment1, treatment2)) %>% 
+  separate(sample, into = c('patient', NA)) %>% 
+  pivot_wider(names_from = treatment, values_from = id)
+
+cluster <- 'Trm_merge'
+
+de_pre_vs_post_response <- map(c('responders', 'non-responders'), function(i) {
+  
+  if(i == 'responders') {
+    patient_subset <- patients %>% filter(response %in% c('full'))  
+  } else {
+    patient_subset <- patients %>% filter(response %in% c('partial', 'failure'))  
+  }
+  
+  cluster_subset <- meta %>% filter(merged_label == {{cluster}})
+  
+  pre_barcodes <- cluster_subset %>% filter(id %in% patient_subset$Pre) %>% pull(rowname)
+  post_barcodes <- cluster_subset %>% filter(id %in% patient_subset$Post) %>% pull(rowname)
+  
+  print2(i)
+  de_pipeline_barcodes(seuratobj = seuratobj,
+                       cluster = cluster, 
+                       barcodes1 = pre_barcodes,
+                       barcodes2 = post_barcodes,
+                       group1_id = paste0(i, '_Pre'),
+                       group2_id = paste0(i, '_Post')) %>% 
+    mutate(response = i) %>% 
+    select(response, everything())
+  
+}) %>% bind_rows()
+
+de_pre_vs_post_response %>% write_tsv(file.path(output_dir, 'de_pre_vs_post_response.tsv.gz'))
+write_excel_notebook(input_table = de_pre_vs_post_response,
+                     output_file = file.path(output_dir, 'de_pre_vs_post_response.xlsx'),
+                     tabs = 'response',
+                     prefix = '')
 ```
 
 ## Session Info
