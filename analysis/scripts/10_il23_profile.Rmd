@@ -1,0 +1,279 @@
+---
+title: "DE analysis"
+author: "David Wu"
+---
+
+Set working directory to project directory
+```{r setup}
+require(knitr)
+opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+```
+
+### Optionally convert this Rmd to R script 
+```{r eval=FALSE, message=FALSE}
+current_file <- rstudioapi::getActiveDocumentContext()$path
+output_file <- stringr::str_replace(current_file, '.Rmd', '.R')
+knitr::purl(current_file, output = output_file)
+file.edit(output_file)
+```
+
+### Directories
+```{r, message=FALSE}
+output_dir <- 'analysis/output/10_il23_profile' # analysis file output directory
+data_dir <- 'data/derived/seurat' # data file output directory
+
+dir.create(output_dir, showWarnings = FALSE)
+dir.create(data_dir, showWarnings = FALSE)
+```
+
+### Loading the libraries
+```{r, message=FALSE}
+library(Seurat) 
+library(tidyverse)
+library(ggExtra)
+library(SeuratWrappers)
+library(wutilities) # devtools::install_github('symbiologist/wutilities')
+library(tictoc)
+library(ggforce)
+library(ggradar) # devtools::install_github("ricardo-bion/ggradar")
+```
+
+```{r}
+seuratobj <- read_rds(file.path(data_dir, 'seuratobj_annotated.rds'))
+meta <- seuratobj@meta.data %>% rownames_to_column()
+seuratobj
+```
+```{r}
+clusters_all <- meta$merged_label %>% unique()
+clusters_t <- clusters_all %>% str_subset('T')
+clusters_apc <- clusters_all %>% setdiff(clusters_t)
+```
+
+### IL17 responsive genes from Harirchian et al. JID 2019
+https://pubmed.ncbi.nlm.nih.gov/30543901/
+```{r}
+il17 <- bind_rows(
+  readxl::read_xlsx('analysis/input/NIHMS1522377-supplement-2 Cho IL17A.xlsx', sheet = 'Table S1C', skip = 1) %>% mutate(time = 1),
+  readxl::read_xlsx('analysis/input/NIHMS1522377-supplement-2 Cho IL17A.xlsx', sheet = 'Table S1D', skip = 1) %>% mutate(time = 24))
+il17
+```
+
+
+```{r}
+il17_responsive <- il17 %>% 
+  filter(logFC > 0.4,
+         FDR < 0.05)
+
+il17_genes <- il17_responsive[[1]]
+il17_responsive
+```
+### Proportion of cells in each cluster
+```{r}
+analyze <- meta %>% 
+  select(rowname, id, sample, condition, treatment, response, cluster, merged_label) %>% 
+  separate(sample, into = c('patient', NA), sep = '-', remove = FALSE) %>% 
+  mutate(display = paste(patient, response),
+         description = factor(paste(condition, treatment) %>% str_remove(' None'),
+                              levels = c('PV Pre',
+                                         'PV Post',
+                                         'PV',
+                                         'AD',
+                                         'HC')),
+         treatment = factor(treatment, levels = c('Pre', 'Post')),
+         group = case_when(
+           merged_label == 'Trm_merge' ~ 'Trm',
+           merged_label %in% clusters_all ~ 'APC'
+         ))
+
+analyze %>% head()
+```
+
+### IL17 response
+```{r}
+calculate_signature <- function(seuratobj, 
+                                genes,
+                                name = 'signature') {
+  
+  gene_data <- FetchData(seuratobj, genes)
+  as.data.frame(rowSums(gene_data)) %>% set_names(name)
+  
+}
+```
+
+
+
+
+### IL23 signature extraction
+```{r}
+barcodes <- analyze %>% filter(condition == 'PV', 
+                               treatment %in% c('Pre', 'Post'),
+                               group %in% c('APC', 'Trm')) %>% 
+  pull(rowname)
+
+seuratobj <- seuratobj %>% calculate_signature(il17_genes, name = 'IL17_signature') %>% AddMetaData(object = seuratobj, metadata = .)
+```
+
+
+```{r}
+genes_of_interest <- c('IL23A', 'IL23R', 'IL17A', 'IL17F', 'ZFP36', 'ZFP36L2') 
+
+data_matrix <- FetchData(seuratobj,
+                         cells = barcodes,
+                         vars = c(genes_of_interest, 'IL17_signature'))
+data_matrix %>% head()
+```
+```{r}
+data_table <- 
+  analyze %>% select(rowname, id, sample, patient, treatment, response, display, group) %>% 
+  inner_join(data_matrix %>% rownames_to_column()) %>% 
+  as_tibble()
+
+data_table
+```
+
+
+```{r}
+data_table_long <- data_table %>% 
+  pivot_longer(cols = -c(rowname:group),
+               names_to = 'gene',
+               values_to = 'expression') 
+
+data_table_long %>% head()
+```
+### Summarize by cluster
+```{r}
+data_table_long_summarized <- 
+  data_table_long %>% 
+  group_by(id, sample, patient, group, display, treatment, response, gene) %>% 
+  summarize(expression = mean(expression),
+            binary = sum(expression > 0)) %>% 
+  group_by(gene, group) %>% 
+  mutate(max = max(expression),
+         normalized = expression/max) 
+
+data_table_long_summarized
+```
+
+```{r}
+display_features <- c('APC IL23A',
+                      'Trm IL23R',
+                      'Trm IL17_signature',
+                      'APC IL17A',
+                      'APC IL17F',
+                      'Trm ZFP36',
+                      'Trm ZFP36L2')
+
+plot_input <- data_table_long_summarized %>% 
+  mutate(feature = paste(group, gene)) %>% 
+  filter(feature %in% display_features) %>% 
+  mutate(feature = factor(feature, levels = display_features))
+
+plot_input
+```
+
+
+```{r fig.height=8, fig.width=4}
+p <- plot_input %>% 
+  ggplot(aes(x = feature,
+             y = normalized,
+             fill = gene)) +
+  geom_col() +
+  facet_wrap(~display + treatment, nrow = 7) +
+  theme_dwu() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(y = 'Normalized Signal',
+       x = '')
+
+p
+```
+```{r}
+
+```
+### Radar plot
+```{r}
+which_patient <- 'S5'
+radar_input <- plot_input %>% 
+  ungroup() %>% 
+  filter(patient == which_patient) %>% 
+  select(treatment, feature, normalized) %>% 
+  pivot_wider(names_from = feature,
+              values_from = normalized) %>% 
+  select(treatment, display_features)
+
+
+p_radar <- radar_input %>% 
+  ggradar(base.size = 1,
+          legend.text.size = 10,
+          grid.label.size = 0,
+          axis.label.size = 4,
+          plot.title = paste('Patient', which_patient)) +
+  theme(legend.position = c(1,0),
+        legend.justification = c(0,0),
+        legend.background = element_blank())
+
+p_radar
+```
+```{r}
+radar_plots <- map(plot_input$patient %>% unique %>% sort, function(i) {
+  which_patient <- i
+radar_input <- plot_input %>% 
+  ungroup() %>% 
+  filter(patient == which_patient) %>% 
+  select(treatment, feature, normalized) %>% 
+  pivot_wider(names_from = feature,
+              values_from = normalized) %>% 
+  select(treatment, display_features)
+
+
+p_radar <- radar_input %>% 
+  ggradar(base.size = 1,
+          legend.text.size = 10,
+          grid.label.size = 0,
+          axis.label.size = 4,
+          plot.title = paste('Patient', which_patient)) +
+  theme(legend.position = c(1,0),
+        legend.justification = c(0,0),
+        legend.background = element_blank())
+
+p_radar
+})
+
+radar_plots %>% patchwork::wrap_plots()
+```
+
+
+```{r}
+
+```
+
+```{r}
+data_table_long_summarized %>% 
+  ggplot(aes(x = gene,
+             y = expression,
+             color = id)) +
+  geom_boxplot(color = 'black', outlier.color = NA) +
+  geom_sina(alpha = 0.5, size = 0.5) +
+  facet_wrap(~id + group, nrow = 1) +
+  theme_dwu() 
+
+```
+
+```{r}
+data_table_long %>% 
+  ggplot(aes(x = gene,
+             y = expression,
+             color = id)) +
+  geom_boxplot(color = 'black', outlier.color = NA) +
+  geom_sina(alpha = 0.5, size = 0.5) +
+  facet_wrap(~id, nrow = 1) +
+  theme_dwu() 
+```
+
+
+## Session Info
+```{r}
+sessionInfo()
+```
+
+
+
