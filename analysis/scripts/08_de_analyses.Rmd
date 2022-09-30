@@ -74,6 +74,10 @@ de_combined %>%
   select(comparison, cluster, gene, avg_log2FC, pct.1, pct.2, pct.diff)
 ```
 
+### What genes in what populations are downregulated with tildra blockade?
+```{r}
+de_resp
+```
 
 ### Analyze
 #### How many DEGs in each cluster per comparison?

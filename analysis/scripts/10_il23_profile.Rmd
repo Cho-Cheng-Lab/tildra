@@ -37,24 +37,31 @@ library(tictoc)
 library(ggforce)
 library(ggradar) # devtools::install_github("ricardo-bion/ggradar")
 ```
-
+### Import seurat object
 ```{r}
 seuratobj <- read_rds(file.path(data_dir, 'seuratobj_annotated.rds'))
 meta <- seuratobj@meta.data %>% rownames_to_column()
 seuratobj
 ```
+### Major clusters
 ```{r}
 clusters_all <- meta$merged_label %>% unique()
 clusters_t <- clusters_all %>% str_subset('T')
 clusters_apc <- clusters_all %>% setdiff(clusters_t)
 ```
 
+### Tildra-responsive genes
+```{r}
+
+```
+
 ### IL17 responsive genes from Harirchian et al. JID 2019
 https://pubmed.ncbi.nlm.nih.gov/30543901/
 ```{r}
 il17 <- bind_rows(
-  readxl::read_xlsx('analysis/input/NIHMS1522377-supplement-2 Cho IL17A.xlsx', sheet = 'Table S1C', skip = 1) %>% mutate(time = 1),
-  readxl::read_xlsx('analysis/input/NIHMS1522377-supplement-2 Cho IL17A.xlsx', sheet = 'Table S1D', skip = 1) %>% mutate(time = 24))
+  readxl::read_xlsx('analysis/input/NIHMS1522377-supplement-2 Cho IL17A.xlsx', sheet = 'Table S1C', skip = 1) %>% mutate(time = 'T_1'),
+  readxl::read_xlsx('analysis/input/NIHMS1522377-supplement-2 Cho IL17A.xlsx', sheet = 'Table S1D', skip = 1) %>% mutate(time = 'T_24'))
+colnames(il17)[1] <- 'gene'
 il17
 ```
 
@@ -62,10 +69,32 @@ il17
 ```{r}
 il17_responsive <- il17 %>% 
   filter(logFC > 0.4,
-         FDR < 0.05)
+         FDR < 0.05) %>% 
+  add_count(gene) %>% 
+  filter(n > 1)
 
-il17_genes <- il17_responsive[[1]]
 il17_responsive
+```
+```{r}
+il17 %>% 
+  select(gene, time, logFC) %>% 
+  pivot_wider(names_from = time,
+              values_from = logFC, 
+              values_fill = 0) %>% 
+  ggplot(aes(x = T_1,
+             y = T_24)) +
+  geom_point(alpha = 0.1,
+             size = 0.5) +
+  theme_dwu() +
+  xlim(c(-1, 1)) +
+  ylim(c(-1, 1)) +
+  coord_equal()
+```
+
+
+```{r}
+il17_genes <- il17_responsive$gene
+
 ```
 ### Proportion of cells in each cluster
 ```{r}
@@ -202,14 +231,16 @@ radar_input <- plot_input %>%
 
 
 p_radar <- radar_input %>% 
-  ggradar(base.size = 1,
-          legend.text.size = 10,
+  ggradar(legend.text.size = 10,
           grid.label.size = 0,
           axis.label.size = 4,
-          plot.title = paste('Patient', which_patient)) +
-  theme(legend.position = c(1,0),
-        legend.justification = c(0,0),
-        legend.background = element_blank())
+          group.point.size = 3,
+          axis.label.offset = 1.1,
+          group.line.width = 1,
+          group.colours = c('dodgerblue4', 'orangered'),
+          plot.title = paste('Patient', which_patient),
+          legend.position = 'top') +
+  theme(plot.title = element_text(size = 14, hjust = 0.5)) 
 
 p_radar
 ```

@@ -65,7 +65,7 @@ cluster_annotation <- seuratobj@meta.data %>%
   column_to_rownames('rowname')
 cluster_annotation
 ```
-
+### Add Metadata
 ```{r}
 seuratobj <- AddMetaData(seuratobj, cluster_annotation)
 Idents(seuratobj) <- 'merged_label'
@@ -83,9 +83,25 @@ ggsave(plot = p,
        h = 10)
 p
 ```
+### Fix metadata
+Patient S1 and S2 treatment response was swapped; S1 should be partial and S2 should be full
+```{r}
+new_metadata <- seuratobj@meta.data %>% 
+  transmute(response = case_when(
+    str_detect(sample, 'S1') ~ 'partial',
+    str_detect(sample, 'S2') ~ 'full'
+))
+
+new_metadata
+```
+```{r}
+seuratobj$response <- new_metadata$response
+```
+
+
 ### Export
 ```{r}
-seuratobj@meta.data %>% rownames_to_column() %>% write_tsv(file.path(output_dir, 'metadata.tsv.gz'))
+seuratobj@meta.data %>% rownames_to_column() %>% write_rds(file.path(output_dir, 'metadata.rds'), compress = 'gz')
 seuratobj %>% write_rds(file.path(data_dir, 'seuratobj_annotated.rds'))
 ```
 
