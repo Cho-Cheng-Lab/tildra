@@ -1,0 +1,180 @@
+---
+title: "Visium"
+author: "David Wu"
+---
+
+Set working directory to project directory
+```{r setup}
+require(knitr)
+opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+```
+
+### Optionally convert this Rmd to R script 
+```{r eval=FALSE, message=FALSE}
+current_file <- rstudioapi::getActiveDocumentContext()$path
+output_file <- stringr::str_replace(current_file, '.Rmd', '.R')
+knitr::purl(current_file, output = output_file)
+file.edit(output_file)
+```
+
+### Directories
+```{r, message=FALSE}
+output_dir <- 'analysis/output/10_visium' # analysis file output directory
+data_dir <- 'data/derived/seurat' # data file output directory
+
+dir.create(output_dir, showWarnings = FALSE)
+dir.create(data_dir, showWarnings = FALSE)
+```
+
+### Loading the libraries
+```{r, message=FALSE}
+library(Seurat) 
+library(tidyverse)
+library(ggExtra)
+library(SeuratWrappers)
+library(wutilities) # devtools::install_github('symbiologist/wutilities')
+library(tictoc)
+library(ggforce)
+```
+### Import seurat object
+```{r}
+seuratobj <- read_rds(file.path(data_dir, 'integrated_samples.rds'))
+meta <- seuratobj@meta.data %>% rownames_to_column()
+
+DefaultAssay(seuratobj) <- 'SCT'
+seuratobj
+```
+```{r fig.height = 12, fig.width = 12}
+p <- SpatialDimPlot(seuratobj, 
+                    ncol = 4, image.alpha = 0) 
+p
+```
+
+
+```{r fig.height = 12, fig.width = 12}
+
+```
+
+
+```{r}
+seuratobj <- PrepSCTFindMarkers(seuratobj)
+markers <- RunPrestoAll(seuratobj) %>% 
+  mutate(pct.diff = pct.1 - pct.2)
+```
+```{r}
+markers %>% 
+  filter(cluster == 0) %>% 
+  arrange(-pct.diff)
+```
+
+```{r}
+markers %>% 
+  filter(cluster == 1) %>% 
+  arrange(-pct.diff)
+```
+```{r}
+markers %>% 
+  filter(cluster == 2) %>% 
+  arrange(-pct.diff)
+```
+
+```{r}
+markers %>% 
+  filter(cluster == 3) %>% 
+  arrange(-pct.diff)
+```
+```{r}
+seurat_feature(seuratobj)
+```
+```{r}
+seurat_feature(seuratobj, features = c('KRT1','KRT2', 'KRT10'))
+```
+```{r}
+VlnPlot(seuratobj, features = c('KRT1', 'KRT2', 'KRT10'))
+```
+```{r fig.height = 12, fig.width = 16}
+p <- SpatialFeaturePlot(seuratobj,
+                        features = 'KRT10',
+                        image.alpha = 0,
+                        ncol = 4)
+p
+```
+
+
+```{r fig.height = 12, fig.width = 16}
+p <- SpatialFeaturePlot(seuratobj,
+                        features = 'MCAM',
+                        ncol = 4)
+
+p
+```
+```{r fig.height = 12, fig.width = 16}
+p <- SpatialFeaturePlot(seuratobj,
+                        features = 'COL1A1',
+                        ncol = 4, image.alpha = 0)
+
+p
+```
+```{r fig.height=12, fig.width=14}
+p <- SpatialFeaturePlot(seuratobj,
+                        features = 'CD3D',
+                        ncol = 4)
+
+p
+```
+
+
+```{r}
+seurat_feature(seuratobj, feature = 'integrated_snn_res.0.4')
+```
+```{r}
+seurat_feature(seuratobj, feature = 'integrated_snn_res.0.4')
+```
+
+```{r}
+seurat_feature(seuratobj, feature = 'donor', facets = 'donor', label = FALSE)
+```
+### Gene matrix
+Keratinocytes = cluster 3
+Fibroblasts = cluster 0
+```{r}
+metadata <- FetchData(seuratobj,
+                      vars = c('donor', 'treatment', 'ident')) %>% 
+  rownames_to_column() %>% 
+  mutate(id = str_to_lower(donor),
+         merged_label = case_when(
+           ident == 0 ~ 'fibroblast',
+           ident == 3 ~ 'keratinocyte'
+         )) %>% 
+  select(rowname, id, treatment, merged_label)
+
+metadata
+```
+```{r}
+seuratobj@meta.data %>% 
+  group_by(donor, treatment) %>% 
+  tally() %>% 
+  arrange(n)
+```
+
+```{r}
+visium_expression <- seuratobj@assays$SCT@data
+```
+
+### Export
+```{r}
+metadata %>% write_tsv(file.path(output_dir, 'visium_meta.tsv.gz'))
+visium_expression %>% write_rds(file.path(output_dir, 'visium_expression.rds'))
+
+```
+
+
+```{r}
+SpatialDimPlot(seuratobj, 
+                    ncol = 4, interactive = TRUE) 
+```
+
+```{r}
+
+```
+

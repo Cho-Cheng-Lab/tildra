@@ -50,9 +50,23 @@ clusters_t <- clusters_all %>% str_subset('T')
 clusters_apc <- clusters_all %>% setdiff(clusters_t)
 ```
 
-### Tildra-responsive genes
-```{r}
+## Gene sets
+IL23 responsive (genes that go down after tildra in responders)
+IL17 responsive (genes that go up after IL17 treatment and )
 
+### Tildra-responsive genes
+Genes that change in responders but not non-responders
+```{r}
+de_pre_vs_post_response <- read_tsv('analysis/output/07_de/de_pre_vs_post_response.tsv.gz')
+
+il23_responsive <- de_pre_vs_post_response %>% 
+  filter(p_val_adj < 0.05,
+         avg_log2FC < 0) %>% 
+  group_by(gene) %>% 
+  add_count() %>% 
+  filter(response == 'responders') 
+
+il23_responsive
 ```
 
 ### IL17 responsive genes from Harirchian et al. JID 2019
@@ -70,8 +84,7 @@ il17
 il17_responsive <- il17 %>% 
   filter(logFC > 0.4,
          FDR < 0.05) %>% 
-  add_count(gene) %>% 
-  filter(n > 1)
+  add_count(gene) #%>% filter(n > 1)
 
 il17_responsive
 ```
@@ -96,6 +109,11 @@ il17 %>%
 il17_genes <- il17_responsive$gene
 
 ```
+
+```{r}
+il23_responsive$gene %>% intersect(il17_responsive$gene)
+```
+
 ### Proportion of cells in each cluster
 ```{r}
 analyze <- meta %>% 
