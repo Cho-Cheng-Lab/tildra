@@ -36,37 +36,181 @@ library(wutilities) # devtools::install_github('symbiologist/wutilities')
 library(tictoc)
 library(ggforce)
 library(ggradar) # devtools::install_github("ricardo-bion/ggradar")
+library(extrafont)
+library(patchwork)
 ```
+### Function
+```{r}
+calculate_signature <- function(seuratobj, 
+                                genes,
+                                name = 'signature') {
+  
+  gene_data <- FetchData(seuratobj, genes)
+  as.data.frame(rowSums(gene_data)) %>% set_names(name)
+  
+}
+```
+
+
 ### Import seurat object
 ```{r}
 seuratobj <- read_rds(file.path(data_dir, 'seuratobj_annotated.rds'))
-meta <- seuratobj@meta.data %>% rownames_to_column()
+visiumobj <- read_rds(file.path(data_dir, 'integrated_samples.rds'))
+DefaultAssay(visiumobj) <- 'SCT'
+
+seurat_meta <- seuratobj@meta.data %>% rownames_to_column()
+visium_meta <- read_tsv('analysis/output/10_visium/visium_meta.tsv.gz') %>% 
+  mutate(id = ifelse(id == 'skin234', 'skin277', id))
+
 seuratobj
+```
+```{r}
+patient_meta <- seurat_meta %>% 
+  separate(sample, into = c('patient', NA), sep = '-', remove = FALSE) %>% 
+  mutate(response_group = ifelse(response == 'full', 'Responder', 'Nonresponder')) %>% 
+  select(id, patient, sample, condition, treatment, response, response_group) %>% 
+  unique() %>% 
+  as_tibble()
+
+patient_meta
 ```
 ### Major clusters
 ```{r}
-clusters_all <- meta$merged_label %>% unique()
+clusters_all <- seurat_meta$merged_label %>% unique()
 clusters_t <- clusters_all %>% str_subset('T')
 clusters_apc <- clusters_all %>% setdiff(clusters_t)
 ```
 
+```{r}
+meta <- seurat_meta %>% 
+  select(rowname, id, merged_label) %>% 
+  bind_rows(visium_meta %>% select(rowname, id, merged_label) %>% drop_na()) %>% 
+  left_join(patient_meta) %>% 
+  select(rowname, id, patient, sample, condition, treatment, response, response_group, merged_label) %>% 
+  mutate(display = paste(patient, response_group),
+         description = factor(paste(condition, treatment) %>% str_remove(' None'),
+                              levels = c('PV Pre',
+                                         'PV Post',
+                                         'PV',
+                                         'AD',
+                                         'HC')),
+         treatment = factor(treatment, levels = c('Pre', 'Post', 'None')),
+         group = case_when(
+           merged_label == 'Trm_merge' ~ 'Trm',
+           merged_label %in% clusters_apc ~ 'APC',
+           merged_label %in% clusters_t ~ 'Tcell',
+           TRUE ~ merged_label
+         ))
+
+meta
+```
+
+
+
+
 ## Gene sets
 IL23 responsive (genes that go down after tildra in responders)
-IL17 responsive (genes that go up after IL17 treatment and )
+IL17 responsive (genes that go up after IL17 treatment)
+```{r}
+pv50 <- readxl::read_excel('analysis/input/PV50.xlsx')
+#intersect(pv50$...1)
+```
 
 ### Tildra-responsive genes
 Genes that change in responders but not non-responders
+Group-level
 ```{r}
 de_pre_vs_post_response <- read_tsv('analysis/output/07_de/de_pre_vs_post_response.tsv.gz')
 
-il23_responsive <- de_pre_vs_post_response %>% 
+il23_group_response <- de_pre_vs_post_response %>% 
   filter(p_val_adj < 0.05,
-         avg_log2FC < 0) %>% 
+         avg_log2FC > 0) %>% 
   group_by(gene) %>% 
   add_count() %>% 
-  filter(response == 'responders') 
+  filter(response == 'responders', n == 1) 
 
-il23_responsive
+il23_group_response
+```
+```{r}
+il23_nonresponsive <- de_pre_vs_post_response %>% 
+  filter(p_val_adj < 0.05,
+         avg_log2FC > 0) %>% 
+  group_by(gene) %>% 
+  add_count() %>% 
+  filter(response != 'responders') 
+
+il23_nonresponsive
+```
+Patient-level
+```{r}
+de_pre_vs_post_patients <- read_tsv('analysis/output/07_de/de_pre_vs_post_patients.tsv.gz')
+il23_patients_responsive <- de_pre_vs_post_patients %>% 
+  filter(p_val_adj < 0.05,
+         avg_log2FC > 0) %>% 
+  group_by(gene) %>% 
+  add_count() 
+
+il23_patient_response <- il23_patients_responsive %>% 
+  select(patient, gene, avg_log2FC) %>% 
+  pivot_wider(names_from = patient,
+              values_from = avg_log2FC) %>% 
+  rowwise() %>% 
+  mutate(n_responders = sum(!is.na(c(S2, S3, S4, S7))),
+         n_nonresponders = sum(!is.na(c(S1, S5, S6))))
+  
+```
+
+```{r}
+il23_response <- il23_group_response %>% 
+  left_join(il23_patient_response) %>%
+  filter(response == 'responders') %>% 
+  arrange(-n_responders, -pct.diff) %>% 
+  select(gene, avg_log2FC, p_val_adj, pct.1, pct.2, pct.diff, n_responders, n_nonresponders, starts_with('S'))
+
+il23_response %>% write_tsv(file.path(output_dir, 'il23_response.tsv'))
+```
+
+
+```{r}
+il23_genes <- il23_response %>% filter(p_val_adj < 0.05, !str_detect(gene, 'mm10')) %>% pull(gene)
+il23_genes_strict <- il23_response %>% filter(p_val_adj < 0.05, n_responders > 1, !str_detect(gene, 'mm10')) %>% pull(gene)
+```
+
+### Nonresponder signature
+```{r}
+de_responders_vs_nonresponders <- read_tsv('analysis/output/07_de/de_responders_vs_nonresponders.tsv.gz')
+```
+
+```{r}
+nonresponder_markers <- de_responders_vs_nonresponders %>% 
+  filter(treatment == 'Post',
+         avg_log2FC < 0,
+         p_val_adj < 0.05) %>% 
+  arrange(avg_log2FC)
+
+nonresponder_markers
+```
+```{r}
+nonresponder_genes <- nonresponder_markers$gene
+```
+
+### Tildra response in APCs
+```{r}
+de_pre_vs_post_apc <- read_tsv('analysis/output/07_de/de_pre_vs_post_response_apc.tsv.gz')
+
+apc_responders <- de_pre_vs_post_apc %>% 
+  filter(response == 'responders',
+         p_val_adj < 0.05)
+
+apc_responders
+```
+
+```{r}
+apc_nonresponders <- de_pre_vs_post_apc %>% 
+  filter(response == 'non-responders',
+         p_val_adj < 0.05)
+
+apc_nonresponders
 ```
 
 ### IL17 responsive genes from Harirchian et al. JID 2019
@@ -84,94 +228,87 @@ il17
 il17_responsive <- il17 %>% 
   filter(logFC > 0.4,
          FDR < 0.05) %>% 
-  add_count(gene) #%>% filter(n > 1)
+  add_count(gene) %>% filter(n > 1)
 
 il17_responsive
 ```
+
+
 ```{r}
-il17 %>% 
-  select(gene, time, logFC) %>% 
-  pivot_wider(names_from = time,
-              values_from = logFC, 
-              values_fill = 0) %>% 
-  ggplot(aes(x = T_1,
-             y = T_24)) +
-  geom_point(alpha = 0.1,
-             size = 0.5) +
-  theme_dwu() +
-  xlim(c(-1, 1)) +
-  ylim(c(-1, 1)) +
-  coord_equal()
+il17_genes <- il17_responsive$gene %>% unique()
+
 ```
 
 
 ```{r}
-il17_genes <- il17_responsive$gene
-
+secreted_signature <- c('IL17A', 'IL17F', 'IL26', 'CXCl13', 'GZMB', 'GNLY', 'PCSK7')
 ```
 
 ```{r}
-il23_responsive$gene %>% intersect(il17_responsive$gene)
+il23_peripheral <- c('GNLY',
+                     'HGPD',
+                     'IL17A',
+                     'IL17F',
+                     'IL26',
+                     'PTPN13',
+                     'S100A4')
 ```
 
-### Proportion of cells in each cluster
-```{r}
-analyze <- meta %>% 
-  select(rowname, id, sample, condition, treatment, response, cluster, merged_label) %>% 
-  separate(sample, into = c('patient', NA), sep = '-', remove = FALSE) %>% 
-  mutate(display = paste(patient, response),
-         description = factor(paste(condition, treatment) %>% str_remove(' None'),
-                              levels = c('PV Pre',
-                                         'PV Post',
-                                         'PV',
-                                         'AD',
-                                         'HC')),
-         treatment = factor(treatment, levels = c('Pre', 'Post')),
-         group = case_when(
-           merged_label == 'Trm_merge' ~ 'Trm',
-           merged_label %in% clusters_all ~ 'APC'
-         ))
+### IL23 response in keratinocytes, fibroblasts
 
-analyze %>% head()
+```{r}
+visiumobj <- visiumobj %>% calculate_signature(il23_genes, name = 'IL23_signature') %>% AddMetaData(object = visiumobj, metadata = .)
+visiumobj <- visiumobj %>% calculate_signature(il17_genes, name = 'IL17_signature') %>% AddMetaData(object = visiumobj, metadata = .)
+seuratobj <- seuratobj %>% calculate_signature(il17_genes, name = 'IL17_signature') %>% AddMetaData(object = seuratobj, metadata = .)
+seuratobj <- seuratobj %>% calculate_signature(il23_genes, name = 'IL23_signature') %>% AddMetaData(object = seuratobj, metadata = .)
+seuratobj <- seuratobj %>% calculate_signature(il23_genes_strict, name = 'IL23_strict') %>% AddMetaData(object = seuratobj, metadata = .)
+seuratobj <- seuratobj %>% calculate_signature(il23_peripheral, name = 'IL23_peripheral') %>% AddMetaData(object = seuratobj, metadata = .)
+seuratobj <- seuratobj %>% calculate_signature(secreted_signature, name = 'Secreted') %>% AddMetaData(object = seuratobj, metadata = .)
 ```
-
-### IL17 response
 ```{r}
-calculate_signature <- function(seuratobj, 
-                                genes,
-                                name = 'signature') {
-  
-  gene_data <- FetchData(seuratobj, genes)
-  as.data.frame(rowSums(gene_data)) %>% set_names(name)
-  
-}
+genes_of_interest <- c('IL23A', 'IL23R', 'IL17A', 'IL17F', 'ZFP36', 'ZFP36L2', nonresponder_genes, il17_genes, il23_genes) %>% unique() 
 ```
 
 
+### IL17 response in keratinocytes, fibroblasts, and APCs
 
-
-### IL23 signature extraction
 ```{r}
-barcodes <- analyze %>% filter(condition == 'PV', 
-                               treatment %in% c('Pre', 'Post'),
-                               group %in% c('APC', 'Trm')) %>% 
+barcodes_visium <- visium_meta %>% 
+  filter(merged_label %in% c('fibroblast', 'keratinocyte')) %>% 
   pull(rowname)
 
-seuratobj <- seuratobj %>% calculate_signature(il17_genes, name = 'IL17_signature') %>% AddMetaData(object = seuratobj, metadata = .)
+
 ```
 
-
+### IL23 signature extraction , APCs, and Trms
 ```{r}
-genes_of_interest <- c('IL23A', 'IL23R', 'IL17A', 'IL17F', 'ZFP36', 'ZFP36L2') 
+barcodes <- meta %>% filter(condition %in% c('PV', 'HC', 'AD'),
+                            treatment %in% c('Pre', 'Post', 'None'),
+                            group %in% c('APC', 'Trm', 'Tcell')) %>% 
+  pull(rowname)
 
-data_matrix <- FetchData(seuratobj,
+
+```
+
+### Extract all expression data
+```{r}
+data_matrix_scrna <- FetchData(seuratobj,
                          cells = barcodes,
-                         vars = c(genes_of_interest, 'IL17_signature'))
+                         vars = c(genes_of_interest, 'IL17_signature', 'IL23_signature', 'IL23_strict', 'Secreted', 'IL23_peripheral'))
+
+data_matrix_visium <- FetchData(visiumobj,
+                                cells = barcodes_visium,
+                                vars = c(genes_of_interest, 'IL17_signature', 'IL23_signature', 'IL23_strict', 'Secreted'))
+
+data_matrix <- bind_rows(data_matrix_scrna,
+                         data_matrix_visium)
+
 data_matrix %>% head()
 ```
+
 ```{r}
 data_table <- 
-  analyze %>% select(rowname, id, sample, patient, treatment, response, display, group) %>% 
+  meta %>% select(rowname, id, sample, patient, condition, treatment, response, response_group, display, group) %>% 
   inner_join(data_matrix %>% rownames_to_column()) %>% 
   as_tibble()
 
@@ -187,30 +324,98 @@ data_table_long <- data_table %>%
 
 data_table_long %>% head()
 ```
-### Summarize by cluster
+### Summarize by cluster and normalize (treatment patients only)
 ```{r}
-data_table_long_summarized <- 
+data_table_long_tx_summarized <- 
   data_table_long %>% 
-  group_by(id, sample, patient, group, display, treatment, response, gene) %>% 
-  summarize(expression = mean(expression),
-            binary = sum(expression > 0)) %>% 
+  filter(treatment %in% c('Pre', 'Post')) %>% 
+  group_by(id, sample, patient, condition, group, display, treatment, response, response_group, gene) %>% 
+  summarize(binary = mean(expression > 0),
+            expression = mean(expression)) %>% 
   group_by(gene, group) %>% 
   mutate(max = max(expression),
          normalized = expression/max) 
 
-data_table_long_summarized
+data_table_long_tx_summarized
+```
+
+### Summarize by cluster and normalize across all
+```{r}
+data_table_long_all_summarized <- 
+  data_table_long %>% 
+  group_by(id, sample, patient, condition, group, display, treatment, response, response_group, gene) %>% 
+  summarize(binary = mean(expression > 0),
+            expression = mean(expression)) %>% 
+  group_by(gene, group) %>% 
+  mutate(max = max(expression),
+         normalized = expression/max) 
+
+data_table_long_all_summarized
+
+```
+
+### IL23A stack
+```{r}
+display_features <- c('APC IL23A',
+                      'keratinocyte IL23A',
+                      'fibroblast IL23A')
+
+plot_input <- data_table_long_tx_summarized %>% 
+  mutate(feature = paste(group, gene)) %>% 
+  filter(feature %in% display_features) %>% 
+  mutate(feature = factor(feature, levels = display_features))
+
+plot_input
+```
+
+```{r}
+plot_input %>% 
+  ggplot(aes(x = gene,
+             y = expression,
+             fill = group)) +
+  geom_bar(stat = 'identity') +
+  facet_wrap(~treatment + display,
+             nrow = 2) +
+  theme_dwu(legend.position = 'top') +
+  ggthemes::scale_fill_few() 
+```
+```{r}
+plot_input %>% 
+  ggplot(aes(x = gene,
+             y = binary,
+             fill = group)) +
+  geom_bar(stat = 'identity') +
+  facet_wrap(~treatment + display,
+             nrow = 2) +
+  theme_dwu(legend.position = 'top') +
+  ggthemes::scale_fill_few() 
+```
+### Full profile
+```{r}
+tx_patients <- meta %>% filter(treatment != 'None') %>% pull(patient) %>% unique() %>% sort() %>% set_names(.)
+tx_patients_responders <- meta %>% filter(treatment != 'None', response_group == 'Responder') %>% pull(patient) %>% unique() %>% sort() %>% set_names(.) 
+
+tx_patients_nonresponders <- meta %>% filter(treatment != 'None', response_group == 'Nonresponder') %>% pull(patient) %>% unique() %>% sort() %>% set_names(.) 
+
+
 ```
 
 ```{r}
 display_features <- c('APC IL23A',
                       'Trm IL23R',
-                      'Trm IL17_signature',
+                      paste('Trm', il23_genes),
+                      'Trm IL17A',
+                      'Trm IL17F',
                       'APC IL17A',
                       'APC IL17F',
                       'Trm ZFP36',
-                      'Trm ZFP36L2')
+                      'Trm ZFP36L2',
+                      'keratinocyte IL17_signature',
+                      'keratinocyte IL17A',
+                      'keratinocyte IL17F') %>% 
+  unique()
 
-plot_input <- data_table_long_summarized %>% 
+plot_input <- data_table_long_tx_summarized %>% 
   mutate(feature = paste(group, gene)) %>% 
   filter(feature %in% display_features) %>% 
   mutate(feature = factor(feature, levels = display_features))
@@ -222,102 +427,627 @@ plot_input
 ```{r fig.height=8, fig.width=4}
 p <- plot_input %>% 
   ggplot(aes(x = feature,
-             y = normalized,
+             y = binary,
              fill = gene)) +
   geom_col() +
   facet_wrap(~display + treatment, nrow = 7) +
   theme_dwu() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-  labs(y = 'Normalized Signal',
-       x = '')
+  labs(y = '% Cells Expressed',
+       x = '') 
 
 p
 ```
-```{r}
-
-```
 ### Radar plot
-```{r}
-which_patient <- 'S5'
-radar_input <- plot_input %>% 
-  ungroup() %>% 
-  filter(patient == which_patient) %>% 
-  select(treatment, feature, normalized) %>% 
-  pivot_wider(names_from = feature,
-              values_from = normalized) %>% 
-  select(treatment, display_features)
+```{r fig.height=10, fig.width=10}
+display_features <- c('Trm IL23_signature',
+                      'Trm IL17A',
+                      'Trm IL17F',
+                      'APC IL17A',
+                      'APC IL17F')
 
-
-p_radar <- radar_input %>% 
-  ggradar(legend.text.size = 10,
-          grid.label.size = 0,
-          axis.label.size = 4,
-          group.point.size = 3,
-          axis.label.offset = 1.1,
-          group.line.width = 1,
-          group.colours = c('dodgerblue4', 'orangered'),
-          plot.title = paste('Patient', which_patient),
-          legend.position = 'top') +
-  theme(plot.title = element_text(size = 14, hjust = 0.5)) 
-
-p_radar
-```
-```{r}
+plot_input <- data_table_long_tx_summarized %>% 
+  filter(treatment %in% c('Pre', 'Post')) %>% 
+  mutate(feature = paste(group, gene)) %>% 
+  filter(feature %in% display_features) %>% 
+  mutate(feature = factor(feature, levels = display_features))
+  
 radar_plots <- map(plot_input$patient %>% unique %>% sort, function(i) {
   which_patient <- i
-radar_input <- plot_input %>% 
-  ungroup() %>% 
-  filter(patient == which_patient) %>% 
-  select(treatment, feature, normalized) %>% 
-  pivot_wider(names_from = feature,
-              values_from = normalized) %>% 
-  select(treatment, display_features)
+  
+  radar_input <- plot_input %>% 
+    ungroup() %>% 
+    filter(patient == which_patient) %>% 
+    select(treatment, feature, normalized) %>% 
+    pivot_wider(names_from = feature,
+                values_from = normalized) %>% 
+    select(treatment, display_features) %>% 
+    mutate(treatment = factor(treatment, levels = c('Pre', 'Post')))
+  
+  
+  response <- plot_input %>% filter(patient == which_patient) %>% pull(response_group) %>% unique()
+  
+  p_radar <- radar_input %>% 
+    ggradar(legend.text.size = 8,
+            grid.label.size = 0,
+            axis.label.size = 2,
+            group.point.size = 2,
+            axis.label.offset = 1.1,
+            group.line.width = 1,
+            group.colours = c('dodgerblue4', 'orangered'),
+            plot.title = paste0('Patient ', i, ' (', response, ')'),
+            legend.position = 'top') +
+    theme(plot.title = element_text(size = 9, hjust = 0.5),
+          plot.background = element_rect(color = 'black'),
+          #legend.box.background = element_rect(color = 'blue'),
+          legend.key.height = unit(1, 'mm'),
+          legend.spacing = unit(0, 'mm')) 
+  
+  p_radar
+})
+radar <- radar_plots %>% patchwork::wrap_plots()
+radar_responders <- radar_plots[c(2, 3, 4, 7)] %>% patchwork::wrap_plots(ncol = 2)
+radar_nonresponders <- radar_plots[c(1, 5, 6)] %>% patchwork::wrap_plots(ncol = 2)
+
+radar_responders
+```
 
 
-p_radar <- radar_input %>% 
-  ggradar(base.size = 1,
-          legend.text.size = 10,
-          grid.label.size = 0,
-          axis.label.size = 4,
-          plot.title = paste('Patient', which_patient)) +
-  theme(legend.position = c(1,0),
-        legend.justification = c(0,0),
-        legend.background = element_blank())
+```{r fig.height=10, fig.width=10}
+radar_nonresponders
+```
+```{r}
+w <- 8
+h <-  7
+ggsave(plot = radar,
+       filename = 'radar_plot.png',
+       path = output_dir,
+       height = 10,
+       width = 10,
+       dpi = 600)
 
-p_radar
+ggsave(plot = radar_responders,
+       filename = 'radar_plot_responders.png',
+       path = output_dir,
+       height = h,
+       width = w,
+       dpi = 600)
+
+ggsave(plot = radar_nonresponders,
+       filename = 'radar_plot_nonresponders.png',
+       path = output_dir,
+       height = h,
+       width = w,
+       dpi = 600)
+```
+### Radar IL23 strict set
+```{r}
+
+genes_to_use <- il23_genes_strict
+display_features <- c(paste('Trm', genes_to_use))
+
+plot_input <- data_table_long_tx_summarized %>% 
+  filter(treatment %in% c('Pre', 'Post')) %>% 
+  mutate(feature = paste(group, gene)) %>% 
+  filter(feature %in% display_features) %>% 
+  mutate(feature = factor(feature, levels = display_features))
+  
+radar_plots <- map(plot_input$patient %>% unique %>% sort, function(i) {
+  which_patient <- i
+  
+  radar_input <- plot_input %>% 
+    ungroup() %>% 
+    filter(patient == which_patient) %>% 
+    select(treatment, gene, normalized) %>% 
+    pivot_wider(names_from = gene,
+                values_from = normalized) %>% 
+    select(treatment, genes_to_use) %>% 
+    mutate(treatment = factor(treatment, levels = c('Pre', 'Post')))
+  
+  
+  response <- plot_input %>% filter(patient == which_patient) %>% pull(response_group) %>% unique()
+  
+  p_radar <- radar_input %>% 
+    ggradar(legend.text.size = 8,
+            grid.label.size = 0,
+            axis.label.size = 1,
+            group.point.size = 1,
+            axis.label.offset = 1.1,
+            group.line.width = 0.5,
+            #grid.line.width = 0,
+            gridline.max.linetype = 'solid',
+            gridline.mid.linetype = 'solid',
+            group.colours = c('dodgerblue4', 'orangered'),
+            plot.title = paste0('Patient ', i, ' (', response, ')'),
+            legend.position = 'top') +
+    theme(plot.title = element_text(size = 9, hjust = 0.5),
+          plot.background = element_rect(color = 'black'),
+          #legend.box.background = element_rect(color = 'blue'),
+          legend.key.height = unit(1, 'mm'),
+          legend.spacing = unit(0, 'mm')) 
+  
+  p_radar
+})
+radar <- radar_plots %>% patchwork::wrap_plots()
+radar_responders <- radar_plots[c(2, 3, 4, 7)] %>% patchwork::wrap_plots(ncol = 2)
+radar_nonresponders <- radar_plots[c(1, 5, 6)] %>% patchwork::wrap_plots(ncol = 2)
+
+radar_responders
+```
+```{r}
+w <- 8
+h <-  7
+ggsave(plot = radar,
+       filename = 'radar_plot_strict.png',
+       path = output_dir,
+       height = 10,
+       width = 10,
+       dpi = 600)
+
+ggsave(plot = radar_responders,
+       filename = 'radar_plot_responders_strict.png',
+       path = output_dir,
+       height = h,
+       width = w,
+       dpi = 600)
+
+ggsave(plot = radar_nonresponders,
+       filename = 'radar_plot_nonresponders_strict.png',
+       path = output_dir,
+       height = h,
+       width = w,
+       dpi = 600)
+```
+
+### Waterfall plot
+```{r}
+
+i <- 'S2'
+
+p_waterfall <- map(tx_patients, function(i) {
+  data_table_long_tx_summarized %>% 
+  filter(group == 'Trm',
+         patient == i,
+         gene %in% il23_genes_strict) %>% 
+  ggplot(aes(x = reorder(gene, -normalized),
+             y = normalized,
+             color = treatment,
+             group = gene)) +
+  geom_point(size = 2) +
+  geom_line(color = 'grey60', arrow = arrow(length = unit(0.2, "cm"), type = 'closed')) +
+  
+  theme_dwu(legend.position = 'right') +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  scale_color_manual(values = c('orangered', 'dodgerblue4')) +
+  labs(x = '',
+       y = 'Average Trm Expression',
+       title = paste0('Patient ', i, ': IL23 Response with Tildra'))
+  
 })
 
-radar_plots %>% patchwork::wrap_plots()
+p_waterfall['S2']
+
+  
+```
+```{r}
+p_waterfall_responders <- p_waterfall[tx_patients_responders] %>% wrap_plots(nrow = 2)
 ```
 
-
 ```{r}
-
+p_waterfall_nonresponders <- p_waterfall[tx_patients_nonresponders] %>% wrap_plots(nrow = 2)
 ```
 
+### Statistics
 ```{r}
-data_table_long_summarized %>% 
-  ggplot(aes(x = gene,
+i <- 'S1'
+
+il23_stats <- map(patient_meta %>% filter(treatment != 'None') %>% pull(patient) %>% unique(), function(i) {
+  data_subset <- data_table_long_tx_summarized %>% 
+  filter(patient == i,
+         group == 'Trm',
+         gene %in% il23_genes_strict) 
+  
+  
+data_subset %>% 
+  ggplot(aes(x = treatment,
              y = expression,
-             color = id)) +
-  geom_boxplot(color = 'black', outlier.color = NA) +
-  geom_sina(alpha = 0.5, size = 0.5) +
-  facet_wrap(~id + group, nrow = 1) +
-  theme_dwu() 
+             color = gene,
+             group = gene)) +
+  geom_point() +
+  geom_path() +
+  theme_dwu()
 
+group1 <- data_subset %>% filter(treatment == 'Pre') %>% pull(expression)
+group2 <- data_subset %>% filter(treatment == 'Post') %>% pull(expression)
+res <- t.test(group1, group2, paired = TRUE)
+  
+tibble('patient' = i,
+       'statistic' = res$statistic,
+       'pval' = round(res$p.value, 3))
+
+}) %>% bind_rows() 
+il23_stats
 ```
 
 ```{r}
-data_table_long %>% 
-  ggplot(aes(x = gene,
+p <- map(patient_meta %>% filter(treatment != 'None') %>% pull(patient) %>% unique(), function(i) {
+  data_subset <- data_table_long_tx_summarized %>% 
+  filter(patient == i,
+         group == 'Trm',
+         gene %in% il23_genes_strict) 
+  
+  
+  stat_subset <- il23_stats %>% filter(patient == i)
+  
+data_subset %>% 
+  ggplot(aes(x = treatment,
              y = expression,
-             color = id)) +
-  geom_boxplot(color = 'black', outlier.color = NA) +
-  geom_sina(alpha = 0.5, size = 0.5) +
-  facet_wrap(~id, nrow = 1) +
-  theme_dwu() 
+             color = gene,
+             group = gene)) +
+  geom_point() +
+  geom_path() +
+  theme_dwu() +
+  labs(title = i,
+       subtitle = paste0('p = ', stat_subset$pval))
+
+}) %>% patchwork::wrap_plots()
+
+p
 ```
 
+
+### Select set
+```{r fig.height=10, fig.width=10}
+display_features <- c('Trm IL23_signature',
+                      'APC IL23_signature',
+                      'Trm IL17A',
+                      'Trm IL17F',
+                      'APC IL17A',
+                      'APC IL17F',
+                      'Trm IL26',
+                      'APC IL26',
+                      'Trm IL23A',
+                      'APC IL23A',
+                      'Trm IL23R',
+                      'APC IL23R',
+                      'Trm IFNG',
+                      'APC IFNG')
+
+plot_input <- data_table_long_tx_summarized %>% 
+  filter(treatment %in% c('Pre', 'Post')) %>% 
+  mutate(feature = paste(group, gene)) %>% 
+  filter(feature %in% display_features) %>% 
+  mutate(feature = factor(feature, levels = display_features))
+  
+radar_plots <- map(plot_input$patient %>% unique %>% sort, function(i) {
+  which_patient <- i
+  
+  radar_input <- plot_input %>% 
+    ungroup() %>% 
+    filter(patient == which_patient) %>% 
+    select(treatment, feature, normalized) %>% 
+    pivot_wider(names_from = feature,
+                values_from = normalized) %>% 
+    select(treatment, display_features) %>% 
+    mutate(treatment = factor(treatment, levels = c('Pre', 'Post')))
+  
+  
+  response <- plot_input %>% filter(patient == which_patient) %>% pull(response_group) %>% unique()
+  
+  p_radar <- radar_input %>% 
+    ggradar(legend.text.size = 8,
+            grid.label.size = 0,
+            axis.label.size = 2,
+            group.point.size = 2,
+            axis.label.offset = 1.1,
+            group.line.width = 1,
+            group.colours = c('dodgerblue4', 'orangered'),
+            plot.title = paste0('Patient ', i, ' (', response, ')'),
+            legend.position = 'top') +
+    theme(plot.title = element_text(size = 9, hjust = 0.5),
+          plot.background = element_rect(color = 'black'),
+          #legend.box.background = element_rect(color = 'blue'),
+          legend.key.height = unit(1, 'mm'),
+          legend.spacing = unit(0, 'mm')) 
+  
+  p_radar
+})
+radar <- radar_plots %>% patchwork::wrap_plots()
+radar_responders <- radar_plots[c(2, 3, 4, 7)] %>% patchwork::wrap_plots(ncol = 2)
+radar_nonresponders <- radar_plots[c(1, 5, 6)] %>% patchwork::wrap_plots(ncol = 2)
+
+radar_responders
+```
+
+
+```{r fig.height=10, fig.width=10}
+radar_nonresponders
+```
+```{r}
+w <- 8
+h <-  7
+ggsave(plot = radar,
+       filename = 'radar_plot_custom.png',
+       path = output_dir,
+       height = 10,
+       width = 10,
+       dpi = 600)
+
+ggsave(plot = radar_responders,
+       filename = 'radar_plot_responders_custom.png',
+       path = output_dir,
+       height = h,
+       width = w,
+       dpi = 600)
+
+ggsave(plot = radar_nonresponders,
+       filename = 'radar_plot_nonresponders_custom.png',
+       path = output_dir,
+       height = h,
+       width = w,
+       dpi = 600)
+```
+
+### Stats
+```{r}
+data_table_long_all_summarized %>% 
+  filter(gene == 'IL23_signature',
+         group == 'Trm') %>% 
+  ggplot(aes(x = condition,
+             y = normalized,
+             color = treatment)) +
+  geom_sina() +
+  theme_dwu(legend.position = 'right') +
+  labs(y = 'Normalized Average Trm Expression')
+```
+```{r}
+
+```
+### Perfect separators of post-response
+```{r}
+perfect_separators <- data_table_long_tx_summarized %>% 
+  filter(gene %in% nonresponder_genes,
+         treatment == 'Post',
+         group == 'Trm') %>% 
+  select(group, response_group, gene, expression) %>% 
+  group_by(response_group, group, gene) %>% 
+  summarize(min = min(expression),
+            max = max(expression)) %>% 
+  pivot_wider(names_from = response_group,
+              values_from = c(min, max)) %>% 
+  filter(min_Nonresponder > max_Responder)
+
+perfect_separators$gene %>% unique()
+```
+
+### IL23-responsive gene expression in post-treatment samples 
+Strict
+```{r}
+p <- data_table_long_tx_summarized %>% 
+  filter(gene %in% c(il23_genes_strict, 'IL17A', 'IL17F'),
+         treatment == 'Post',
+         group == 'Trm') %>% 
+  ggplot(aes(x = reorder(gene, expression),
+             y = expression,
+             color = response_group)) +
+  #geom_boxplot(outlier.color = NA) +
+  geom_bar(stat = 'summary', position = 'dodge', fill = 'grey90') +
+  #facet_wrap(~gene, scales = 'free_x') +
+  theme_dwu(legend.position = 'top') +
+  scale_color_manual(values = c('orangered', 'dodgerblue4')) +
+  geom_jitter(alpha = 0.8, size = 2) +
+  coord_flip() +
+  labs(x = '',
+       y = 'Trm Average Expression')
+
+ggsave(plot = p,
+       filename = 'bar_post_separators_strict.pdf',
+       path = output_dir,
+       h = 14,
+       w = 6)
+
+p
+
+```
+Full
+```{r}
+p <- data_table_long_tx_summarized %>% 
+  
+  filter(gene %in% c(il23_genes, 'IL17A', 'IL17F'),
+         treatment == 'Post',
+         group == 'Trm') %>% 
+  ggplot(aes(x = reorder(gene, expression),
+             y = expression,
+             color = response_group)) +
+  #geom_boxplot(outlier.color = NA) +
+  geom_bar(stat = 'summary', position = 'dodge', fill = 'grey90') +
+  geom_sina(alpha = 0.8, size = 2) +
+  #facet_wrap(~gene, scales = 'free_x') +
+  theme_dwu(legend.position = 'top') +
+  scale_color_manual(values = c('orangered', 'dodgerblue4')) +
+  coord_flip() +
+  labs(x = '',
+       y = 'Trm Average Expression')
+
+ggsave(plot = p,
+       filename = 'bar_post_separators_full.pdf',
+       path = output_dir,
+       h = 44,
+       w = 6)
+
+p
+```
+### Facets
+```{r}
+p <- data_table_long_tx_summarized %>% 
+  
+  filter(gene %in% c(il23_genes, 'IL17A', 'IL17F'),
+         treatment == 'Post',
+         group == 'Trm') %>% 
+  ggplot(aes(x = response_group,
+             y = expression,
+             color = response_group)) +
+  #geom_boxplot(outlier.color = NA) +
+  geom_bar(stat = 'summary', position = 'dodge', fill = 'grey90') +
+  geom_point(alpha = 0.8, size = 2, aes(color = patient)) +
+  facet_wrap(~gene, scales = 'free_y', ncol = 15) +
+  theme_dwu(legend.position = 'top') +
+  rcartocolor::scale_color_carto_d() +
+  #scale_color_manual(values = c('orangered', 'dodgerblue4')) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  labs(x = '',
+       y = 'Trm Average Expression')
+
+ggsave(plot = p,
+       filename = 'bar_post_separators_facet_full.pdf',
+       path = output_dir,
+       h = 30,
+       w = 17)
+```
+
+```{r}
+p <- data_table_long_tx_summarized %>% 
+  
+  filter(gene %in% c(il23_genes_strict, 'IL17A', 'IL17F'),
+         treatment == 'Post',
+         group == 'Trm') %>% 
+  ggplot(aes(x = response_group,
+             y = expression,
+             color = response_group)) +
+  #geom_boxplot(outlier.color = NA) +
+  geom_bar(stat = 'summary', position = 'dodge', fill = 'grey90') +
+  geom_point(alpha = 0.8, size = 2, aes(color = patient)) +
+  facet_wrap(~gene, scales = 'free_y', ncol = 10) +
+  theme_dwu(legend.position = 'top') +
+  #scale_color_manual(values = c('orangered', 'dodgerblue4')) +
+  rcartocolor::scale_color_carto_d(palette = 'Prism') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  labs(x = '',
+       y = 'Trm Average Expression')
+
+ggsave(plot = p,
+       filename = 'bar_post_separators_facet_strict.pdf',
+       path = output_dir,
+       h = 14,
+       w = 12)
+```
+
+
+
+
+#### Secretion
+```{r}
+p <- data_table_long_tx_summarized %>% 
+  
+  filter(gene %in% 'Secreted',
+         treatment == 'Post',
+         group == 'Trm') %>% 
+  ggplot(aes(x = reorder(patient, -expression),
+             y = expression,
+             fill = response_group)) +
+  #geom_boxplot(outlier.color = NA) +
+  geom_bar(stat = 'summary', position = 'dodge', color = 'black') +
+  theme_dwu(legend.position = 'top') +
+  #rcartocolor::scale_color_carto_d(palette = 'Prism') +
+  scale_fill_manual(values = c('orangered', 'dodgerblue4')) +
+  labs(x = 'Patient',
+       y = 'Trm Average Expression',
+       title = 'Secreted Gene Signature')
+
+p
+```
+
+#### Peripheral Th17 IL23
+```{r}
+
+
+p <- data_table_long_tx_summarized %>% 
+  
+  filter(gene == 'IL23_peripheral',
+         treatment == 'Post',
+         group == 'Trm') %>% 
+  ggplot(aes(x = reorder(patient, -expression),
+             y = expression,
+             fill = response_group)) +
+  #geom_boxplot(outlier.color = NA) +
+  geom_bar(stat = 'summary', position = 'dodge', color = 'black', fun = sum) +
+  theme_dwu(legend.position = 'top') +
+  #rcartocolor::scale_color_carto_d(palette = 'Prism') +
+  scale_fill_manual(values = c('orangered', 'dodgerblue4')) +
+  labs(x = 'Patient',
+       y = 'Trm Average Expression',
+       title = 'Peripheral IL23 Gene Signature')
+
+p
+```
+
+### Statistics
+```{r}
+
+```
+### T vs APC
+```{r}
+p <- data_table_long %>% 
+  filter(treatment != 'None',
+         gene %in% c('IL17A', 'IL17F'),
+         group %in% c('APC', 'Trm', 'Tcell')) %>% 
+  group_by(patient, treatment, response_group, group, gene) %>% 
+  summarize(expression = mean(expression)) %>% 
+  ggplot(aes(x = patient,
+             y = expression,
+             fill = response_group)) +
+  geom_bar(stat = 'identity') +
+  facet_wrap(~group + treatment + gene) +
+  theme_dwu(legend.position = 'top')
+  
+p
+```
+
+
+### PV, AD, HC
+```{r fig.height=6, fig.width=12}
+display_features <- c('APC IL23A',
+                      'Trm IL23R',
+                      paste('Trm', il23_genes),
+                      'Trm IL17A',
+                      'Trm IL17F',
+                      'APC IL17A',
+                      'APC IL17F',
+                      'Trm ZFP36',
+                      'Trm ZFP36L2') %>% 
+  unique()
+
+plot_input <- data_table_long_tx_summarized %>% 
+  mutate(feature = paste(group, gene)) %>% 
+  filter(feature %in% display_features) %>% 
+  mutate(feature = factor(feature, levels = display_features))
+
+p <- plot_input %>% 
+  ggplot(aes(x = feature,
+             y = normalized,
+             fill = condition)) +
+  geom_boxplot()+
+  theme_dwu(legend.position = 'top') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(y = 'Normalized Expression',
+       x = '') +
+  ggthemes::scale_fill_few()
+
+p
+```
+
+```{r}
+
+meta %>% 
+  filter(merged_label %in% clusters_apc,
+         treatment != 'None') %>% 
+  group_by(response_group, merged_label, treatment) %>% 
+  tally() %>% 
+  pivot_wider(names_from = c(response_group, treatment),
+              values_from = n) %>% 
+  View()
+
+```
 
 ## Session Info
 ```{r}
