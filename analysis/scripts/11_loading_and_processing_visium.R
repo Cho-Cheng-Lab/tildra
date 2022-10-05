@@ -23,7 +23,7 @@ library(ggplotify)
 # specify input, output and metadata
 output_dir <- "/media/pk3/143F2A3651271F75/special_projects/8_single_cell_spatial_jeffrey/analysis/"
 samples_dir <- "/media/pk3/143F2A3651271F75/special_projects/8_single_cell_spatial_jeffrey/data/to_analyze/"
-metadata_df <- read.table("/media/pk3/143F2A3651271F75/special_projects/8_single_cell_spatial_jeffrey/metadata.txt", header=TRUE, sep='\t', stringsAsFactors=FALSE)
+metadata_df <- read.table("/media/pk3/143F2A3651271F75/special_projects/1_scrnaseq_ucsf_jeffrey_analysis_1/BI/tildra/analysis/output/00_process/metadata_subset.tsv", header=TRUE, sep='\t', stringsAsFactors=FALSE)
 
 setwd(samples_dir)
 
@@ -33,15 +33,15 @@ all_samples <- list()
 # load in the samples and remove genes with all zero counts: https://github.com/satijalab/sctransform/issues/86
 for(s in dir(samples_dir)){
 	print(s)
-	all_samples[[s]] <- Load10X_Spatial(data.dir=paste0(samples_dir,s), filename="filtered_feature_bc_matrix.h5", slice=metadata_df[metadata_df$core_id == s,]$donor)
+	all_samples[[s]] <- Load10X_Spatial(data.dir=paste0(samples_dir,s), filename="filtered_feature_bc_matrix.h5", slice=metadata_df[metadata_df$id == s,]$id)
 	all_samples[[s]] <- subset(all_samples[[s]], subset = nCount_Spatial > 0)
 }
 
 # add metadata
 for(n in names(all_samples)){
-	md <- subset(metadata_df, metadata_df[[1]] == n)
+	md <- subset(metadata_df, metadata_df$id == n)
 	
-	for(m in colnames(md)){
+	for(m in colnames(md)[c(1:5,9)]){
 		print(paste0("adding ",m))
 		all_samples[[n]][[m]] <- md[[m]]
 	}
@@ -91,16 +91,34 @@ for(n in names(samples_integrated@images)){
 
 Idents(samples_integrated) <- "integrated_snn_res.0.1"
 
-pdf(paste0("/media/pk3/143F2A3651271F75/special_projects/8_single_cell_spatial_jeffrey/analysis/UMAP_integrated_per_cluster_and_treatment.pdf"), height=8, width=14)
+pdf(paste0("analysis/output/10_visium/UMAP_integrated_per_cluster_and_treatment.pdf"), height=8, width=14)
 DimPlot(samples_integrated, reduction = "umap", group.by = c("ident", "treatment"))
 dev.off()
 
-for(n in unique(samples_integrated$donor)){
-	pdf(paste0("/media/pk3/143F2A3651271F75/special_projects/8_single_cell_spatial_jeffrey/analysis/",n,"_spatial_umap.pdf"), height=10, width=10)
+for(n in unique(samples_integrated$id)){
+	pdf(paste0("analysis/output/10_visium/",n,"_spatial_umap.pdf"), height=10, width=10)
 	print(SpatialDimPlot(samples_integrated, images = n, alpha=1.5))
 	dev.off()
 }
 
+# DE between pre vs post - resolution 0.1
+Idents(samples_integrated) <- "integrated_snn_res.0.1"
+clusters <- as.character(unique(Idents(samples_integrated)))
 
-#saveRDS(all_samples, "/media/pk3/143F2A3651271F75/special_projects/8_single_cell_spatial_jeffrey/all_samples_list.rds")
-saveRDS(samples_integrated, "/media/pk3/143F2A3651271F75/special_projects/8_single_cell_spatial_jeffrey/integrated_samples.rds")
+OUT <- createWorkbook()
+for(cluster in clusters){
+	tryCatch({
+	print(paste0(cluster))
+	markers <- FindMarkers(samples_integrated, ident.1=cluster, logfc.threshold=0, 
+	min.pct=0.01, test.use="MAST") %>% 
+	mutate(., gene = rownames(.))
+
+	addWorksheet(OUT, paste0(cluster))
+	writeData(OUT, sheet = paste0(cluster), x = markers)
+	}, error=function(e){message("Cell group 1 has fewer than 3 cells")})
+}
+
+saveWorkbook(OUT, paste0("analysis/output/11_visium_de/marker_genes.xlsx"))
+
+# save the object
+#saveRDS(samples_integrated, "/media/pk3/143F2A3651271F75/special_projects/8_single_cell_spatial_jeffrey/integrated_samples.rds")
