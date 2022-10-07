@@ -21,8 +21,8 @@ library(ggExtra)
 library(ggplotify)
 
 # specify input, output and metadata
-output_dir <- "/media/pk3/143F2A3651271F75/special_projects/8_single_cell_spatial_jeffrey/analysis/"
-samples_dir <- "/media/pk3/143F2A3651271F75/special_projects/8_single_cell_spatial_jeffrey/data/to_analyze/"
+output_dir <- "analysis/output/10_visium/"
+samples_dir <- "analysis/visium_samples/"
 metadata_df <- read.table("/media/pk3/143F2A3651271F75/special_projects/1_scrnaseq_ucsf_jeffrey_analysis_1/BI/tildra/analysis/output/00_process/metadata_subset.tsv", header=TRUE, sep='\t', stringsAsFactors=FALSE)
 
 setwd(samples_dir)
@@ -118,7 +118,24 @@ for(cluster in clusters){
 	}, error=function(e){message("Cell group 1 has fewer than 3 cells")})
 }
 
-saveWorkbook(OUT, paste0("analysis/output/11_visium_de/marker_genes.xlsx"))
+saveWorkbook(OUT, paste0("analysis/output/11_visium_de/marker_genes_per_cluster.xlsx"))
 
 # save the object
 #saveRDS(samples_integrated, "/media/pk3/143F2A3651271F75/special_projects/8_single_cell_spatial_jeffrey/integrated_samples.rds")
+
+
+# extract data - as per David's request
+## get the donor, treatment and cluster columns for all cells
+table1 <- samples_integrated@meta.data[,c("id","treatment","integrated_snn_res.0.1")]
+table1 <- data.frame(cell_barcode = rownames(table1), donor=table1$id, treatment=table1$treatment, cluster=table1$integrated_snn_res.0.1)
+write.table(table1, "analysis/output/10_visium/cell_barcodes_donor_treatment_and_cluster_at_res_0.1.txt", 
+	col.names=TRUE, row.names=FALSE, quote=FALSE, sep='\t')
+
+## get the normalized counts for the genes of interest
+normalized_counts_specific_genes <- as.matrix(samples_integrated@assays$SCT@data) %>% subset(., rownames(.) %in% c("IL17A","IL17F","IL23A","IL23R","ZFP36L2","ZFP36"))
+normalized_counts_specific_genes <- cbind(genes=rownames(normalized_counts_specific_genes), normalized_counts_specific_genes)
+rownames(normalized_counts_specific_genes) <- NULL
+normalized_counts_specific_genes <- as.data.frame(normalized_counts_specific_genes)
+
+write.table(normalized_counts_specific_genes, "analysis/output/10_visium/normalized_counts_for_genes_of_interest.txt", 
+	col.names=TRUE, row.names=FALSE, quote=FALSE, sep='\t')
