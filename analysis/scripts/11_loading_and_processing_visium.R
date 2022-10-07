@@ -89,7 +89,7 @@ for(n in names(samples_integrated@images)){
 
 # p1 / p2 / p3 / p4 / p5 / p6
 
-Idents(samples_integrated) <- "integrated_snn_res.0.1"
+Idents(samples_integrated) <- "integrated_snn_res.1"
 
 pdf(paste0("analysis/output/10_visium/UMAP_integrated_per_cluster_and_treatment.pdf"), height=8, width=14)
 DimPlot(samples_integrated, reduction = "umap", group.by = c("ident", "treatment"))
@@ -101,8 +101,7 @@ for(n in unique(samples_integrated$id)){
 	dev.off()
 }
 
-# DE between pre vs post - resolution 0.1
-Idents(samples_integrated) <- "integrated_snn_res.0.1"
+# DE between pre vs post - resolution 1
 clusters <- as.character(unique(Idents(samples_integrated)))
 
 OUT <- createWorkbook()
@@ -120,15 +119,32 @@ for(cluster in clusters){
 
 saveWorkbook(OUT, paste0("analysis/output/11_visium_de/marker_genes_per_cluster.xlsx"))
 
+# Annotation based on the markers above - marker_genes_per_cluster.xlsx
+new.cluster.ids <- c("Fibroblast","Keratinocytes","Fibroblast","Endothelial","Fibroblast","Fibroblast",
+	"Fibroblast","Fibroblast","Fibroblast","Keratinocytes","Fibroblast","Fibroblast",
+	"Keratinocytes","Keratinocytes","Fibroblast","Fibroblast","Keratinocytes","Keratinocytes")
+
+samples_integrated$annotation <- Idents(samples_integrated)
+
+names(new.cluster.ids) <- levels(samples_integrated)
+samples_integrated <- RenameIdents(samples_integrated, new.cluster.ids)
+
+samples_integrated$anno_res_1 <- Idents(samples_integrated)
+
+# UMAP with annotation
+pdf("analysis/output/10_visium/UMAP_with_annotation.pdf",width=8, height=8)
+DimPlot(samples_integrated)
+dev.off()
+
 # save the object
 #saveRDS(samples_integrated, "/media/pk3/143F2A3651271F75/special_projects/8_single_cell_spatial_jeffrey/integrated_samples.rds")
 
 
 # extract data - as per David's request
 ## get the donor, treatment and cluster columns for all cells
-table1 <- samples_integrated@meta.data[,c("id","treatment","integrated_snn_res.0.1")]
-table1 <- data.frame(cell_barcode = rownames(table1), donor=table1$id, treatment=table1$treatment, cluster=table1$integrated_snn_res.0.1)
-write.table(table1, "analysis/output/10_visium/cell_barcodes_donor_treatment_and_cluster_at_res_0.1.txt", 
+table1 <- samples_integrated@meta.data[,c("id","treatment","integrated_snn_res.1","anno_res_1")]
+table1 <- data.frame(cell_barcode = rownames(table1), donor=table1$id, treatment=table1$treatment, cluster=table1$integrated_snn_res.1, annotation=table1$anno_res_1)
+write.table(table1, "analysis/output/10_visium/cell_barcodes_donor_treatment_and_cluster_at_res_1.txt", 
 	col.names=TRUE, row.names=FALSE, quote=FALSE, sep='\t')
 
 ## get the normalized counts for the genes of interest
