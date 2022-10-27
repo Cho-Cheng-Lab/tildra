@@ -49,27 +49,15 @@ library(patchwork)
 
 ### Metadata
 ```{r}
-metadata_df <- read_tsv("analysis/output/00_process/metadata_subset.tsv")
+metadata <- read_tsv("analysis/output/00_process/metadata_subset.tsv")
+visium_sample_data <- read_tsv('analysis/input/visium_sample_data.tsv') %>% drop_na() %>% mutate(id = ifelse(id == 'skin234', 'skin277', id))
 ```
+#### Unify metadata
+```{r}
+metadata_df <- metadata %>% 
+  inner_join(visium_sample_data)
 
-
-```{r eval=FALSE}
-# load the libraries
-library(Seurat) 
-library(metap) 
-library(MAST) 
-library(scDblFinder) 
-library(ggplot2) 
-library(cowplot) 
-library(patchwork) 
-library(writexl)
-library(dplyr)
-library(xlsx)
-library(harmony)
-library(openxlsx)
-library(rgl)
-library(ggExtra)
-library(ggplotify)
+metadata_df
 ```
 
 
@@ -92,34 +80,54 @@ for(s in dir(samples_dir)){
 ```
 # add metadata
 ```{r}
+metadata_to_add <- 
+  c('sample',
+    'id',
+    'CoreID',
+    'treatment',
+    'response')
+
 for(n in names(all_samples)){
 	md <- subset(metadata_df, metadata_df$id == n)
 	
-	for(m in colnames(md)[c(1:5,9)]){
+	for(m in metadata_to_add){
 		print(paste0("adding ",m))
 		all_samples[[n]][[m]] <- md[[m]]
 	}
 }
+
+# reorder
+reordered <- metadata_df %>% arrange(CoreID) %>% pull(id)
+all_samples <- all_samples[reordered]
 ```
+### Log transform without normalization
 ```{r}
-all_samples <- all_samples %>% map(NormalizeData)
+#all_samples <- all_samples %>% map(NormalizeData)
+
+all_samples <- all_samples %>% map(function(i) {
+  
+  i@assays$Spatial@data <- as.matrix(log2(i@assays$Spatial@counts + 1))
+  
+  i
+  
+})
 ```
 
 ```{r}
-SpatialFeaturePlot(all_samples$skin235, features = 'nFeature_Spatial')
+SpatialFeaturePlot(all_samples$skin277, features = 'nFeature_Spatial')
 ```
 
 
 ```{r}
 SpatialFeaturePlot(
-  all_samples$skin235, features = c("KRT10", 'COL1A1'), image.alpha = 0.1) 
+  all_samples$skin277, features = c("KRT10", 'COL1A1'), image.alpha = 0) 
 ```
 ```{r}
 p <- all_samples %>% map(function(i) {
   
   complexity <- i$nFeature_Spatial %>% median()
-  SpatialFeaturePlot(i, features = c("KRT10"), image.alpha = 0.1) + 
-    labs(title = i$id %>% unique(), 
+  SpatialFeaturePlot(i, features = c("KRT10"), image.alpha = 0) + 
+    labs(title = paste0(i$CoreID %>% unique() %>% str_remove('6355-'),': ', i$id %>% unique()), 
          subtitle = paste0('Median genes: ', complexity)) +
     theme(plot.background = element_rect(color = 'black'))
 }) %>% wrap_plots(ncol = 4)
@@ -132,8 +140,8 @@ p
 p <- all_samples %>% map(function(i) {
   
   complexity <- i$nFeature_Spatial %>% median()
-  SpatialFeaturePlot(i, features = c("COL1A1"), image.alpha = 0.1) + 
-    labs(title = i$id %>% unique(), 
+  SpatialFeaturePlot(i, features = c("COL1A1"), image.alpha = 0) + 
+    labs(title = paste0(i$CoreID %>% unique() %>% str_remove('6355-'),': ', i$id %>% unique()), 
          subtitle = paste0('Median genes: ', complexity)) +
     theme(plot.background = element_rect(color = 'black'))
 }) %>% wrap_plots(ncol = 4)
@@ -143,8 +151,73 @@ p
 
 
 ```{r}
-all_samples
+p <- all_samples %>% map(function(i) {
+  
+  complexity <- i$nFeature_Spatial %>% median()
+  SpatialFeaturePlot(i, features = c("nFeature_Spatial"), image.alpha = 0) + 
+    labs(title = paste0(i$CoreID %>% unique() %>% str_remove('6355-'),': ', i$id %>% unique()), 
+         subtitle = paste0('Median genes: ', complexity)) +
+    theme(plot.background = element_rect(color = 'black'))
+}) %>% wrap_plots(ncol = 4)
+
+p
 ```
+
+### Normalized analysis
+```{r}
+all_samples_norm <- all_samples %>% map(NormalizeData)
+```
+
+```{r}
+p <- all_samples_norm %>% map(function(i) {
+  
+  complexity <- i$nFeature_Spatial %>% median()
+  SpatialFeaturePlot(i, features = c("KRT10"), image.alpha = 0) + 
+    labs(title = paste0(i$CoreID %>% unique() %>% str_remove('6355-'),': ', i$id %>% unique()), 
+         subtitle = paste0('Median genes: ', complexity)) +
+    theme(plot.background = element_rect(color = 'black'))
+}) %>% wrap_plots(ncol = 4)
+
+p
+  
+```
+
+```{r}
+p <- all_samples_norm %>% map(function(i) {
+  
+  complexity <- i$nFeature_Spatial %>% median()
+  SpatialFeaturePlot(i, features = c("COL1A1"), image.alpha = 0) + 
+    labs(title = paste0(i$CoreID %>% unique() %>% str_remove('6355-'),': ', i$id %>% unique()), 
+         subtitle = paste0('Median genes: ', complexity)) +
+    theme(plot.background = element_rect(color = 'black'))
+}) %>% wrap_plots(ncol = 4)
+
+p
+```
+
+
+```{r}
+p <- all_samples_norm %>% map(function(i) {
+  
+  complexity <- i$nFeature_Spatial %>% median()
+  SpatialFeaturePlot(i, features = c("nCount_Spatial"), image.alpha = 0) + 
+    labs(title = paste0(i$CoreID %>% unique() %>% str_remove('6355-'),': ', i$id %>% unique()), 
+         subtitle = paste0('Median genes: ', complexity)) +
+    theme(plot.background = element_rect(color = 'black'))
+}) %>% wrap_plots(ncol = 4)
+
+p
+```
+
+
+
+### SCT analylsis
+
+```{r}
+
+all_samples_sct <- all_samples %>% map(SCTransform, assay = 'Spatial')
+```
+
 
 
 
@@ -178,6 +251,9 @@ p_krt <- SpatialFeaturePlot(all_samples$skin292, features = c("KRT10", 'COL1A1')
     labs(title = 'skin292') 
 
 p_krt
+```
+```{r}
+
 ```
 
 

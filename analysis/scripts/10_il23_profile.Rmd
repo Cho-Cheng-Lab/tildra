@@ -38,6 +38,8 @@ library(ggforce)
 library(ggradar) # devtools::install_github("ricardo-bion/ggradar")
 library(extrafont)
 library(patchwork)
+
+theme_set(theme_dwu()) # set default theme
 ```
 ### Function
 ```{r}
@@ -66,9 +68,7 @@ seuratobj
 ```
 ```{r}
 patient_meta <- seurat_meta %>% 
-  separate(sample, into = c('patient', NA), sep = '-', remove = FALSE) %>% 
-  mutate(response_group = ifelse(response == 'full', 'Responder', 'Nonresponder')) %>% 
-  select(id, patient, sample, condition, treatment, response, response_group) %>% 
+  select(id, patient, sample, condition, treatment, response, response_category) %>% 
   unique() %>% 
   as_tibble()
 
@@ -82,19 +82,31 @@ clusters_apc <- clusters_all %>% setdiff(clusters_t)
 ```
 
 ```{r}
+patient_display <- seurat_meta %>% select(id, patient, condition, treatment, response, response_category) %>% unique() %>% 
+  filter(treatment != 'None') %>% 
+  pivot_wider(names_from = treatment,
+              values_from = id) %>%
+  mutate(display = paste0(patient, ' (', Pre, ', ', Mid, '): ', response_category))
+
+patient_display
+  
+
+```
+
+```{r}
 meta <- seurat_meta %>% 
   select(rowname, id, merged_label) %>% 
   bind_rows(visium_meta %>% select(rowname, id, merged_label) %>% drop_na()) %>% 
   left_join(patient_meta) %>% 
-  select(rowname, id, patient, sample, condition, treatment, response, response_group, merged_label) %>% 
-  mutate(display = paste(patient, response_group),
+  select(rowname, id, patient, sample, condition, treatment, response, response_category, merged_label) %>% 
+  mutate(display = paste(patient, response_category),
          description = factor(paste(condition, treatment) %>% str_remove(' None'),
                               levels = c('PV Pre',
-                                         'PV Post',
+                                         'PV Mid',
                                          'PV',
                                          'AD',
                                          'HC')),
-         treatment = factor(treatment, levels = c('Pre', 'Post', 'None')),
+         treatment = factor(treatment, levels = c('Pre', 'Mid', 'None')),
          group = case_when(
            merged_label == 'Trm_merge' ~ 'Trm',
            merged_label %in% clusters_apc ~ 'APC',
@@ -283,7 +295,7 @@ barcodes_visium <- visium_meta %>%
 ### IL23 signature extraction , APCs, and Trms
 ```{r}
 barcodes <- meta %>% filter(condition %in% c('PV', 'HC', 'AD'),
-                            treatment %in% c('Pre', 'Post', 'None'),
+                            treatment %in% c('Pre', 'Mid', 'None'),
                             group %in% c('APC', 'Trm', 'Tcell')) %>% 
   pull(rowname)
 
@@ -308,7 +320,7 @@ data_matrix %>% head()
 
 ```{r}
 data_table <- 
-  meta %>% select(rowname, id, sample, patient, condition, treatment, response, response_group, display, group) %>% 
+  meta %>% select(rowname, id, sample, patient, condition, treatment, response, response_category, display, group) %>% 
   inner_join(data_matrix %>% rownames_to_column()) %>% 
   as_tibble()
 
@@ -328,8 +340,8 @@ data_table_long %>% head()
 ```{r}
 data_table_long_tx_summarized <- 
   data_table_long %>% 
-  filter(treatment %in% c('Pre', 'Post')) %>% 
-  group_by(id, sample, patient, condition, group, display, treatment, response, response_group, gene) %>% 
+  filter(treatment %in% c('Pre', 'Mid')) %>% 
+  group_by(id, sample, patient, condition, group, display, treatment, response, response_category, gene) %>% 
   summarize(binary = mean(expression > 0),
             expression = mean(expression)) %>% 
   group_by(gene, group) %>% 
@@ -343,7 +355,7 @@ data_table_long_tx_summarized
 ```{r}
 data_table_long_all_summarized <- 
   data_table_long %>% 
-  group_by(id, sample, patient, condition, group, display, treatment, response, response_group, gene) %>% 
+  group_by(id, sample, patient, condition, group, display, treatment, response, response_category, gene) %>% 
   summarize(binary = mean(expression > 0),
             expression = mean(expression)) %>% 
   group_by(gene, group) %>% 
@@ -393,9 +405,9 @@ plot_input %>%
 ### Full profile
 ```{r}
 tx_patients <- meta %>% filter(treatment != 'None') %>% pull(patient) %>% unique() %>% sort() %>% set_names(.)
-tx_patients_responders <- meta %>% filter(treatment != 'None', response_group == 'Responder') %>% pull(patient) %>% unique() %>% sort() %>% set_names(.) 
+tx_patients_responders <- meta %>% filter(treatment != 'None', response_category == 'Responder') %>% pull(patient) %>% unique() %>% sort() %>% set_names(.) 
 
-tx_patients_nonresponders <- meta %>% filter(treatment != 'None', response_group == 'Nonresponder') %>% pull(patient) %>% unique() %>% sort() %>% set_names(.) 
+tx_patients_nonresponders <- meta %>% filter(treatment != 'None', response_category == 'Nonresponder') %>% pull(patient) %>% unique() %>% sort() %>% set_names(.) 
 
 
 ```
@@ -447,7 +459,7 @@ display_features <- c('Trm IL23_signature',
                       'APC IL17F')
 
 plot_input <- data_table_long_tx_summarized %>% 
-  filter(treatment %in% c('Pre', 'Post')) %>% 
+  filter(treatment %in% c('Pre', 'Mid')) %>% 
   mutate(feature = paste(group, gene)) %>% 
   filter(feature %in% display_features) %>% 
   mutate(feature = factor(feature, levels = display_features))
@@ -462,10 +474,10 @@ radar_plots <- map(plot_input$patient %>% unique %>% sort, function(i) {
     pivot_wider(names_from = feature,
                 values_from = normalized) %>% 
     select(treatment, display_features) %>% 
-    mutate(treatment = factor(treatment, levels = c('Pre', 'Post')))
+    mutate(treatment = factor(treatment, levels = c('Pre', 'Mid')))
   
-  
-  response <- plot_input %>% filter(patient == which_patient) %>% pull(response_group) %>% unique()
+  skin_ids <- plot_input %>% filter(patient == which_patient) %>% pull(id) %>% unique()
+  response <- plot_input %>% filter(patient == which_patient) %>% pull(response_category) %>% unique()
   
   p_radar <- radar_input %>% 
     ggradar(legend.text.size = 8,
@@ -475,7 +487,7 @@ radar_plots <- map(plot_input$patient %>% unique %>% sort, function(i) {
             axis.label.offset = 1.1,
             group.line.width = 1,
             group.colours = c('dodgerblue4', 'orangered'),
-            plot.title = paste0('Patient ', i, ' (', response, ')'),
+            plot.title = paste0('Patient ', i, ' (', skin_ids[1], ', ', skin_ids[2], '): ', response),
             legend.position = 'top') +
     theme(plot.title = element_text(size = 9, hjust = 0.5),
           plot.background = element_rect(color = 'black'),
@@ -499,13 +511,6 @@ radar_nonresponders
 ```{r}
 w <- 8
 h <-  7
-ggsave(plot = radar,
-       filename = 'radar_plot.png',
-       path = output_dir,
-       height = 10,
-       width = 10,
-       dpi = 600)
-
 ggsave(plot = radar_responders,
        filename = 'radar_plot_responders.png',
        path = output_dir,
@@ -519,7 +524,15 @@ ggsave(plot = radar_nonresponders,
        height = h,
        width = w,
        dpi = 600)
+
+ggsave(plot = radar,
+       filename = 'radar_plot.png',
+       path = output_dir,
+       height = 10,
+       width = 10,
+       dpi = 600)
 ```
+
 ### Radar IL23 strict set
 ```{r}
 
@@ -527,7 +540,7 @@ genes_to_use <- il23_genes_strict
 display_features <- c(paste('Trm', genes_to_use))
 
 plot_input <- data_table_long_tx_summarized %>% 
-  filter(treatment %in% c('Pre', 'Post')) %>% 
+  filter(treatment %in% c('Pre', 'Mid')) %>% 
   mutate(feature = paste(group, gene)) %>% 
   filter(feature %in% display_features) %>% 
   mutate(feature = factor(feature, levels = display_features))
@@ -542,10 +555,10 @@ radar_plots <- map(plot_input$patient %>% unique %>% sort, function(i) {
     pivot_wider(names_from = gene,
                 values_from = normalized) %>% 
     select(treatment, genes_to_use) %>% 
-    mutate(treatment = factor(treatment, levels = c('Pre', 'Post')))
+    mutate(treatment = factor(treatment, levels = c('Pre', 'Mid')))
   
-  
-  response <- plot_input %>% filter(patient == which_patient) %>% pull(response_group) %>% unique()
+  skin_ids <- plot_input %>% filter(patient == which_patient) %>% pull(id) %>% unique()
+  response <- plot_input %>% filter(patient == which_patient) %>% pull(response_category) %>% unique()
   
   p_radar <- radar_input %>% 
     ggradar(legend.text.size = 8,
@@ -558,7 +571,7 @@ radar_plots <- map(plot_input$patient %>% unique %>% sort, function(i) {
             gridline.max.linetype = 'solid',
             gridline.mid.linetype = 'solid',
             group.colours = c('dodgerblue4', 'orangered'),
-            plot.title = paste0('Patient ', i, ' (', response, ')'),
+            plot.title = paste0('Patient ', i, ' (', skin_ids[1], ', ', skin_ids[2], '): ', response),
             legend.position = 'top') +
     theme(plot.title = element_text(size = 9, hjust = 0.5),
           plot.background = element_rect(color = 'black'),
@@ -658,7 +671,7 @@ data_subset %>%
   theme_dwu()
 
 group1 <- data_subset %>% filter(treatment == 'Pre') %>% pull(expression)
-group2 <- data_subset %>% filter(treatment == 'Post') %>% pull(expression)
+group2 <- data_subset %>% filter(treatment == 'Mid') %>% pull(expression)
 res <- t.test(group1, group2, paired = TRUE)
   
 tibble('patient' = i,
@@ -714,7 +727,7 @@ display_features <- c('Trm IL23_signature',
                       'APC IFNG')
 
 plot_input <- data_table_long_tx_summarized %>% 
-  filter(treatment %in% c('Pre', 'Post')) %>% 
+  filter(treatment %in% c('Pre', 'Mid')) %>% 
   mutate(feature = paste(group, gene)) %>% 
   filter(feature %in% display_features) %>% 
   mutate(feature = factor(feature, levels = display_features))
@@ -729,10 +742,10 @@ radar_plots <- map(plot_input$patient %>% unique %>% sort, function(i) {
     pivot_wider(names_from = feature,
                 values_from = normalized) %>% 
     select(treatment, display_features) %>% 
-    mutate(treatment = factor(treatment, levels = c('Pre', 'Post')))
+    mutate(treatment = factor(treatment, levels = c('Pre', 'Mid')))
   
   
-  response <- plot_input %>% filter(patient == which_patient) %>% pull(response_group) %>% unique()
+  response <- plot_input %>% filter(patient == which_patient) %>% pull(response_category) %>% unique()
   
   p_radar <- radar_input %>% 
     ggradar(legend.text.size = 8,
@@ -807,13 +820,13 @@ data_table_long_all_summarized %>%
 ```{r}
 perfect_separators <- data_table_long_tx_summarized %>% 
   filter(gene %in% nonresponder_genes,
-         treatment == 'Post',
+         treatment == 'Mid',
          group == 'Trm') %>% 
-  select(group, response_group, gene, expression) %>% 
-  group_by(response_group, group, gene) %>% 
+  select(group, response_category, gene, expression) %>% 
+  group_by(response_category, group, gene) %>% 
   summarize(min = min(expression),
             max = max(expression)) %>% 
-  pivot_wider(names_from = response_group,
+  pivot_wider(names_from = response_category,
               values_from = c(min, max)) %>% 
   filter(min_Nonresponder > max_Responder)
 
@@ -825,11 +838,11 @@ Strict
 ```{r}
 p <- data_table_long_tx_summarized %>% 
   filter(gene %in% c(il23_genes_strict, 'IL17A', 'IL17F'),
-         treatment == 'Post',
+         treatment == 'Mid',
          group == 'Trm') %>% 
   ggplot(aes(x = reorder(gene, expression),
              y = expression,
-             color = response_group)) +
+             color = response_category)) +
   #geom_boxplot(outlier.color = NA) +
   geom_bar(stat = 'summary', position = 'dodge', fill = 'grey90') +
   #facet_wrap(~gene, scales = 'free_x') +
@@ -854,11 +867,11 @@ Full
 p <- data_table_long_tx_summarized %>% 
   
   filter(gene %in% c(il23_genes, 'IL17A', 'IL17F'),
-         treatment == 'Post',
+         treatment == 'Mid',
          group == 'Trm') %>% 
   ggplot(aes(x = reorder(gene, expression),
              y = expression,
-             color = response_group)) +
+             color = response_category)) +
   #geom_boxplot(outlier.color = NA) +
   geom_bar(stat = 'summary', position = 'dodge', fill = 'grey90') +
   geom_sina(alpha = 0.8, size = 2) +
@@ -882,11 +895,11 @@ p
 p <- data_table_long_tx_summarized %>% 
   
   filter(gene %in% c(il23_genes, 'IL17A', 'IL17F'),
-         treatment == 'Post',
+         treatment == 'Mid',
          group == 'Trm') %>% 
-  ggplot(aes(x = response_group,
+  ggplot(aes(x = response_category,
              y = expression,
-             color = response_group)) +
+             color = response_category)) +
   #geom_boxplot(outlier.color = NA) +
   geom_bar(stat = 'summary', position = 'dodge', fill = 'grey90') +
   geom_point(alpha = 0.8, size = 2, aes(color = patient)) +
@@ -909,11 +922,11 @@ ggsave(plot = p,
 p <- data_table_long_tx_summarized %>% 
   
   filter(gene %in% c(il23_genes_strict, 'IL17A', 'IL17F'),
-         treatment == 'Post',
+         treatment == 'Mid',
          group == 'Trm') %>% 
-  ggplot(aes(x = response_group,
+  ggplot(aes(x = response_category,
              y = expression,
-             color = response_group)) +
+             color = response_category)) +
   #geom_boxplot(outlier.color = NA) +
   geom_bar(stat = 'summary', position = 'dodge', fill = 'grey90') +
   geom_point(alpha = 0.8, size = 2, aes(color = patient)) +
@@ -940,11 +953,11 @@ ggsave(plot = p,
 p <- data_table_long_tx_summarized %>% 
   
   filter(gene %in% 'Secreted',
-         treatment == 'Post',
+         treatment == 'Mid',
          group == 'Trm') %>% 
   ggplot(aes(x = reorder(patient, -expression),
              y = expression,
-             fill = response_group)) +
+             fill = response_category)) +
   #geom_boxplot(outlier.color = NA) +
   geom_bar(stat = 'summary', position = 'dodge', color = 'black') +
   theme_dwu(legend.position = 'top') +
@@ -964,11 +977,11 @@ p
 p <- data_table_long_tx_summarized %>% 
   
   filter(gene == 'IL23_peripheral',
-         treatment == 'Post',
+         treatment == 'Mid',
          group == 'Trm') %>% 
   ggplot(aes(x = reorder(patient, -expression),
              y = expression,
-             fill = response_group)) +
+             fill = response_category)) +
   #geom_boxplot(outlier.color = NA) +
   geom_bar(stat = 'summary', position = 'dodge', color = 'black', fun = sum) +
   theme_dwu(legend.position = 'top') +
@@ -991,11 +1004,11 @@ p <- data_table_long %>%
   filter(treatment != 'None',
          gene %in% c('IL17A', 'IL17F'),
          group %in% c('APC', 'Trm', 'Tcell')) %>% 
-  group_by(patient, treatment, response_group, group, gene) %>% 
+  group_by(patient, treatment, response_category, group, gene) %>% 
   summarize(expression = mean(expression)) %>% 
   ggplot(aes(x = patient,
              y = expression,
-             fill = response_group)) +
+             fill = response_category)) +
   geom_bar(stat = 'identity') +
   facet_wrap(~group + treatment + gene) +
   theme_dwu(legend.position = 'top')
@@ -1041,9 +1054,9 @@ p
 meta %>% 
   filter(merged_label %in% clusters_apc,
          treatment != 'None') %>% 
-  group_by(response_group, merged_label, treatment) %>% 
+  group_by(response_category, merged_label, treatment) %>% 
   tally() %>% 
-  pivot_wider(names_from = c(response_group, treatment),
+  pivot_wider(names_from = c(response_category, treatment),
               values_from = n) %>% 
   View()
 

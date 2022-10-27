@@ -83,20 +83,40 @@ ggsave(plot = p,
        h = 10)
 p
 ```
-### Fix metadata
-Patient S1 and S2 treatment response was swapped; S1 should be partial and S2 should be full
+### Update metadata
+```{r}
+metadata <- read_tsv('analysis/input/metadata.tsv') %>% 
+  filter(is.na(exclude)) %>% 
+  mutate(id = paste0('skin', id)) %>% 
+  select(id, sample, patient, condition, treatment, response, response_group)
+metadata
+```
+
+
 ```{r}
 new_metadata <- seuratobj@meta.data %>% 
-  transmute(response = case_when(
-    str_detect(sample, 'S1') ~ 'partial',
-    str_detect(sample, 'S2') ~ 'full',
-    TRUE ~ response
-))
+  select(id) %>% 
+  rownames_to_column() %>% 
+  left_join(metadata) %>% 
+  column_to_rownames()
 
 new_metadata
 ```
 ```{r}
+identical(seuratobj@meta.data$id, new_metadata$id)
+
+#updated_metadata <- c('sample', 'patient', 'treatment', 'response', 'response_group')
+
+seuratobj$sample <- new_metadata$sample
+seuratobj$patient <- new_metadata$patient
+seuratobj$treatment <- new_metadata$treatment
 seuratobj$response <- new_metadata$response
+seuratobj$response_group <- new_metadata$response_group
+
+```
+
+```{r}
+seuratobj$response_group %>% head()
 ```
 
 ### Export

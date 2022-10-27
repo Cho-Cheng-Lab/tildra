@@ -31,9 +31,12 @@ dir.create(data_dir, showWarnings = FALSE)
 library(Seurat) 
 library(tidyverse)
 library(ggExtra)
+library(ggthemes)
 library(SeuratWrappers)
 library(wutilities) # devtools::install_github('symbiologist/wutilities')
 library(tictoc)
+theme_set(theme_dwu()) # set default theme
+
 ```
 
 ### Import
@@ -74,9 +77,66 @@ de_combined %>%
   select(comparison, cluster, gene, avg_log2FC, pct.1, pct.2, pct.diff)
 ```
 
+### How many DE genes?
+#### PV vs HC
+```{r}
+which_comparison <- 'PV vs HC'
+p_cutoff <- 0.05
+
+de_combined %>% 
+  filter(comparison == which_comparison,
+         p_val_adj < p_cutoff) %>% 
+  group_by(cluster) %>% 
+  tally() %>% 
+  ggplot(aes(x = cluster,
+             y = n)) +
+  geom_col() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  #coord_flip() +
+  labs(x = '',
+       y = '# of DEGs')
+```
+```{r}
+which_comparison <- 'Pre vs Mid'
+p_cutoff <- 0.05
+
+de_combined %>% 
+  filter(comparison == which_comparison,
+         p_val_adj < p_cutoff) %>% 
+  group_by(cluster) %>% 
+  tally() %>% 
+  ggplot(aes(x = cluster,
+             y = n)) +
+  geom_col() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(x = '',
+       y = '# of DEGs')
+```
+```{r}
+which_comparison <- 'Respond'
+p_cutoff <- 0.05
+
+de_combined %>% 
+  filter(comparison == which_comparison,
+         p_val_adj < p_cutoff) %>% 
+  group_by(cluster) %>% 
+  tally() %>% 
+  ggplot(aes(x = cluster,
+             y = n)) +
+  geom_col() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(x = '',
+       y = '# of DEGs')
+```
+
+```{r}
+
+```
+
+
 ### What genes in what populations are downregulated with tildra blockade?
 ```{r}
-de_resp
+
 ```
 
 ### Analyze
