@@ -32,9 +32,10 @@ library(Seurat)
 library(tidyverse)
 library(ggExtra)
 library(ggthemes)
-library(SeuratWrappers)
+#library(SeuratWrappers) # devtools::install_github('satijalab/seurat-wrappers')
 library(wutilities) # devtools::install_github('symbiologist/wutilities')
 library(tictoc)
+library(rcartocolor)
 theme_set(theme_dwu()) # set default theme
 
 ```
@@ -83,29 +84,31 @@ de_combined %>%
 ```{r}
 which_comparison <- c('PV vs HC',
                       'Pre vs Mid',
-                      'Responders_Pre vs Nonresponders_Pre',
-                      'Responders_Mid vs Nonresponders_Mid')
+                      'Responders_Pre vs Non-responders_Pre',
+                      'Responders_Mid vs Non-responders_Mid')
 
 p_cutoff <- 0.05
 
-de_combined %>% 
+p <- de_combined %>% 
   filter(comparison %in% which_comparison,
          p_val_adj < p_cutoff) %>% 
+  mutate(comparison = factor(comparison, levels = which_comparison)) %>% 
   group_by(cluster, comparison) %>% 
   tally() %>% 
   ggplot(aes(x = cluster,
              y = n,
              fill = comparison)) +
-  geom_col() +
-  facet_wrap(~comparison) +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  geom_col(color = 'black') +
+  facet_wrap(~comparison, scales = 'free_y') +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
   #coord_flip() +
   labs(x = '',
        y = '# of DEGs')
+
+p
 ```
 
-
-#### PV vs HC
+### Volcano PV vs HC
 ```{r}
 which_comparison <- 'PV vs HC'
 p_cutoff <- 0.05

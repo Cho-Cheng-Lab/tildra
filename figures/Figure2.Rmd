@@ -1,5 +1,5 @@
 ---
-title: "Figrue 1"
+title: "Figrue 2"
 author: "David Wu"
 ---
 
@@ -31,24 +31,212 @@ dir.create(data_dir, showWarnings = FALSE)
 library(Seurat) 
 library(tidyverse)
 library(ggExtra)
-library(SeuratWrappers)
+library(ggthemes)
+library(ggforce)
+#library(SeuratWrappers) # devtools::install_github('satijalab/seurat-wrappers')
 library(wutilities) # devtools::install_github('symbiologist/wutilities')
 library(tictoc)
-library(patchwork)
-library(extrafont)
+library(rcartocolor)
+library(ggrepel)
+theme_set(theme_dwu()) # set default theme
+
 ```
 
+### Import
 ```{r}
 seuratobj <- read_rds(file.path(data_dir, 'seuratobj_annotated.rds'))
+meta <- seuratobj@meta.data %>% rownames_to_column() 
+de_combined <- read_tsv('analysis/output/07_de/de_combined.tsv.gz')
+de_pre_vs_mid_response <- read_tsv('analysis/output/07_de/de_pre_vs_mid_response.tsv.gz')
 seuratobj
 ```
-### Figure 1A
+
+
+```{r}
+patient_meta <- meta %>% 
+  select(id, sample, treatment, condition) %>% 
+  unique()
+
+patient_meta
+```
+```{r}
+analyze <- meta %>% 
+  select(rowname, id, sample, condition, treatment, cluster, merged_label) %>% 
+  mutate(description = factor(paste(condition, treatment) %>% str_remove(' None'),
+                              levels = c('PV Pre',
+                                         'PV Post',
+                                         'PV',
+                                         'AD',
+                                         'HC')))
+
+```
+
+
+
 #### Global
 ```{r}
 h <- 3
 w <- 3
 dpi <- 600
+
+which_comparison <- c('PV vs HC',
+                      'Pre vs Mid',
+                      'Responders_Pre vs Non-responders_Pre',
+                      'Responders_Mid vs Non-responders_Mid')
+
+p_adj_cutoff <- 0.05
+
+de_subset <- de_combined %>% 
+  filter(comparison %in% which_comparison) %>% 
+  mutate(comparison = factor(comparison, levels = which_comparison),
+         sig = ifelse(p_val_adj < 0.05, TRUE, FALSE))
 ```
+
+### Figure 2A
+#### How many DE genes?
+#### Facet
+
+```{r}
+p <- de_subset %>% 
+  filter(p_val_adj < p_adj_cutoff) %>% 
+  mutate(comparison = factor(comparison, levels = which_comparison)) %>% 
+  group_by(cluster, comparison) %>% 
+  tally() %>% 
+  ggplot(aes(x = cluster,
+             y = n,
+             fill = comparison)) +
+  geom_col(color = 'black') +
+  facet_wrap(~comparison, scales = 'free_y') +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  #coord_flip() +
+  labs(x = '',
+       y = '# of DEGs')
+
+p
+```
+
+### Figure 2B
+#### Volcano PV vs HC
+```{r}
+which_cluster <- 'Trm_merge'
+
+de_subset %>% 
+  filter(cluster == which_cluster) %>% 
+  ggplot(aes(x = avg_log2FC,
+             y = -log10(p_val_adj),
+             color = sig,
+             label = gene)) +
+  geom_point(alpha = 0.3) +
+  facet_wrap(~comparison, scales = 'free_y') +
+  scale_color_manual(values = c('grey50', 'darkorchid4')) +
+  geom_text_repel(data = de_subset %>% filter(cluster == which_cluster) %>% group_by(comparison) %>% top_n(10, abs(avg_log2FC)), box.padding = 0.5) +
+  labs(x = 'log2 fold-change',
+       y = '-log10 adj. p-value')
+  
+```
+### Figure 2C
+What is corrected by treatment?
+
+```{r}
+#de_pv_vs_hc <- 
+#de_pre_vs_mid_response <- 
+```
+
+```{r}
+response_genes <- de_pre_vs_mid_response %>% 
+  filter(p_val_adj < p_adj_cutoff,
+         avg_log2FC > 0,
+         response == 'responders',
+         str_detect(gene, 'mm10', negate = TRUE)) %>% 
+  top_n(10, wt = abs(avg_log2FC)) %>% 
+  pull(gene) %>% 
+  c('IL17A', 'IL17F', 'CXCL13')
+
+response_genes
+```
+### Extract expression
+```{r}
+metadata_subset <- meta %>% 
+  filter(response_group == 'Responder' | condition == 'HC',
+         merged_label == 'Trm_merge') %>% 
+  mutate(treatment = ifelse(treatment == 'None', 'Healthy', treatment),
+         treatment = factor(treatment, levels = c('Pre', 'Mid', 'Healthy')))
+
+barcodes <- metadata_subset$rowname
+exprs <- FetchData(seuratobj, 
+                   cells = barcodes,
+                   vars = response_genes) %>% 
+  rownames_to_column() %>% 
+  as_tibble()
+
+exprs
+
+```
+
+```{r}
+merged_table <- exprs %>% 
+  inner_join(metadata_subset %>% select(rowname, patient, id, condition, treatment, response, response_group, merged_label)) %>% 
+  pivot_longer(cols = response_genes,
+               names_to = 'gene',
+               values_to = 'expression')
+
+merged_table
+```
+```{r}
+merged_table %>% 
+  ggplot(aes(x = treatment,
+             y = expression,
+             color = treatment)) +
+  geom_boxplot(outlier.shape = NA) +
+  #geom_sina(alpha = 0.1, size = 0.5) 
+  facet_wrap(~gene, scales = 'free_y') +
+  scale_color_carto_d() +
+  theme(legend.position = 'top')
+```
+
+```{r}
+summarized_table <- merged_table %>% 
+  group_by(treatment, response_group, merged_label, gene) %>% 
+  summarize(mean = mean(expression),
+            sd = sd(expression))
+```
+
+
+
+```{r}
+summarized_table %>% 
+   ggplot(aes(x = treatment,
+              y = mean,
+              fill = treatment)) +
+  geom_col(color = 'black') +
+  facet_wrap(~gene, scales = 'free_y') +
+  scale_fill_carto_d() +
+  #theme(legend.position = 'top') +
+  labs(x = '',
+       y = 'Average Expression in Trm Cells')
+```
+
+```{r}
+summarized_table %>% 
+  filter(treatment != 'Healthy') %>% 
+  ggplot(aes(x = reorder(gene, -mean),
+             y = mean,
+             color = treatment,
+             group = gene)) +
+  geom_point(size = 3) +
+  geom_line(color = 'grey50', arrow = arrow(length = unit(0.2, "cm"), type = 'closed')) +
+  theme_dwu(legend.position = 'right') +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  scale_color_manual(values = c('orangered', 'dodgerblue4')) +
+  #geom_point(size = 2, data = summarized_table %>% filter(treatment == 'Healthy'), inherit.aes = FALSE, aes(x = reorder(gene, -mean), y = mean)) +
+  labs(x = '',
+       y = 'Average Trm Expression')
+```
+
+```{r}
+
+```
+
 
 ## Session Info
 ```{r}

@@ -31,10 +31,10 @@ dir.create(data_dir, showWarnings = FALSE)
 library(Seurat) 
 library(tidyverse)
 library(ggExtra)
-library(SeuratWrappers)
 library(wutilities) # devtools::install_github('symbiologist/wutilities')
 library(tictoc)
 library(patchwork)
+library(rcartocolor)
 library(extrafont)
 ```
 
@@ -170,8 +170,8 @@ p
 
 ### Figure 1C
 ```{r}
-seuratobj$condition <- factor(seuratobj$condition, levels = c('HC', 'AD', 'PV'))
-seuratobj$treatment <- factor(seuratobj$treatment, levels = c('None', 'Pre', 'Post'))
+seuratobj$condition <- factor(seuratobj$condition, levels = c('HC', 'PV'))
+seuratobj$treatment <- factor(seuratobj$treatment, levels = c('None', 'Pre', 'Mid'))
 ```
 
 
@@ -210,7 +210,6 @@ p
 
 ### Figure 1D
 ```{r}
-
 meta <- seuratobj@meta.data %>% rownames_to_column()
 ```
 ### Cluster size and % 
@@ -228,10 +227,10 @@ tallies
 ### Proportion of cells in each cluster
 ```{r}
 analyze <- meta %>% 
-  select(rowname, id, sample, condition, treatment, cluster, merged_label) %>% 
+  select(rowname, id, patient, sample, condition, treatment, cluster, merged_label, response_group) %>% 
   mutate(description = factor(paste(condition, treatment) %>% str_remove(' None'),
                               levels = c('PV Pre',
-                                         'PV Post',
+                                         'PV Mid',
                                          'PV',
                                          'AD',
                                          'HC')))
@@ -297,7 +296,7 @@ p
 ```{r}
 plot_input <- analyze %>% 
   filter(description %in% c('PV Pre', 'PV Mid')) %>% 
-  group_by(sample, patient, description, cluster, merged_label, treatment, response_category) %>% 
+  group_by(sample, patient, description, cluster, merged_label, treatment, response_group) %>% 
   tally() %>% 
   group_by(sample) %>% 
   mutate(total = sum(n),
@@ -307,8 +306,8 @@ plot_input
 
 ```
 ```{r}
-patient_info <- plot_input %>% select(sample, patient, description, response_category) %>% unique() %>% arrange(patient, description)
-text_color <- ifelse(patient_info$response_category == 'Responder', 'dodgerblue4', 'orangered')
+patient_info <- plot_input %>% select(sample, patient, description, response_group) %>% unique() %>% arrange(patient, description)
+text_color <- ifelse(patient_info$response_group == 'Responder', 'dodgerblue4', 'orangered')
 ```
 
 
@@ -321,7 +320,7 @@ p <- plot_input %>%
            position = 'stack') +
   #rcartocolor::scale_fill_carto_d(palette = 'Bold') +
   labs(x = '',
-       y = '% of Cluster') +
+       y = '% of Cells') +
   theme_dwu(legend.position = 'top') +
   coord_flip() +
   #theme(axis.text.x = element_text(angle = 90, hjust = 1, color = text_color))
@@ -346,8 +345,9 @@ p <- plot_input %>%
   labs(x = '',
        y = '# of Cells') +
   theme_dwu(legend.position = 'top') +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
-  coord_flip()
+  #theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  coord_flip() +
+  theme(axis.text.y = element_text(angle = 0, hjust = 1, color = text_color))
 
 ggsave(plot = p,
        filename = 'F1D_bar_patient_centric_n.pdf',
