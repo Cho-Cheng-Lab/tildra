@@ -772,12 +772,67 @@ de_responders_vs_nonresponders_pre <- map(which_clusters$merged_label, function(
   bind_rows() %>% 
   as_tibble()
 
-de_responders_vs_nonresponders_pre %>% write_tsv(file.path(output_dir, 'de_responders_vs_nonresponders.tsv.gz'))
+de_responders_vs_nonresponders_pre %>% write_tsv(file.path(output_dir, 'de_responders_vs_nonresponders_pre.tsv.gz'))
 
 write_excel_notebook(input_table = de_responders_vs_nonresponders_pre,
                      output_file = file.path(output_dir, 'de_responders_vs_nonresponders_pre.xlsx'))
 ```
+### Responders vs non responders in mid samples (all clusters)
+```{r}
+condition1 <- 'PV'
+condition2 <- 'PV'
+treatment1 <- 'Mid'
+treatment2 <- 'Mid'
+response1 <- 'Responder'
+response2 <- 'Non-responder'
+comparison <- 'response_group'
 
+patients <- patient_meta %>% 
+  filter(condition %in% c(condition1, condition2),
+         treatment %in% c(treatment1, treatment2),
+         response_group %in% c(response1, response2)) %>% 
+  separate(sample, into = c('patient', NA))
+
+which_clusters <- analyze %>% 
+  filter(condition %in% c(condition1, condition2),
+         treatment %in% c(treatment1, treatment2),
+         response_group %in% c(response1, response2)) %>% 
+  group_by(merged_label, condition, treatment, id, response_group) %>% 
+  tally() %>% 
+  filter(n > 10) %>% # at least 10 cells per sample
+  group_by(merged_label, condition, treatment, response_group) %>% 
+  tally() %>% 
+  filter(n > 1) %>% # at least 2 samples per comparison group
+  select(merged_label, all_of(comparison)) %>% 
+  unique() %>% 
+  group_by(merged_label) %>% 
+  tally() %>% 
+  filter(n > 1)
+
+de_responders_vs_nonresponders_mid <- map(which_clusters$merged_label, function(i) {
+  
+  cluster_subset <- meta %>% filter(merged_label == i)
+  
+  responder_barcodes <- cluster_subset %>% filter(id %in% (patients %>% filter(response_group == 'Responder') %>% pull(id))) %>% pull(rowname)
+  nonresponder_barcodes <- cluster_subset %>% filter(id %in% (patients %>% filter(response_group == 'Non-responder') %>% pull(id))) %>% pull(rowname)
+  
+  print2(i)
+  de_pipeline_barcodes(seuratobj = seuratobj,
+                       cluster = i, 
+                       barcodes1 = responder_barcodes,
+                       barcodes2 = nonresponder_barcodes,
+                       group1_id = paste0('Responders_Mid'),
+                       group2_id = paste0('Non-responders_Mid'))
+  
+}) %>% 
+  bind_rows() %>% 
+  as_tibble()
+
+de_responders_vs_nonresponders_mid %>% write_tsv(file.path(output_dir, 'de_responders_vs_nonresponders_mid.tsv.gz'))
+
+write_excel_notebook(input_table = de_responders_vs_nonresponders_mid,
+                     output_file = file.path(output_dir, 'de_responders_vs_nonresponders_mid.xlsx'))
+```
 
 ### Combined DE table
 ```{r}
@@ -786,7 +841,8 @@ list(de_ad_vs_hc,
      de_adpv_vs_hc,
      de_ad_vs_pv,
      de_pre_vs_mid,
-     de_responders_vs_nonresponders) %>% 
+     de_responders_vs_nonresponders_pre,
+     de_responders_vs_nonresponders_mid) %>% 
   bind_rows() %>% 
   mutate(comparison = paste(group1, 'vs', group2)) %>% 
   select(comparison, everything()) %>% 

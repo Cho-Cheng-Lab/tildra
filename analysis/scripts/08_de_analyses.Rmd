@@ -78,6 +78,33 @@ de_combined %>%
 ```
 
 ### How many DE genes?
+#### Facet
+
+```{r}
+which_comparison <- c('PV vs HC',
+                      'Pre vs Mid',
+                      'Responders_Pre vs Nonresponders_Pre',
+                      'Responders_Mid vs Nonresponders_Mid')
+
+p_cutoff <- 0.05
+
+de_combined %>% 
+  filter(comparison %in% which_comparison,
+         p_val_adj < p_cutoff) %>% 
+  group_by(cluster, comparison) %>% 
+  tally() %>% 
+  ggplot(aes(x = cluster,
+             y = n,
+             fill = comparison)) +
+  geom_col() +
+  facet_wrap(~comparison) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  #coord_flip() +
+  labs(x = '',
+       y = '# of DEGs')
+```
+
+
 #### PV vs HC
 ```{r}
 which_comparison <- 'PV vs HC'
