@@ -232,7 +232,100 @@ summarized_table %>%
   labs(x = '',
        y = 'Average Trm Expression')
 ```
+### Figure
+Top genes from PV vs HC
+```{r}
+pv_vs_hc <- de_combined %>% 
+  filter(comparison == 'PV vs HC')
 
+pv_vs_hc
+```
+
+```{r}
+top_pv_vs_hc <- pv_vs_hc %>% 
+  filter(avg_log2FC > 0,
+         cluster == which_cluster) %>% 
+  top_n(10, pct.diff) %>%
+  pull(gene)
+
+top_pv_vs_hc
+```
+
+
+#### Which genes normalize?
+```{r}
+de_normalize <- de_combined %>% 
+  filter(comparison %in% c('PV vs HC', 'Pre vs Mid'),
+         cluster == which_cluster) %>% 
+  select(comparison, gene, avg_log2FC, pct.1, pct.2, pct.diff, p_val_adj) %>% 
+  pivot_wider(names_from = comparison,
+              values_from = avg_log2FC:p_val_adj) %>% 
+  mutate(avg_log2FC = ifelse(`avg_log2FC_PV vs HC` * `avg_log2FC_Pre vs Mid` > 0, TRUE, FALSE))
+
+de_normalize
+```
+
+```{r}
+de_normalize %>% 
+  filter(avg_log2FC)
+```
+
+
+
+### Extract expression
+```{r}
+genes_to_extract <- de_normalize$gene
+
+metadata_subset <- meta %>% 
+  filter(response_group == 'Responder' | condition == 'HC',
+         merged_label == 'Trm_merge') %>% 
+  mutate(treatment = ifelse(treatment == 'None', 'Healthy', treatment),
+         treatment = factor(treatment, levels = c('Pre', 'Mid', 'Healthy')))
+
+barcodes <- metadata_subset$rowname
+exprs <- FetchData(seuratobj, 
+                   cells = barcodes,
+                   vars = genes_to_extract) %>% 
+  rownames_to_column() %>% 
+  as_tibble()
+
+exprs
+
+```
+
+```{r}
+merged_table <- exprs %>% 
+  inner_join(metadata_subset %>% select(rowname, patient, id, condition, treatment, response, response_group, merged_label)) %>% 
+  pivot_longer(cols = genes_to_extract,
+               names_to = 'gene',
+               values_to = 'expression')
+
+merged_table
+```
+```{r}
+summarized_table <- merged_table %>% 
+  group_by(patient, treatment, response_group, merged_label, gene) %>% 
+  summarize(median = median(expression),
+            mean = mean(expression),
+            sd = sd(expression))
+
+summarized_table
+```
+
+```{r}
+summarized_table %>% 
+  filter(gene %in% genes_to_extract[1:20]) %>% 
+   ggplot(aes(x = treatment,
+              y = mean,
+              color = treatment)) +
+  geom_bar(stat = 'summary', color = 'black', fill = 'white', fun = 'mean') + 
+  geom_sina() +
+  facet_wrap(~gene, scales = 'free_y') +
+  scale_color_carto_d() +
+  #theme(legend.position = 'top') +
+  labs(x = '',
+       y = 'Average Expression in Trm Cells')
+```
 ```{r}
 
 ```
