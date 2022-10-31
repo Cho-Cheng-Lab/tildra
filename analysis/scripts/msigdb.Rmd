@@ -1,0 +1,98 @@
+---
+title: "MSigDB"
+author: "David Wu"
+---
+
+## Setup
+Set working directory to project directory 
+Alternatively, set "Evaluate chunks in directory" to "Project" in Global Options > R Markdown
+```{r setup}
+require(knitr)
+opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+```
+
+### Optionally convert this Rmd to R script 
+```{r eval=FALSE, message=FALSE}
+current_file <- rstudioapi::getActiveDocumentContext()$path
+output_file <- stringr::str_replace(current_file, '.Rmd', '.R')
+knitr::purl(current_file, output = output_file)
+file.edit(output_file)
+```
+
+### Directories
+```{r, message=FALSE}
+output_dir <- 'analysis/output/msigdb' # analysis file output directory
+data_dir <- 'data/derived/seurat' # data file output directory
+
+dir.create(output_dir, showWarnings = FALSE)
+dir.create(data_dir, showWarnings = FALSE)
+```
+
+### Loading the libraries
+```{r, message=FALSE}
+library(Seurat) 
+library(tidyverse)
+library(ggExtra)
+library(SeuratWrappers) # devtools::install_github('satijalab/seurat-wrappers')
+library(wutilities) # devtools::install_github('symbiologist/wutilities')
+library(tictoc)
+# library(msigdb)
+# library(ExperimentHub)
+library(msigdbr)
+```
+
+### Load IL23 and IL17 signatures of interest
+```{r}
+all_gene_sets <- msigdbr(species = "Homo sapiens")
+all_gene_sets %>% head()
+```
+### Gene set names
+```{r}
+gene_sets <- all_gene_sets %>% select(gs_cat, gs_subcat, gs_name, gs_id, gs_description) %>% unique()
+```
+
+
+### Search if IL23 or IL17 signatures
+```{r}
+gene_sets %>% 
+  filter(str_detect(gs_name, 'IL23'))
+```
+
+```{r}
+gene_sets %>% 
+  filter(str_detect(gs_name, 'IL17'))
+```
+
+```{r}
+il23_gs_id <- 'M196' # PID pathway
+il17_gs_id <- c('M19422', # biocarta pathway
+                'M39560') # wikipathway
+```
+
+### Extract gene sets
+```{r}
+gs_of_interest <- all_gene_sets %>% 
+  filter(gs_id %in% c(il23_gs_id, il17_gs_id)) 
+
+gs_of_interest
+```
+```{r}
+gs_of_interest$gene_symbol %>% n_distinct()
+```
+
+```{r}
+gs_of_interest %>% write_tsv(file.path(output_dir, 'il23_il17_gene_sets.tsv'))
+```
+
+### Export
+```{r}
+
+```
+
+## Session Info
+```{r}
+sessionInfo()
+```
+
+
+

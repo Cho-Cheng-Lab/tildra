@@ -69,6 +69,61 @@ analyze <- meta %>%
 ```{r}
 de_combined <- read_tsv('analysis/output/07_de/de_combined.tsv.gz')
 ```
+
+### Proportion of cells in each cluster
+```{r}
+analyze <- meta %>% 
+  select(rowname, id, sample, condition, treatment, cluster, merged_label, response, response_group) %>% 
+  mutate(description = factor(paste(condition, treatment) %>% str_remove(' None'),
+                              levels = c('PV Pre',
+                                         'PV Mid',
+                                         'PV',
+                                         'AD',
+                                         'HC')))
+
+analyze %>% head()
+```
+
+```{r}
+patient_meta <- meta %>% 
+  select(id, sample, treatment, condition, response, response_group) %>% 
+  unique()
+
+patient_meta
+```
+
+```{r}
+plot_input <- analyze %>% 
+  group_by(description, cluster, merged_label) %>% 
+  tally() %>% 
+  group_by(merged_label) %>% 
+  mutate(total = sum(n),
+         fraction = n/total)
+
+plot_input
+```
+
+```{r}
+p <- plot_input %>% 
+  ggplot(aes(x = merged_label,
+             y = fraction,
+             fill = description)) +
+  geom_bar(stat = 'identity',
+           position = 'stack') +
+  coord_flip() +
+  rcartocolor::scale_fill_carto_d(palette = 'Bold') +
+  labs(x = '',
+       y = 'Proportion')
+
+ggsave(plot = p,
+       filename = 'bar_percentages.png',
+       path = output_dir,
+       h = 6,
+       w = 8)
+
+p
+```
+
 ### Is the IL17 difference detected in PV vs HC?
 ```{r}
 de_combined %>% 
@@ -389,46 +444,6 @@ analyze <- meta %>%
 analyze %>% head()
 ```
 
-```{r}
-condition1 <- 'PV'
-condition2 <- 'HC'
-treatment1 <- c('None', 'Pre')
-treatment2 <- 'None'
-comparison <- 'condition'
-
-clusters_pv_vs_hc <- analyze %>% 
-  filter(condition %in% c(condition1, condition2),
-         treatment %in% c(treatment1, treatment2)) %>% 
-  group_by(merged_label, condition, treatment, id) %>% 
-  tally() %>% 
-  filter(n > 10) %>% # at least 10 cells per sample
-  group_by(merged_label, condition, treatment) %>% 
-  tally() %>% 
-  filter(n > 3) %>% # at least 3 samples per comparison group
-  select(merged_label, all_of(comparison)) %>% 
-  unique() %>% 
-  group_by(merged_label) %>% 
-  tally() %>% 
-  filter(n > 1)
-
-tic()
-de_testing <- map(clusters_pv_vs_hc$merged_label[4], function(i) {
-  
-  print2(i)
-  de_pipeline(seuratobj = seuratobj,
-              cluster = i, 
-              comparison = comparison,
-              condition1 = condition1,
-              condition2 = condition2,
-              treatment1 = treatment1,
-              treatment2 = treatment2,
-              test.use = 'Presto', 
-              min.pct = 0.01,
-              logfc.threshold = log(1.1)) 
-  
-}) %>% bind_rows()
-toc()
-```
 
 ```{r}
 de_testing %>% 

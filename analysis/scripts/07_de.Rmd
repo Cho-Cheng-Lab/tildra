@@ -3,7 +3,9 @@ title: "DE analysis"
 author: "David Wu"
 ---
 
-Set working directory to project directory
+## Setup
+Set working directory to project directory 
+Alternatively, set "Evaluate chunks in directory" to "Project" in Global Options > R Markdown
 ```{r setup}
 require(knitr)
 opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
@@ -31,119 +33,59 @@ dir.create(data_dir, showWarnings = FALSE)
 library(Seurat) 
 library(tidyverse)
 library(ggExtra)
-library(SeuratWrappers)
+library(SeuratWrappers) # devtools::install_github('satijalab/seurat-wrappers')
 library(wutilities) # devtools::install_github('symbiologist/wutilities')
 library(tictoc)
 library(openxlsx)
 ```
 
-```{r}
-seuratobj <- read_rds(file.path(data_dir, 'seuratobj_annotated.rds'))
-meta <- seuratobj@meta.data %>% rownames_to_column()
-seuratobj
-```
-### Proportion of cells in each cluster
-```{r}
-analyze <- meta %>% 
-  select(rowname, id, sample, condition, treatment, cluster, merged_label, response, response_group) %>% 
-  mutate(description = factor(paste(condition, treatment) %>% str_remove(' None'),
-                              levels = c('PV Pre',
-                                         'PV Mid',
-                                         'PV',
-                                         'AD',
-                                         'HC')))
-
-analyze %>% head()
-```
-
-```{r}
-patient_meta <- meta %>% 
-  select(id, sample, treatment, condition, response, response_group) %>% 
-  unique()
-
-patient_meta
-```
-
-```{r}
-plot_input <- analyze %>% 
-  group_by(description, cluster, merged_label) %>% 
-  tally() %>% 
-  group_by(merged_label) %>% 
-  mutate(total = sum(n),
-         fraction = n/total)
-
-plot_input
-```
-
-```{r}
-p <- plot_input %>% 
-  ggplot(aes(x = merged_label,
-             y = fraction,
-             fill = description)) +
-  geom_bar(stat = 'identity',
-           position = 'stack') +
-  coord_flip() +
-  rcartocolor::scale_fill_carto_d(palette = 'Bold') +
-  labs(x = '',
-       y = 'Proportion')
-
-ggsave(plot = p,
-       filename = 'bar_percentages.png',
-       path = output_dir,
-       h = 6,
-       w = 8)
-
-p
-```
-```{r}
-which_test <- 'Presto'
-```
-
-
-### Comparisons per cluster functions
+### Custom functions
 ```{r}
 de_pipeline <- function(seuratobj,
-                        cluster,
-                        condition1,
-                        condition2,
-                        treatment1,
-                        treatment2,
-                        comparison,
-                        exclude_id = NULL,
+                        cluster_col = 'seurat_clusters',
+                        cluster = 'All',
+                        comparison = NULL,
+                        group1_id,
+                        group2_id,
+                        group1_barcodes = NULL,
+                        group2_barcodes = NULL,
+                        group1_filters, # named list of value pairs
+                        group2_filters,
                         min.pct = 0.01,
                         logfc.threshold = log2(1.1),
                         test.use = 'Presto') {
+
+  # Extract metadata, set cluster column, and filter columns
+  metadata <- seuratobj@meta.data %>% 
+    rownames_to_column() 
   
-   metadata <- seuratobj@meta.data %>% rownames_to_column()
-  
-  if(comparison == 'condition') {
-    group1_id <- paste0(condition1, collapse = '_')
-    group2_id <- paste0(condition2, collapse = '_')
-  } else {
-    group1_id <- treatment1
-    group2_id <- treatment2
+  if(cluster != 'All') {
+    
+    metadata <- metadata %>% 
+      mutate(cluster_col = .[[cluster_col]]) %>% 
+      filter(cluster_col == {{cluster}})
+    
   }
   
-  group1 <- metadata %>% 
-    filter(merged_label == {{cluster}},
-           condition %in% condition1,
-           treatment %in% treatment1) %>% 
-    pull(rowname)
+  # If barcodes are NULL, apply filters 
+  if(is.null(group1_barcodes) | is.null(group2_barcodes)) {
+    
+    group1_barcodes <- wutilities::apply_filters(input = metadata,
+                                                 filters = group1_filters) %>% pull(rowname)
+     
+    group2_barcodes <- wutilities::apply_filters(input = metadata,
+                                                 filters = group2_filters) %>% pull(rowname)
+  } 
   
-  group2 <- metadata %>% 
-    filter(merged_label == {{cluster}},
-           condition %in% condition2,
-           treatment %in% treatment2) %>% 
-    pull(rowname)
+  # Filter on barcodes
+  metadata <- metadata %>% filter(rowname %in% c(group1_barcodes, group2_barcodes))
   
-  n_group1 <- length(group1)
-  n_group2 <- length(group2)
-  
+  # Run DE
   if(test.use == 'Presto') {
     
     de_genes <- RunPresto(object = seuratobj, 
-                          ident.1 = group1,
-                          ident.2 = group2, 
+                          ident.1 = group1_barcodes,
+                          ident.2 = group2_barcodes, 
                           min.pct = min.pct,
                           logfc.threshold = logfc.threshold)
     
@@ -158,62 +100,22 @@ de_pipeline <- function(seuratobj,
    
   }
   
-  de_genes %>%
-    rownames_to_column('gene') %>% 
-    mutate(pct.diff = pct.1 - pct.2,
-           cluster = cluster,
-           group1 = group1_id,
-           group2 = group2_id,
-           n_group1 = n_group1,
-           n_group2 = n_group2) %>% 
-    select(cluster, gene, group1, group2, n_group1, n_group2, everything())
-
-}
-
-de_pipeline_barcodes <- function(seuratobj,
-                                 cluster,
-                                 barcodes1,
-                                 barcodes2,
-                                 group1_id,
-                                 group2_id,
-                                 exclude_id = NULL,
-                                 min.pct = 0.01,
-                                 logfc.threshold = log2(1.1),
-                                 test.use = 'Presto') {
-  
-  metadata <- seuratobj@meta.data %>% rownames_to_column() %>% filter(rowname %in% c(barcodes1, barcodes2))
-  
-  n_group1 <- length(barcodes1)
-  n_group2 <- length(barcodes2)
-  
-  if(test.use == 'Presto') {
+  if(is.null(comparison)) {
     
-    de_genes <- RunPresto(object = seuratobj, 
-                            ident.1 = barcodes1,
-                            ident.2 = barcodes2, 
-                            min.pct = min.pct,
-                            logfc.threshold = logfc.threshold)
-    
-  } else {
-    
-    de_genes <- FindMarkers(object = seuratobj, 
-                            ident.1 = barcodes1,
-                            ident.2 = barcodes2, 
-                            min.pct = min.pct,
-                            logfc.threshold = logfc.threshold,
-                            test.use = test.use) 
-   
+    comparison <- paste(group1_id, 'vs', group2_id) 
+      
   }
   
   de_genes %>%
     rownames_to_column('gene') %>% 
     mutate(pct.diff = pct.1 - pct.2,
+           comparison,
            cluster = cluster,
            group1 = group1_id,
            group2 = group2_id,
-           n_group1 = n_group1,
-           n_group2 = n_group2) %>% 
-    select(cluster, gene, group1, group2, n_group1, n_group2, everything())
+           n_group1 = length(group1_barcodes),
+           n_group2 = length(group2_barcodes)) %>% 
+    select(comparison, cluster, gene, group1, group2, n_group1, n_group2, everything())
 
 }
 
@@ -229,7 +131,7 @@ write_excel_notebook <- function(input_table,
   
   for(i in tabs){
     tryCatch({
-      table_subset <- input_table %>% filter(tabs == i)
+      table_subset <- input_table %>% filter(tabs == i) %>% select(-tabs)
       
       sheet_name <- paste0(prefix, i) %>% str_remove('[\\?/]') %>% str_remove('[\\/]') %>% str_remove('[\\:/]') 
       addWorksheet(OUT, sheet_name)
@@ -242,43 +144,82 @@ write_excel_notebook <- function(input_table,
 }
 ```
 
+### Import
+
+```{r}
+seuratobj <- read_rds(file.path(data_dir, 'seuratobj_annotated.rds'))
+meta <- seuratobj@meta.data %>% rownames_to_column()
+seuratobj
+```
+### Prepare metadata subset
+```{r}
+analyze <- meta %>% 
+  select(rowname, id, sample, condition, treatment, cluster, merged_label, response, response_group) %>% 
+  mutate(description = factor(paste(condition, treatment) %>% str_remove(' None'),
+                              levels = c('PV Pre',
+                                         'PV Mid',
+                                         'PV',
+                                         'AD',
+                                         'HC'))) %>% 
+  as_tibble()
+
+analyze %>% head()
+```
+
+```{r}
+patient_meta <- meta %>% 
+  select(id, patient, sample, treatment, condition, response, response_group) %>% 
+  unique()
+
+patient_meta
+```
+
+
+### Global parameters
+```{r}
+which_test <- 'Presto'
+which_cluster <- 'merged_label'
+sample_threshold <- 2 # at least 3 samples per comparison group (within a cluster)
+responder_threshold <- 1 # fewer patients
+cell_threshold <- 10 # at least 10 cells per sample (within a cluster)
+```
 
 
 ### AD vs HC (11 v 11)
 ```{r}
-condition1 <- 'AD'
-condition2 <- 'HC'
-treatment1 <- 'None'
-treatment2 <- 'None'
-comparison <- 'condition'
+group1_filters <- list('condition' = 'AD')
+group2_filters <- list('condition' = 'HC')
 
-clusters_ad_vs_hc <- analyze %>% 
-  filter(condition %in% c(condition1, condition2),
-         treatment %in% c(treatment1, treatment2)) %>% 
-  group_by(merged_label, condition, treatment, id) %>% 
-  tally() %>% 
-  filter(n > 10) %>% # at least 10 cells per sample
-  group_by(merged_label, condition, treatment) %>% 
-  tally() %>% 
-  filter(n > 3) %>% # at least 3 samples per comparison group
-  select(merged_label, all_of(comparison)) %>% 
-  unique() %>% 
-  group_by(merged_label) %>% 
-  tally() %>% 
-  filter(n > 1)
+data_subset <- bind_rows(
+  analyze %>% apply_filters(group1_filters) %>% mutate(group = 'group1'),
+  analyze %>% apply_filters(group2_filters) %>% mutate(group = 'group2')
+)
 
-de_ad_vs_hc <- map(clusters_ad_vs_hc$merged_label, function(i) {
+patients_per_cluster <- data_subset %>% 
+  group_by(sample, group, across(all_of(which_cluster))) %>% 
+  tally() %>% 
+  filter(n > cell_threshold) %>% 
+  group_by(group, across(all_of(which_cluster))) %>% 
+  tally() %>% 
+  pivot_wider(names_from = group,
+              values_from = n,
+              values_fill = 0) %>% 
+  filter(group1 > sample_threshold,
+         group2 > sample_threshold) 
+
+de_ad_vs_hc <- map(patients_per_cluster[[which_cluster]], function(i) {
+  
+  print2(i)
   
   de_pipeline(seuratobj = seuratobj,
+              cluster_col = which_cluster,
               cluster = i, 
-              comparison = comparison,
-              condition1 = condition1,
-              condition2 = condition2,
-              treatment1 = treatment1,
-              treatment2 = treatment2) 
+              group1_id = 'AD',
+              group2_id = 'HC',
+              group1_filters = group1_filters,
+              group2_filters = group2_filters)
   
-}) %>% 
-  bind_rows()
+}) %>% bind_rows()
 
 de_ad_vs_hc %>% write_tsv(file.path(output_dir, 'de_ad_vs_hc.tsv.gz'))
 
@@ -287,41 +228,40 @@ write_excel_notebook(input_table = de_ad_vs_hc,
 
 de_ad_vs_hc %>% head()
 ```
-
-### PV vs HC (13 v 11)
+### PV (13) vs HC (11)
 ```{r}
-condition1 <- 'PV'
-condition2 <- 'HC'
-treatment1 <- c('None', 'Pre')
-treatment2 <- 'None'
-comparison <- 'condition'
+group1_filters <- list('condition' = 'PV',
+                       'treatment' = c('None', 'Pre'))
+group2_filters <- list('condition' = 'HC')
 
-clusters_pv_vs_hc <- analyze %>% 
-  filter(condition %in% c(condition1, condition2),
-         treatment %in% c(treatment1, treatment2)) %>% 
-  group_by(merged_label, condition, treatment, id) %>% 
-  tally() %>% 
-  filter(n > 10) %>% # at least 10 cells per sample
-  group_by(merged_label, condition, treatment) %>% 
-  tally() %>% 
-  filter(n > 3) %>% # at least 3 samples per comparison group
-  select(merged_label, all_of(comparison)) %>% 
-  unique() %>% 
-  group_by(merged_label) %>% 
-  tally() %>% 
-  filter(n > 1)
+data_subset <- bind_rows(
+  analyze %>% apply_filters(group1_filters) %>% mutate(group = 'group1'),
+  analyze %>% apply_filters(group2_filters) %>% mutate(group = 'group2')
+)
 
+patients_per_cluster <- data_subset %>% 
+  group_by(sample, group, across(all_of(which_cluster))) %>% 
+  tally() %>% 
+  filter(n > cell_threshold) %>% 
+  group_by(group, across(all_of(which_cluster))) %>% 
+  tally() %>% 
+  pivot_wider(names_from = group,
+              values_from = n,
+              values_fill = 0) %>% 
+  filter(group1 > sample_threshold,
+         group2 > sample_threshold) 
 
-de_pv_vs_hc <- map(clusters_pv_vs_hc$merged_label, function(i) {
+de_pv_vs_hc <- map(patients_per_cluster[[which_cluster]], function(i) {
   
   print2(i)
+  
   de_pipeline(seuratobj = seuratobj,
+              cluster_col = which_cluster,
               cluster = i, 
-              comparison = comparison,
-              condition1 = condition1,
-              condition2 = condition2,
-              treatment1 = treatment1,
-              treatment2 = treatment2) 
+              group1_id = 'PV',
+              group2_id = 'HC',
+              group1_filters = group1_filters,
+              group2_filters = group2_filters)
   
 }) %>% bind_rows()
 
@@ -331,45 +271,44 @@ write_excel_notebook(input_table = de_pv_vs_hc,
                      output_file = file.path(output_dir, 'de_pv_vs_hc.xlsx'))
 
 de_pv_vs_hc %>% head()
-
-
 ```
 
 
-### PV+AD vs HC (24 v 11)
+
+### AD+PV vs HC (24 v 11)
 ```{r}
-condition1 <- c('AD', 'PV')
-condition2 <- 'HC'
-treatment1 <- c('None', 'Pre')
-treatment2 <- 'None'
-comparison <- 'condition'
+group1_filters <- list('condition' = c('AD', 'PV'),
+                       'treatment' = c('None', 'Pre'))
+group2_filters <- list('condition' = 'HC')
 
-clusters_adpv_vs_hc <- analyze %>% 
-  filter(condition %in% c(condition1, condition2),
-         treatment %in% c(treatment1, treatment2)) %>% 
-  group_by(merged_label, condition, treatment, id) %>% 
-  tally() %>% 
-  filter(n > 10) %>% # at least 10 cells per sample
-  group_by(merged_label, condition, treatment) %>% 
-  tally() %>% 
-  filter(n > 3) %>% # at least 3 samples per comparison group
-  select(merged_label, all_of(comparison)) %>% 
-  unique() %>% 
-  group_by(merged_label) %>% 
-  tally() %>% 
-  filter(n > 2)
+data_subset <- bind_rows(
+  analyze %>% apply_filters(group1_filters) %>% mutate(group = 'group1'),
+  analyze %>% apply_filters(group2_filters) %>% mutate(group = 'group2')
+)
 
+patients_per_cluster <- data_subset %>% 
+  group_by(sample, group, across(all_of(which_cluster))) %>% 
+  tally() %>% 
+  filter(n > cell_threshold) %>% 
+  group_by(group, across(all_of(which_cluster))) %>% 
+  tally() %>% 
+  pivot_wider(names_from = group,
+              values_from = n,
+              values_fill = 0) %>% 
+  filter(group1 > sample_threshold,
+         group2 > sample_threshold) 
 
-de_adpv_vs_hc <- map(clusters_adpv_vs_hc$merged_label, function(i) {
+de_adpv_vs_hc <- map(patients_per_cluster[[which_cluster]], function(i) {
   
   print2(i)
+  
   de_pipeline(seuratobj = seuratobj,
+              cluster_col = which_cluster,
               cluster = i, 
-              comparison = comparison,
-              condition1 = condition1,
-              condition2 = condition2,
-              treatment1 = treatment1,
-              treatment2 = treatment2) 
+              group1_id = 'AD+PV',
+              group2_id = 'HC',
+              group1_filters = group1_filters,
+              group2_filters = group2_filters)
   
 }) %>% bind_rows()
 
@@ -383,38 +322,39 @@ de_adpv_vs_hc %>% head()
 
 ### PV vs AD (13 v 11)
 ```{r}
-condition1 <- 'AD'
-condition2 <- 'PV'
-treatment1 <- 'None'
-treatment2 <- c('None', 'Pre')
-comparison <- 'condition'
+group1_filters <- list('condition' = 'AD')
 
-clusters_ad_vs_pv <- analyze %>% 
-  filter(condition %in% c(condition1, condition2),
-         treatment %in% c(treatment1, treatment2)) %>% 
-  group_by(merged_label, condition, treatment, id) %>% 
-  tally() %>% 
-  filter(n > 10) %>% # at least 10 cells per sample
-  group_by(merged_label, condition, treatment) %>% 
-  tally() %>% 
-  filter(n > 3) %>% # at least 3 samples per comparison group
-  select(merged_label, all_of(comparison)) %>% 
-  unique() %>% 
-  group_by(merged_label) %>% 
-  tally() %>% 
-  filter(n > 1)
+group2_filters <- list('condition' = 'PV',
+                       'treatment' = c('None', 'Pre'))
 
+data_subset <- bind_rows(
+  analyze %>% apply_filters(group1_filters) %>% mutate(group = 'group1'),
+  analyze %>% apply_filters(group2_filters) %>% mutate(group = 'group2')
+)
 
-de_ad_vs_pv <- map(clusters_ad_vs_pv$merged_label, function(i) {
+patients_per_cluster <- data_subset %>% 
+  group_by(sample, group, across(all_of(which_cluster))) %>% 
+  tally() %>% 
+  filter(n > cell_threshold) %>% 
+  group_by(group, across(all_of(which_cluster))) %>% 
+  tally() %>% 
+  pivot_wider(names_from = group,
+              values_from = n,
+              values_fill = 0) %>% 
+  filter(group1 > sample_threshold,
+         group2 > sample_threshold) 
+
+de_ad_vs_pv <- map(patients_per_cluster[[which_cluster]], function(i) {
   
   print2(i)
+  
   de_pipeline(seuratobj = seuratobj,
+              cluster_col = which_cluster,
               cluster = i, 
-              comparison = comparison,
-              condition1 = condition1,
-              condition2 = condition2,
-              treatment1 = treatment1,
-              treatment2 = treatment2) 
+              group1_id = 'AD',
+              group2_id = 'PV',
+              group1_filters = group1_filters,
+              group2_filters = group2_filters)
   
 }) %>% bind_rows()
 
@@ -428,41 +368,43 @@ de_ad_vs_pv %>% head()
 ```
 
 
-### Pre vs Mid 
+### Pre vs Mid, all treatment patients, all clusters
 ```{r}
-condition1 <- 'PV'
-condition2 <- 'PV'
-treatment1 <- 'Pre'
-treatment2 <- 'Mid'
-comparison <- 'treatment'
+group1_filters <- list('condition' = 'PV',
+                       'treatment' = 'Pre')
 
-clusters_pre_vs_mid <- analyze %>% 
-  filter(condition %in% c(condition1, condition2),
-         treatment %in% c(treatment1, treatment2)) %>% 
-  group_by(merged_label, condition, treatment, id) %>% 
-  tally() %>% 
-  filter(n > 10) %>% # at least 10 cells per sample
-  group_by(merged_label, condition, treatment) %>% 
-  tally() %>% 
-  filter(n > 3) %>% # at least 3 samples per comparison group
-  select(merged_label, all_of(comparison)) %>% 
-  unique() %>% 
-  group_by(merged_label) %>% 
-  tally() %>% 
-  filter(n > 1)
+group2_filters <- list('condition' = 'PV',
+                       'treatment' = 'Mid')
 
+data_subset <- bind_rows(
+  analyze %>% apply_filters(group1_filters) %>% mutate(group = 'group1'),
+  analyze %>% apply_filters(group2_filters) %>% mutate(group = 'group2')
+)
 
-de_pre_vs_mid <- map(clusters_pre_vs_mid$merged_label, function(i) {
+patients_per_cluster <- data_subset %>% 
+  group_by(sample, group, across(all_of(which_cluster))) %>% 
+  tally() %>% 
+  filter(n > cell_threshold) %>% 
+  group_by(group, across(all_of(which_cluster))) %>% 
+  tally() %>% 
+  pivot_wider(names_from = group,
+              values_from = n,
+              values_fill = 0) %>% 
+  filter(group1 > sample_threshold,
+         group2 > sample_threshold) 
+
+de_pre_vs_mid <- map(patients_per_cluster[[which_cluster]], function(i) {
   
   print2(i)
+  
   de_pipeline(seuratobj = seuratobj,
+              cluster_col = which_cluster,
               cluster = i, 
-              comparison = comparison,
-              condition1 = condition1,
-              condition2 = condition2,
-              treatment1 = treatment1,
-              treatment2 = treatment2) 
-   
+              group1_id = 'Pre',
+              group2_id = 'Mid',
+              group1_filters = group1_filters,
+              group2_filters = group2_filters)
+  
 }) %>% bind_rows()
 
 de_pre_vs_mid %>% write_tsv(file.path(output_dir, 'de_pre_vs_mid.tsv.gz'))
@@ -470,25 +412,202 @@ write_excel_notebook(input_table = de_pre_vs_mid,
                      output_file = file.path(output_dir, 'de_pre_vs_mid.xlsx'))
 
 de_pre_vs_mid %>% head()
-
-
 ```
-### Per sample analysis of Trm
-```{r}
-condition1 <- 'PV'
-condition2 <- 'PV'
-treatment1 <- 'Pre'
-treatment2 <- 'Mid'
-comparison <- 'treatment'
 
+### Pre vs Mid, Responders
+```{r}
+group1_filters <- list('condition' = 'PV',
+                       'treatment' = 'Pre',
+                       'response_group' = 'Responder')
+
+group2_filters <- list('condition' = 'PV',
+                       'treatment' = 'Mid',
+                       'response_group' = 'Responder')
+
+data_subset <- bind_rows(
+  analyze %>% apply_filters(group1_filters) %>% mutate(group = 'group1'),
+  analyze %>% apply_filters(group2_filters) %>% mutate(group = 'group2')
+)
+
+patients_per_cluster <- data_subset %>% 
+  group_by(sample, group, across(all_of(which_cluster))) %>% 
+  tally() %>% 
+  filter(n > cell_threshold) %>% 
+  group_by(group, across(all_of(which_cluster))) %>% 
+  tally() %>% 
+  pivot_wider(names_from = group,
+              values_from = n,
+              values_fill = 0) %>% 
+  filter(group1 > responder_threshold,
+         group2 > responder_threshold) 
+
+de_pre_vs_mid_responder <- map(patients_per_cluster[[which_cluster]], function(i) {
+  
+  print2(i)
+  
+  de_pipeline(seuratobj = seuratobj,
+              cluster_col = which_cluster,
+              cluster = i, 
+              group1_id = 'Responder Pre',
+              group2_id = 'Responder Mid',
+              group1_filters = group1_filters,
+              group2_filters = group2_filters)
+  
+}) %>% bind_rows()
+
+de_pre_vs_mid_responder %>% write_tsv(file.path(output_dir, 'de_pre_vs_mid_responder.tsv.gz'))
+write_excel_notebook(input_table = de_pre_vs_mid_responder,
+                     output_file = file.path(output_dir, 'de_pre_vs_mid_responder.xlsx'))
+```
+
+### Pre vs Mid, Non-responders
+```{r}
+group1_filters <- list('condition' = 'PV',
+                       'treatment' = 'Pre',
+                       'response_group' = 'Non-responder')
+
+group2_filters <- list('condition' = 'PV',
+                       'treatment' = 'Mid',
+                       'response_group' = 'Non-responder')
+
+data_subset <- bind_rows(
+  analyze %>% apply_filters(group1_filters) %>% mutate(group = 'group1'),
+  analyze %>% apply_filters(group2_filters) %>% mutate(group = 'group2')
+)
+
+patients_per_cluster <- data_subset %>% 
+  group_by(sample, group, across(all_of(which_cluster))) %>% 
+  tally() %>% 
+  filter(n > cell_threshold) %>% 
+  group_by(group, across(all_of(which_cluster))) %>% 
+  tally() %>% 
+  pivot_wider(names_from = group,
+              values_from = n,
+              values_fill = 0) %>% 
+  filter(group1 > responder_threshold,
+         group2 > responder_threshold) 
+
+de_pre_vs_mid_nonresponder <- map(patients_per_cluster[[which_cluster]], function(i) {
+  
+  print2(i)
+  
+  de_pipeline(seuratobj = seuratobj,
+              cluster_col = which_cluster,
+              cluster = i, 
+              group1_id = 'Non-responder Pre',
+              group2_id = 'Non-responder Mid',
+              group1_filters = group1_filters,
+              group2_filters = group2_filters)
+  
+}) %>% bind_rows()
+
+de_pre_vs_mid_nonresponder %>% write_tsv(file.path(output_dir, 'de_pre_vs_mid_nonresponder.tsv.gz'))
+write_excel_notebook(input_table = de_pre_vs_mid_nonresponder,
+                     output_file = file.path(output_dir, 'de_pre_vs_mid_nonresponder.xlsx'))
+```
+
+
+### Responders vs non-responders in Pre samples (all clusters)
+```{r}
+group1_filters <- list('condition' = 'PV',
+                       'treatment' = 'Pre',
+                       'response_group' = 'Responder')
+
+group2_filters <- list('condition' = 'PV',
+                       'treatment' = 'Pre',
+                       'response_group' = 'Non-responder')
+
+data_subset <- bind_rows(
+  analyze %>% apply_filters(group1_filters) %>% mutate(group = 'group1'),
+  analyze %>% apply_filters(group2_filters) %>% mutate(group = 'group2')
+)
+
+patients_per_cluster <- data_subset %>% 
+  group_by(sample, group, across(all_of(which_cluster))) %>% 
+  tally() %>% 
+  filter(n > cell_threshold) %>% 
+  group_by(group, across(all_of(which_cluster))) %>% 
+  tally() %>% 
+  pivot_wider(names_from = group,
+              values_from = n,
+              values_fill = 0) %>% 
+  filter(group1 > responder_threshold,
+         group2 > responder_threshold) 
+
+de_responder_vs_nonresponder_pre <- map(patients_per_cluster[[which_cluster]], function(i) {
+  
+  print2(i)
+  
+  de_pipeline(seuratobj = seuratobj,
+              cluster_col = which_cluster,
+              cluster = i, 
+              group1_id = 'Responder Pre',
+              group2_id = 'Non-responder Pre',
+              group1_filters = group1_filters,
+              group2_filters = group2_filters)
+  
+}) %>% bind_rows()
+
+de_responder_vs_nonresponder_pre %>% write_tsv(file.path(output_dir, 'de_responder_vs_nonresponder_pre.tsv.gz'))
+write_excel_notebook(input_table = de_responder_vs_nonresponder_pre,
+                     output_file = file.path(output_dir, 'de_responder_vs_nonresponder_pre.xlsx'))
+```
+
+### Responders vs non-responders in mid samples (all clusters)
+```{r}
+group1_filters <- list('condition' = 'PV',
+                       'treatment' = 'Mid',
+                       'response_group' = 'Responder')
+
+group2_filters <- list('condition' = 'PV',
+                       'treatment' = 'Mid',
+                       'response_group' = 'Non-responder')
+
+data_subset <- bind_rows(
+  analyze %>% apply_filters(group1_filters) %>% mutate(group = 'group1'),
+  analyze %>% apply_filters(group2_filters) %>% mutate(group = 'group2')
+)
+
+patients_per_cluster <- data_subset %>% 
+  group_by(sample, group, across(all_of(which_cluster))) %>% 
+  tally() %>% 
+  filter(n > cell_threshold) %>% 
+  group_by(group, across(all_of(which_cluster))) %>% 
+  tally() %>% 
+  pivot_wider(names_from = group,
+              values_from = n,
+              values_fill = 0) %>% 
+  filter(group1 > responder_threshold,
+         group2 > responder_threshold) 
+
+de_responder_vs_nonresponder_mid <- map(patients_per_cluster[[which_cluster]], function(i) {
+  
+  print2(i)
+  
+  de_pipeline(seuratobj = seuratobj,
+              cluster_col = which_cluster,
+              cluster = i, 
+              group1_id = 'Responder Mid',
+              group2_id = 'Non-responder Mid',
+              group1_filters = group1_filters,
+              group2_filters = group2_filters)
+  
+}) %>% bind_rows()
+
+de_responder_vs_nonresponder_mid %>% write_tsv(file.path(output_dir, 'de_responder_vs_nonresponder_mid.tsv.gz'))
+write_excel_notebook(input_table = de_responder_vs_nonresponder_mid,
+                     output_file = file.path(output_dir, 'de_responder_vs_nonresponder_mid.xlsx'))
+```
+
+### Per sample analysis of Trm 
+```{r}
 patients <- patient_meta %>% 
-  filter(treatment %in% c(treatment1, treatment2)) %>% 
-  separate(sample, into = c('patient', NA)) %>% 
+  filter(treatment != 'None') %>% 
   pivot_wider(names_from = treatment, values_from = id)
 
 cluster <- 'Trm_merge'
 
-de_pre_vs_mid_patients <- map(patients$patient, function(i) {
+de_pre_vs_mid_per_patient <- map(patients$patient, function(i) {
   
   single_patient <- patients %>% filter(patient == i)
   response <- single_patient$response
@@ -497,24 +616,19 @@ de_pre_vs_mid_patients <- map(patients$patient, function(i) {
   mid_barcodes <- cluster_subset %>% filter(id == single_patient$Mid) %>% pull(rowname)
   
   print2(i)
-  de_pipeline_barcodes(seuratobj = seuratobj,
-                       cluster = cluster, 
-                       barcodes1 = pre_barcodes,
-                       barcodes2 = mid_barcodes,
-                       group1_id = paste0(i, '_Pre'),
-                       group2_id = paste0(i, '_Mid'), 
-                       test.use = which_test) %>% 
-    mutate(patient = i,
-           response = response) %>% 
-    select(patient, response, everything())
-  
-  
+  de_pipeline(seuratobj = seuratobj,
+              cluster = cluster, 
+              group1_barcodes = pre_barcodes,
+              group2_barcodes = mid_barcodes,
+              group1_id = paste0(i, '_Pre'),
+              group2_id = paste0(i, '_Mid'), 
+              test.use = which_test)
    
 }) %>% bind_rows()
 
-de_pre_vs_mid_patients %>% write_tsv(file.path(output_dir, 'de_pre_vs_mid_patients.tsv.gz'))
-write_excel_notebook(input_table = de_pre_vs_mid_patients,
-                     output_file = file.path(output_dir, 'de_pre_vs_mid_patients.xlsx'),
+de_pre_vs_mid_per_patient %>% write_tsv(file.path(output_dir, 'de_pre_vs_mid_per_patient.tsv.gz'))
+write_excel_notebook(input_table = de_pre_vs_mid_per_patient,
+                     output_file = file.path(output_dir, 'de_pre_vs_mid_per_patient.xlsx'),
                      tabs = 'patient',
                      prefix = 'patient_')
 
@@ -524,15 +638,8 @@ write_excel_notebook(input_table = de_pre_vs_mid_patients,
 
 ### Per sample PV pre and mid vs HC
 ```{r}
-condition1 <- 'PV'
-condition2 <- 'PV'
-treatment1 <- 'Pre'
-treatment2 <- 'Mid'
-comparison <- 'treatment'
-
 patients <- patient_meta %>% 
-  filter(condition == 'HC' | (treatment %in% c(treatment1, treatment2))) %>% 
-  separate(sample, into = c('patient', NA))
+  filter(condition == 'HC' | (treatment != 'None')) 
 
 cluster <- 'Trm_merge'
 
@@ -545,17 +652,18 @@ de_per_sample_vs_hc <- map(patients %>% filter(condition == 'PV') %>% pull(id), 
   display <- paste0(single_patient$patient,' ', single_patient$treatment, '', single_patient$id, '', single_patient$response)
   
   print2(i)
-  de_pipeline_barcodes(seuratobj = seuratobj,
-                       cluster = cluster, 
-                       barcodes1 = single_barcodes,
-                       barcodes2 = control_barcodes,
-                       group1_id = i,
-                       group2_id = 'HC') %>% 
+  de_pipeline(seuratobj = seuratobj,
+              cluster = cluster, 
+              group1_barcodes = single_barcodes,
+              group2_barcodes = control_barcodes,
+              group1_id = i,
+              group2_id = 'HC') %>% 
     mutate(id = display)
 }) %>% bind_rows()
 
 
 de_per_sample_vs_hc %>% write_tsv(file.path(output_dir, 'de_per_sample_vs_hc.tsv.gz'))
+
 write_excel_notebook(input_table = de_per_sample_vs_hc %>% 
                        separate(id, into = c('patient', NA, 'skin_id', 'response'), remove = F) %>% 
                        mutate(label = paste(patient, skin_id, response)) %>% 
@@ -566,273 +674,7 @@ write_excel_notebook(input_table = de_per_sample_vs_hc %>%
 ```
 
 
-### Pre vs mid in responders vs non-responders
-```{r}
-condition1 <- 'PV'
-condition2 <- 'PV'
-treatment1 <- 'Pre'
-treatment2 <- 'Mid'
-comparison <- 'treatment'
 
-patients <- patient_meta %>% 
-  filter(treatment %in% c(treatment1, treatment2)) %>% 
-  separate(sample, into = c('patient', NA)) %>% 
-  pivot_wider(names_from = treatment, values_from = id)
-
-cluster <- 'Trm_merge'
-
-de_pre_vs_mid_response <- map(c('responders', 'non-responders'), function(i) {
-  
-  if(i == 'responders') {
-    patient_subset <- patients %>% filter(response %in% c('Full'))  
-  } else {
-    patient_subset <- patients %>% filter(response %in% c('Partial', 'Failure'))  
-  }
-  
-  cluster_subset <- meta %>% filter(merged_label == {{cluster}})
-  
-  pre_barcodes <- cluster_subset %>% filter(id %in% patient_subset$Pre) %>% pull(rowname)
-  mid_barcodes <- cluster_subset %>% filter(id %in% patient_subset$Mid) %>% pull(rowname)
-  
-  print2(i)
-  de_pipeline_barcodes(seuratobj = seuratobj,
-                       cluster = cluster, 
-                       barcodes1 = pre_barcodes,
-                       barcodes2 = mid_barcodes,
-                       group1_id = paste0(i, '_Pre'),
-                       group2_id = paste0(i, '_Mid')) %>% 
-    mutate(response = i) %>% 
-    select(response, everything())
-  
-}) %>% bind_rows()
-
-de_pre_vs_mid_response %>% write_tsv(file.path(output_dir, 'de_pre_vs_mid_response.tsv.gz'))
-write_excel_notebook(input_table = de_pre_vs_mid_response,
-                     output_file = file.path(output_dir, 'de_pre_vs_mid_response.xlsx'),
-                     tabs = 'response',
-                     prefix = '')
-```
-
-### Responders vs non responders in Pre and mid samples in Trms
-```{r}
-condition1 <- 'PV'
-condition2 <- 'PV'
-treatment1 <- 'Pre'
-treatment2 <- 'Mid'
-response1 <- 'Responders'
-response2 <- 'Non-responders'
-
-patients <- patient_meta %>% 
-  filter(treatment %in% c(treatment1, treatment2)) %>% 
-  separate(sample, into = c('patient', NA))
-
-cluster <- 'Trm_merge'
-
-de_responders_vs_nonresponders <- map(c('Pre', 'Mid'), function(i) {
-  
-  patient_subset <- patients %>% filter(treatment == i)  
-  
-  cluster_subset <- meta %>% filter(merged_label == {{cluster}})
-  
-  responder_barcodes <- cluster_subset %>% filter(id %in% (patient_subset %>% filter(response %in% c('Full')) %>% pull(id))) %>% pull(rowname)
-  nonresponder_barcodes <- cluster_subset %>% filter(id %in% (patient_subset %>% filter(response %in% c('Partial', 'Failure')) %>% pull(id))) %>% pull(rowname)
-  
-  print2(i)
-  de_pipeline_barcodes(seuratobj = seuratobj,
-                       cluster = cluster, 
-                       barcodes1 = responder_barcodes,
-                       barcodes2 = nonresponder_barcodes,
-                       group1_id = paste0('Responders_', i),
-                       group2_id = paste0('Nonresponders_', i)) %>% 
-    mutate(treatment = i) %>% 
-    select(treatment, everything())
-  
-}) %>% bind_rows()
-
-de_responders_vs_nonresponders %>% write_tsv(file.path(output_dir, 'de_responders_vs_nonresponders.tsv.gz'))
-
-write_excel_notebook(input_table = de_responders_vs_nonresponders,
-                     output_file = file.path(output_dir, 'de_responders_vs_nonresponders.xlsx'),
-                     tabs = 'treatment',
-                     prefix = '')
-```
-### Responders v non-responders, APCs
-```{r}
-condition1 <- 'PV'
-condition2 <- 'PV'
-treatment1 <- 'Pre'
-treatment2 <- 'Mid'
-comparison <- 'treatment'
-
-patients <- patient_meta %>% 
-  filter(treatment %in% c(treatment1, treatment2)) %>% 
-  separate(sample, into = c('patient', NA)) %>% 
-  pivot_wider(names_from = treatment, values_from = id)
-
-cluster <- '10 moDC1' #str_subset(meta$merged_label %>% unique(), 'T', negate = TRUE)
-
-de_pre_vs_mid_response_apc <- map(c('responders', 'non-responders'), function(i) {
-  
-  if(i == 'responders') {
-    patient_subset <- patients %>% filter(response %in% c('Full'))  
-  } else {
-    patient_subset <- patients %>% filter(response %in% c('Partial', 'Failure'))  
-  }
-  
-  cluster_subset <- meta %>% filter(merged_label %in% {{cluster}})
-  
-  pre_barcodes <- cluster_subset %>% filter(id %in% patient_subset$Pre) %>% pull(rowname)
-  mid_barcodes <- cluster_subset %>% filter(id %in% patient_subset$Mid) %>% pull(rowname)
-  
-  print2(i)
-  de_pipeline_barcodes(seuratobj = seuratobj,
-                       cluster = cluster, 
-                       barcodes1 = pre_barcodes,
-                       barcodes2 = mid_barcodes,
-                       group1_id = paste0(i, '_Pre'),
-                       group2_id = paste0(i, '_Mid')) %>% 
-    mutate(response = i) %>% 
-    select(response, everything())
-  
-}) %>% bind_rows()
-
-de_pre_vs_mid_response_apc %>% write_tsv(file.path(output_dir, 'de_pre_vs_mid_response_apc.tsv.gz'))
-write_excel_notebook(input_table = de_pre_vs_mid_response_apc,
-                     output_file = file.path(output_dir, 'de_pre_vs_mid_response_apc.xlsx'),
-                     tabs = 'response',
-                     prefix = '')
-```
-
-```{r}
-analyze %>% 
-  filter(condition %in% c(condition1, condition2),
-         treatment %in% c(treatment1, treatment2),
-         response_group %in% c(response1, response2)) %>% 
-  group_by(merged_label, condition, treatment, id, response_group) %>% 
-  tally() %>% 
-  filter(n > 10) %>% # at least 10 cells per sample
-  group_by(merged_label, condition, treatment, response_group) %>% 
-  tally() %>% 
-  filter(n > 2) %>% # at least 3 samples per comparison group
-  select(merged_label, all_of(comparison)) %>% 
-  unique() %>% 
-  group_by(merged_label) %>% 
-  tally() %>% 
-  filter(n > 1)
-```
-
-### Responders vs non responders in Pre samples (all clusters)
-```{r}
-condition1 <- 'PV'
-condition2 <- 'PV'
-treatment1 <- 'Pre'
-treatment2 <- 'Pre'
-response1 <- 'Responder'
-response2 <- 'Non-responder'
-comparison <- 'response_group'
-
-patients <- patient_meta %>% 
-  filter(condition %in% c(condition1, condition2),
-         treatment %in% c(treatment1, treatment2),
-         response_group %in% c(response1, response2)) %>% 
-  separate(sample, into = c('patient', NA))
-
-which_clusters <- analyze %>% 
-  filter(condition %in% c(condition1, condition2),
-         treatment %in% c(treatment1, treatment2),
-         response_group %in% c(response1, response2)) %>% 
-  group_by(merged_label, condition, treatment, id, response_group) %>% 
-  tally() %>% 
-  filter(n > 10) %>% # at least 10 cells per sample
-  group_by(merged_label, condition, treatment, response_group) %>% 
-  tally() %>% 
-  filter(n > 1) %>% # at least 2 samples per comparison group
-  select(merged_label, all_of(comparison)) %>% 
-  unique() %>% 
-  group_by(merged_label) %>% 
-  tally() %>% 
-  filter(n > 1)
-
-de_responders_vs_nonresponders_pre <- map(which_clusters$merged_label, function(i) {
-  
-  cluster_subset <- meta %>% filter(merged_label == i)
-  
-  responder_barcodes <- cluster_subset %>% filter(id %in% (patients %>% filter(response_group == 'Responder') %>% pull(id))) %>% pull(rowname)
-  nonresponder_barcodes <- cluster_subset %>% filter(id %in% (patients %>% filter(response_group == 'Non-responder') %>% pull(id))) %>% pull(rowname)
-  
-  print2(i)
-  de_pipeline_barcodes(seuratobj = seuratobj,
-                       cluster = i, 
-                       barcodes1 = responder_barcodes,
-                       barcodes2 = nonresponder_barcodes,
-                       group1_id = paste0('Responders_Pre'),
-                       group2_id = paste0('Non-responders_Pre'))
-  
-}) %>% 
-  bind_rows() %>% 
-  as_tibble()
-
-de_responders_vs_nonresponders_pre %>% write_tsv(file.path(output_dir, 'de_responders_vs_nonresponders_pre.tsv.gz'))
-
-write_excel_notebook(input_table = de_responders_vs_nonresponders_pre,
-                     output_file = file.path(output_dir, 'de_responders_vs_nonresponders_pre.xlsx'))
-```
-### Responders vs non responders in mid samples (all clusters)
-```{r}
-condition1 <- 'PV'
-condition2 <- 'PV'
-treatment1 <- 'Mid'
-treatment2 <- 'Mid'
-response1 <- 'Responder'
-response2 <- 'Non-responder'
-comparison <- 'response_group'
-
-patients <- patient_meta %>% 
-  filter(condition %in% c(condition1, condition2),
-         treatment %in% c(treatment1, treatment2),
-         response_group %in% c(response1, response2)) %>% 
-  separate(sample, into = c('patient', NA))
-
-which_clusters <- analyze %>% 
-  filter(condition %in% c(condition1, condition2),
-         treatment %in% c(treatment1, treatment2),
-         response_group %in% c(response1, response2)) %>% 
-  group_by(merged_label, condition, treatment, id, response_group) %>% 
-  tally() %>% 
-  filter(n > 10) %>% # at least 10 cells per sample
-  group_by(merged_label, condition, treatment, response_group) %>% 
-  tally() %>% 
-  filter(n > 1) %>% # at least 2 samples per comparison group
-  select(merged_label, all_of(comparison)) %>% 
-  unique() %>% 
-  group_by(merged_label) %>% 
-  tally() %>% 
-  filter(n > 1)
-
-de_responders_vs_nonresponders_mid <- map(which_clusters$merged_label, function(i) {
-  
-  cluster_subset <- meta %>% filter(merged_label == i)
-  
-  responder_barcodes <- cluster_subset %>% filter(id %in% (patients %>% filter(response_group == 'Responder') %>% pull(id))) %>% pull(rowname)
-  nonresponder_barcodes <- cluster_subset %>% filter(id %in% (patients %>% filter(response_group == 'Non-responder') %>% pull(id))) %>% pull(rowname)
-  
-  print2(i)
-  de_pipeline_barcodes(seuratobj = seuratobj,
-                       cluster = i, 
-                       barcodes1 = responder_barcodes,
-                       barcodes2 = nonresponder_barcodes,
-                       group1_id = paste0('Responders_Mid'),
-                       group2_id = paste0('Non-responders_Mid'))
-  
-}) %>% 
-  bind_rows() %>% 
-  as_tibble()
-
-de_responders_vs_nonresponders_mid %>% write_tsv(file.path(output_dir, 'de_responders_vs_nonresponders_mid.tsv.gz'))
-
-write_excel_notebook(input_table = de_responders_vs_nonresponders_mid,
-                     output_file = file.path(output_dir, 'de_responders_vs_nonresponders_mid.xlsx'))
-```
 
 ### Combined DE table
 ```{r}
@@ -841,11 +683,11 @@ list(de_ad_vs_hc,
      de_adpv_vs_hc,
      de_ad_vs_pv,
      de_pre_vs_mid,
-     de_responders_vs_nonresponders_pre,
-     de_responders_vs_nonresponders_mid) %>% 
+     de_pre_vs_mid_responder,
+     de_pre_vs_mid_nonresponder,
+     de_responder_vs_nonresponder_pre,
+     de_responder_vs_nonresponder_mid) %>% 
   bind_rows() %>% 
-  mutate(comparison = paste(group1, 'vs', group2)) %>% 
-  select(comparison, everything()) %>% 
   write_tsv(file.path(output_dir, 'de_combined.tsv.gz'))
 ```
 

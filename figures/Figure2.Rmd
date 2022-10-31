@@ -47,7 +47,6 @@ theme_set(theme_dwu()) # set default theme
 seuratobj <- read_rds(file.path(data_dir, 'seuratobj_annotated.rds'))
 meta <- seuratobj@meta.data %>% rownames_to_column() 
 de_combined <- read_tsv('analysis/output/07_de/de_combined.tsv.gz')
-de_pre_vs_mid_response <- read_tsv('analysis/output/07_de/de_pre_vs_mid_response.tsv.gz')
 seuratobj
 ```
 
@@ -61,16 +60,29 @@ patient_meta
 ```
 ```{r}
 analyze <- meta %>% 
-  select(rowname, id, sample, condition, treatment, cluster, merged_label) %>% 
+  select(rowname, id, sample, patient, condition, treatment, cluster, merged_label) %>% 
   mutate(description = factor(paste(condition, treatment) %>% str_remove(' None'),
                               levels = c('PV Pre',
-                                         'PV Post',
+                                         'PV Mid',
                                          'PV',
                                          'AD',
                                          'HC')))
 
 ```
 
+
+```{r}
+tallies <- analyze %>% 
+  group_by(patient, condition, treatment, merged_label) %>% 
+  tally()
+
+tallies %>%
+  filter(condition == 'PV',
+         treatment != 'None',
+         merged_label == '18 moDC2') %>% 
+  pivot_wider(names_from = treatment,
+              values_from = n)
+```
 
 
 #### Global
@@ -81,8 +93,8 @@ dpi <- 600
 
 which_comparison <- c('PV vs HC',
                       'Pre vs Mid',
-                      'Responders_Pre vs Non-responders_Pre',
-                      'Responders_Mid vs Non-responders_Mid')
+                      'Responder Pre vs Responder Mid',
+                      'Non-responder Pre vs Non-responder Mid')
 
 p_adj_cutoff <- 0.05
 
@@ -115,6 +127,7 @@ p <- de_subset %>%
 p
 ```
 
+
 ### Figure 2B
 #### Volcano PV vs HC
 ```{r}
@@ -137,9 +150,9 @@ de_subset %>%
 ### Figure 2C
 What is corrected by treatment?
 
+Import gene sets
 ```{r}
-#de_pv_vs_hc <- 
-#de_pre_vs_mid_response <- 
+genesets <- read_tsv('analysis/output/msigdb/il23_il17_gene_sets.tsv')
 ```
 
 ```{r}
@@ -156,6 +169,9 @@ response_genes
 ```
 ### Extract expression
 ```{r}
+
+genes_to_extract <- genesets$gene_symbol %>% unique()
+
 metadata_subset <- meta %>% 
   filter(response_group == 'Responder' | condition == 'HC',
          merged_label == 'Trm_merge') %>% 
@@ -165,7 +181,7 @@ metadata_subset <- meta %>%
 barcodes <- metadata_subset$rowname
 exprs <- FetchData(seuratobj, 
                    cells = barcodes,
-                   vars = response_genes) %>% 
+                   vars = genes_to_extract) %>% 
   rownames_to_column() %>% 
   as_tibble()
 
@@ -176,14 +192,14 @@ exprs
 ```{r}
 merged_table <- exprs %>% 
   inner_join(metadata_subset %>% select(rowname, patient, id, condition, treatment, response, response_group, merged_label)) %>% 
-  pivot_longer(cols = response_genes,
+  pivot_longer(cols = genes_to_extract,
                names_to = 'gene',
                values_to = 'expression')
 
 merged_table
 ```
 ```{r}
-merged_table %>% 
+p <- merged_table %>% 
   ggplot(aes(x = treatment,
              y = expression,
              color = treatment)) +
@@ -192,6 +208,8 @@ merged_table %>%
   facet_wrap(~gene, scales = 'free_y') +
   scale_color_carto_d() +
   theme(legend.position = 'top')
+
+p
 ```
 
 ```{r}
@@ -204,7 +222,7 @@ summarized_table <- merged_table %>%
 
 
 ```{r}
-summarized_table %>% 
+p <- summarized_table %>% 
    ggplot(aes(x = treatment,
               y = mean,
               fill = treatment)) +
@@ -214,6 +232,61 @@ summarized_table %>%
   #theme(legend.position = 'top') +
   labs(x = '',
        y = 'Average Expression in Trm Cells')
+
+p
+```
+### Biocarta
+```{r}
+p <- summarized_table %>% 
+  filter(gene %in% (genesets %>% filter(gs_name == 'BIOCARTA_IL17_PATHWAY') %>% pull(gene_symbol))) %>% 
+   ggplot(aes(x = treatment,
+              y = mean,
+              fill = treatment)) +
+  geom_col(color = 'black') +
+  facet_wrap(~gene, scales = 'free_y') +
+  scale_fill_carto_d() +
+  #theme(legend.position = 'top') +
+  labs(x = '',
+       y = 'Average Expression in Trm Cells')
+
+p
+```
+### Wikipathway
+```{r}
+p <- summarized_table %>% 
+  filter(gene %in% (genesets %>% filter(gs_name == 'WP_IL17_SIGNALING_PATHWAY') %>% pull(gene_symbol))) %>% 
+   ggplot(aes(x = treatment,
+              y = mean,
+              fill = treatment)) +
+  geom_col(color = 'black') +
+  facet_wrap(~gene, scales = 'free_y') +
+  scale_fill_carto_d() +
+  #theme(legend.position = 'top') +
+  labs(x = '',
+       y = 'Average Expression in Trm Cells')
+
+p
+```
+### PID
+```{r}
+p <- summarized_table %>% 
+  filter(gene %in% (genesets %>% filter(gs_name == 'PID_IL23_PATHWAY') %>% pull(gene_symbol))) %>% 
+   ggplot(aes(x = treatment,
+              y = mean,
+              fill = treatment)) +
+  geom_col(color = 'black') +
+  facet_wrap(~gene, scales = 'free_y') +
+  scale_fill_carto_d() +
+  #theme(legend.position = 'top') +
+  labs(x = '',
+       y = 'Average Expression in Trm Cells')
+
+p
+```
+
+### clusterProfiler
+```{r}
+
 ```
 
 ```{r}
