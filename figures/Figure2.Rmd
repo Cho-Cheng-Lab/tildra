@@ -53,20 +53,29 @@ seuratobj
 
 ```{r}
 patient_meta <- meta %>% 
-  select(id, sample, treatment, condition) %>% 
-  unique()
+  select(id, patient, treatment, condition, response, response_group) %>% 
+  unique() %>% 
+  pivot_wider(names_from = treatment,
+              values_from = id) %>% 
+  mutate(patient_display = paste0(response_group, ': ', patient, ' (', Pre,', ', Mid, ')') %>% str_replace('Responder', ' Responder'),
+         patient_display = factor(patient_display, levels = sort(patient_display))) %>% 
+  arrange(patient_display)
 
 patient_meta
 ```
 ```{r}
 analyze <- meta %>% 
-  select(rowname, id, sample, patient, condition, treatment, cluster, merged_label) %>% 
+  select(rowname, id, sample, patient, condition, treatment, cluster, merged_label, response_group) %>% 
   mutate(description = factor(paste(condition, treatment) %>% str_remove(' None'),
                               levels = c('PV Pre',
                                          'PV Mid',
                                          'PV',
                                          'AD',
-                                         'HC')))
+                                         'HC')),
+         sample_display = paste0(sample, ' (', id, '), ', response_group)) %>% 
+  left_join(patient_meta %>% select(patient, patient_display))
+
+analyze
 
 ```
 
@@ -156,10 +165,10 @@ genesets <- read_tsv('analysis/output/msigdb/il23_il17_gene_sets.tsv')
 ```
 
 ```{r}
-response_genes <- de_pre_vs_mid_response %>% 
+response_genes <- de_combined %>% 
+  filter(comparison == 'Responder Pre vs Responder Mid') %>% 
   filter(p_val_adj < p_adj_cutoff,
          avg_log2FC > 0,
-         response == 'responders',
          str_detect(gene, 'mm10', negate = TRUE)) %>% 
   top_n(10, wt = abs(avg_log2FC)) %>% 
   pull(gene) %>% 
@@ -247,7 +256,8 @@ p <- summarized_table %>%
   scale_fill_carto_d() +
   #theme(legend.position = 'top') +
   labs(x = '',
-       y = 'Average Expression in Trm Cells')
+       y = 'Average Expression in Trm Cells',
+       title = 'Biocarta IL17 Pathway')
 
 p
 ```
@@ -263,7 +273,8 @@ p <- summarized_table %>%
   scale_fill_carto_d() +
   #theme(legend.position = 'top') +
   labs(x = '',
-       y = 'Average Expression in Trm Cells')
+       y = 'Average Expression in Trm Cells',
+       title = 'Wikipathway IL17 Signaling Pathway')
 
 p
 ```
@@ -279,7 +290,33 @@ p <- summarized_table %>%
   scale_fill_carto_d() +
   #theme(legend.position = 'top') +
   labs(x = '',
-       y = 'Average Expression in Trm Cells')
+       y = 'Average Expression in Trm Cells',
+       title = 'Pathway Interaction Database IL23 Pathway')
+
+p
+```
+
+```{r}
+shared_pathway_genes <- genesets %>% 
+  select(gs_name, gene_symbol) %>% 
+  unique() %>% 
+  group_by(gene_symbol) %>% 
+  tally() 
+```
+
+```{r}
+p <- summarized_table %>% 
+  filter(gene %in% (shared_pathway_genes %>% filter(n > 1) %>% pull(gene_symbol))) %>% 
+   ggplot(aes(x = treatment,
+              y = mean,
+              fill = treatment)) +
+  geom_col(color = 'black') +
+  facet_wrap(~gene, scales = 'free_y') +
+  scale_fill_carto_d() +
+  #theme(legend.position = 'top') +
+  labs(x = '',
+       y = 'Average Expression in Trm Cells',
+       title = 'Il23/IL17 Robust Gene Set')
 
 p
 ```
@@ -305,6 +342,143 @@ summarized_table %>%
   labs(x = '',
        y = 'Average Trm Expression')
 ```
+### Waterfall
+
+```{r}
+ray_genes <- c("IL17F", "GNLY", "LRRN3", "MGAT4A", "CHN1", "CTSH", "PTPN13", "GZMB", "ADGRG1", "SOX4", "GABPB1-AS1", "SNX9", "CD7", "CPM", "CTLA4", "ODF2L", "CBLB", "LAYN", "TNFAIP3", "ARHGEF12", "H1FX", "HIST1H1E", "YPEL2", "GBP5", "DAPK2", "RAP1B", "CXCL13", "FYN")
+
+genes_to_extract <- ray_genes
+
+metadata_subset <- analyze %>% 
+  filter(response_group %in% c('Responder', 'Non-responder') | condition == 'HC',
+         merged_label == 'Trm_merge') %>% 
+  mutate(treatment = ifelse(treatment == 'None', 'Healthy', treatment),
+         treatment = factor(treatment, levels = c('Pre', 'Mid', 'Healthy')))
+
+barcodes <- metadata_subset$rowname
+exprs <- FetchData(seuratobj, 
+                   cells = barcodes,
+                   vars = genes_to_extract) %>% 
+  rownames_to_column() %>% 
+  as_tibble()
+
+exprs
+
+
+
+
+```
+
+```{r}
+merged_table <- exprs %>% 
+  inner_join(metadata_subset %>% select(rowname, patient, id, condition, treatment, response_group, merged_label, patient_display)) %>% 
+  pivot_longer(cols = genes_to_extract,
+               names_to = 'gene',
+               values_to = 'expression')
+
+merged_table
+```
+
+
+```{r}
+p <- merged_table %>% 
+  filter(response_group == 'Responder' | treatment == 'Healthy') %>% 
+  ggplot(aes(x = treatment,
+             y = expression,
+             fill = treatment)) +
+  geom_boxplot(outlier.shape = NA, color = 'black', alpha = 0.8) +
+  #geom_sina(alpha = 0.1, size = 0.5) 
+  facet_wrap(~gene, scales = 'free_y') +
+  #scale_color_carto_d() +
+  scale_fill_manual(values = c('orangered', 'dodgerblue4', 'grey80')) +
+  theme(legend.position = 'top') +
+  labs(x = '',
+       y = 'Average Trm Expression')
+
+p
+```
+```{r}
+summarized_table <- merged_table %>% 
+  filter(response_group != 'Non-responder') %>% 
+  group_by(treatment, response_group, merged_label, gene) %>% 
+  summarize(mean = mean(expression),
+            median = median(expression),
+            sd = sd(expression))
+```
+
+```{r}
+plot_input <- merged_table %>% 
+  group_by(patient, treatment, response_group, merged_label, gene, patient_display) %>% 
+  summarize(mean = mean(expression)) 
+
+p <- plot_input %>% 
+  filter(treatment != 'Healthy') %>% 
+  ggplot(aes(x = reorder(gene, -mean),
+             y = mean,
+             color = treatment,
+             group = gene)) +
+  geom_point(size = 3) +
+  geom_line(color = 'grey50', arrow = arrow(length = unit(0.2, "cm"), type = 'closed')) +
+  theme_dwu(legend.position = 'right') +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  facet_wrap(~patient_display, scales = 'free_y', ncol = 4) +
+  scale_color_manual(values = c('orangered', 'dodgerblue4')) +
+  # geom_point(size = 2,
+  #            data = plot_input %>% filter(treatment == 'Healthy') %>% 
+  #              group_by(gene) %>% 
+  #              summarize(mean = mean(mean)),
+  #            inherit.aes = FALSE,
+  #            aes(x = reorder(gene, -mean), y = mean),
+  #            shape = 1) +
+  labs(x = '',
+       y = 'Average Trm Expression')
+
+
+p
+```
+
+
+```{r}
+summarized_table %>% 
+  filter(treatment != 'Healthy') %>% 
+  ggplot(aes(x = reorder(gene, -mean),
+             y = mean,
+             color = treatment,
+             group = gene)) +
+  geom_point(size = 3) +
+  geom_line(color = 'grey50', arrow = arrow(length = unit(0.2, "cm"), type = 'closed')) +
+  theme_dwu(legend.position = 'right') +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  scale_color_manual(values = c('orangered', 'dodgerblue4')) +
+  geom_point(size = 2, 
+             data = summarized_table %>% filter(treatment == 'Healthy'), 
+             inherit.aes = FALSE, 
+             aes(x = reorder(gene, -mean), y = mean),
+             shape = 1
+             ) +
+  labs(x = '',
+       y = 'Average Trm Expression')
+```
+
+
+```{r}
+p <- summarized_table %>% 
+  ggplot(aes(x = treatment,
+              y = mean,
+              fill = treatment)) +
+  geom_bar(stat = 'identity', color = 'black', alpha = 0.8) + 
+  facet_wrap(~gene, scales = 'free_y') +
+  scale_color_carto_d() +
+  #theme(legend.position = 'top') +
+  scale_fill_manual(values = c('orangered', 'dodgerblue4', 'grey80')) +
+  labs(x = '',
+       y = 'Average Expression in Trm Cells')
+
+p
+  
+```
+
+
 ### Figure
 Top genes from PV vs HC
 ```{r}
