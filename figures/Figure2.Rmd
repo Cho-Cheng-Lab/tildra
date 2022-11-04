@@ -420,19 +420,24 @@ p <- plot_input %>%
   geom_point(size = 3) +
   geom_line(color = 'grey50', arrow = arrow(length = unit(0.2, "cm"), type = 'closed')) +
   theme_dwu(legend.position = 'right') +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
   facet_wrap(~patient_display, scales = 'free_y', ncol = 4) +
   scale_color_manual(values = c('orangered', 'dodgerblue4')) +
-  # geom_point(size = 2,
-  #            data = plot_input %>% filter(treatment == 'Healthy') %>% 
-  #              group_by(gene) %>% 
-  #              summarize(mean = mean(mean)),
-  #            inherit.aes = FALSE,
-  #            aes(x = reorder(gene, -mean), y = mean),
-  #            shape = 1) +
+  geom_point(size = 2,
+             data = plot_input %>% filter(treatment == 'Healthy') %>%
+               group_by(gene) %>%
+               summarize(mean = mean(mean)),
+             inherit.aes = FALSE,
+             aes(x = reorder(gene, -mean), y = mean),
+             shape = 1) +
   labs(x = '',
        y = 'Average Trm Expression')
 
+ggsave(plot = p,
+       path = 'figures/',
+       filename = 'F3_waterfall.pdf',
+       h = 6,
+       w = 16)
 
 p
 ```

@@ -1,0 +1,109 @@
+---
+title: "Export"
+author: "David Wu"
+---
+
+Set working directory to project directory
+```{r setup}
+require(knitr)
+opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+```
+
+### Optionally convert this Rmd to R script 
+```{r eval=FALSE, message=FALSE}
+current_file <- rstudioapi::getActiveDocumentContext()$path
+output_file <- stringr::str_replace(current_file, '.Rmd', '.R')
+knitr::purl(current_file, output = output_file)
+file.edit(output_file)
+```
+
+### Directories
+```{r, message=FALSE}
+output_dir <- 'analysis/output/10_il23_profile' # analysis file output directory
+data_dir <- 'data/derived/seurat' # data file output directory
+
+dir.create(output_dir, showWarnings = FALSE)
+dir.create(data_dir, showWarnings = FALSE)
+```
+
+### Loading the libraries
+```{r, message=FALSE}
+library(Seurat) 
+library(tidyverse)
+library(ggExtra)
+library(SeuratWrappers)
+library(wutilities) # devtools::install_github('symbiologist/wutilities')
+library(tictoc)
+library(extrafont)
+library(patchwork)
+
+theme_set(theme_dwu()) # set default theme
+```
+
+### Import seurat object
+```{r}
+seuratobj <- read_rds(file.path(data_dir, 'seuratobj_annotated.rds'))
+seurat_meta <- seuratobj@meta.data %>% rownames_to_column()
+seuratobj
+```
+```{r}
+patient_meta <- seurat_meta %>% 
+  select(id, patient, sample, condition, treatment, response, response_group) %>% 
+  unique() %>% 
+  as_tibble()
+
+patient_meta
+```
+### Trm dataset for Elizabeth Purdom
+```{r}
+metadata_subset <- seurat_meta %>% 
+  filter(merged_label == 'Trm_merge',
+         treatment != 'None') %>% 
+  select(barcode = rowname, id, patient, treatment, response_group)
+
+metadata_subset
+```
+
+
+```{r}
+mouse_genes <- str_detect(rownames(seuratobj@assays$RNA@counts), 'mm10-')
+data_matrix <- seuratobj@assays$RNA@counts[-mouse_genes, metadata_subset$barcode]
+```
+
+### Export
+```{r}
+metadata_subset %>% write_tsv('data/derived/seurat/trm_metadata.tsv.gz')
+data_matrix %>% 
+  as.matrix() %>% 
+  write.table('data/derived/seurat/trm_matrix.tsv') # gzip on system
+```
+
+### Test 
+#### Matrix
+```{r}
+test <- read.table('data/derived/seurat/trm_matrix.tsv.gz', check.names = FALSE)
+test %>% head()
+```
+```{r}
+test <- read_tsv('data/derived/seurat/trm_matrix.tsv.gz')
+test %>% head()
+```
+
+#### Metadata
+```{r}
+test <- read.table('data/derived/seurat/trm_metadata.tsv.gz', header = TRUE)
+test
+```
+```{r}
+test <- read_tsv('data/derived/seurat/trm_metadata.tsv.gz')
+test
+```
+
+
+## Session Info
+```{r}
+sessionInfo()
+```
+
+
+

@@ -20,7 +20,7 @@ file.edit(output_file)
 ### Directories
 ```{r, message=FALSE}
 output_dir <- 'figures' # analysis file output directory
-data_dir <- 'data/derived/seurat' # data file output directory
+data_dir <- 'data/derived/tildra' # data file output directory
 
 dir.create(output_dir, showWarnings = FALSE)
 dir.create(data_dir, showWarnings = FALSE)
@@ -42,6 +42,11 @@ library(extrafont)
 seuratobj <- read_rds(file.path(data_dir, 'seuratobj_annotated.rds'))
 seuratobj
 ```
+```{r}
+
+```
+
+
 ### Figure 1A
 #### Global
 ```{r}

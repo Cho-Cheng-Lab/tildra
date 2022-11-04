@@ -98,6 +98,7 @@ metadata_subset[!(metadata_subset$path %in% paths),]
 ```{r}
 paths[!(paths %in% metadata$`Box folder Name`)]
 ```
+
 ### Transfer .h5 files to input directory
 ```{r}
 dest_dir <- 'analysis/input/samples/'

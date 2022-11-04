@@ -1,0 +1,383 @@
+---
+title: "Figrue 2"
+author: "David Wu"
+---
+
+Set working directory to project directory
+```{r setup}
+require(knitr)
+opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+```
+
+### Optionally convert this Rmd to R script 
+```{r eval=FALSE, message=FALSE}
+current_file <- rstudioapi::getActiveDocumentContext()$path
+output_file <- stringr::str_replace(current_file, '.Rmd', '.R')
+knitr::purl(current_file, output = output_file)
+file.edit(output_file)
+```
+
+### Directories
+```{r, message=FALSE}
+output_dir <- 'figures' # analysis file output directory
+data_dir <- 'data/derived/tildra' # data file output directory
+
+dir.create(output_dir, showWarnings = FALSE)
+dir.create(data_dir, showWarnings = FALSE)
+```
+
+### Loading the libraries
+```{r, message=FALSE}
+library(Seurat) 
+library(tidyverse)
+library(ggExtra)
+library(ggthemes)
+library(ggforce)
+#library(SeuratWrappers) # devtools::install_github('satijalab/seurat-wrappers')
+library(wutilities) # devtools::install_github('symbiologist/wutilities')
+library(tictoc)
+library(rcartocolor)
+library(ggrepel)
+theme_set(theme_dwu()) # set default theme
+
+```
+
+### Volcano
+```{r}
+volcano <- readxl::read_xlsx('analysis/input/volcano.xlsx') %>% mutate(padj = p.adjust(IL17A_p, method = 'bonferroni'))
+volcano
+
+```
+
+```{r}
+volcano %>% filter(IL17A_p < 0.05) %>% arrange(abs(IL17A_rho))
+```
+
+```{r}
+volcano %>% filter(padj < 0.05) %>% arrange(abs(IL17A_rho))
+```
+
+```{r}
+genes_to_highlight <- c("IL17F", "GNLY", "LRRN3", "MGAT4A", "CHN1", "CTSH", "PTPN13", "GZMB", "ADGRG1", "SOX4", "GABPB1-AS1", "SNX9", "CD7", "CPM", "CTLA4", "ODF2L", "CBLB", "LAYN", "TNFAIP3", "ARHGEF12", "H1FX", "HIST1H1E", "YPEL2", "GBP5", "DAPK2", "RAP1B", "CXCL13", "FYN")
+
+```
+
+```{r}
+plot_input <- volcano %>% mutate(highlight = ifelse(IL17A_corgene %in% genes_to_highlight, 'Highlight', 'Other'))
+
+plot_input %>% 
+  ggplot(aes(x = IL17A_rho,
+             y = -log10(IL17A_p),
+             label = IL17A_corgene)) +
+  geom_point(alpha = 0.1, size = 0.5) +
+  geom_text_repel(data = plot_input %>% filter(highlight == 'Highlight'), direction = 'x', max.overlaps = 30) +
+  ylim(c(0, 350)) +
+  scale_x_continuous(
+  breaks = -1:1,
+  expand = expansion(mult = 0.5)
+) + 
+  labs(x = 'rho',
+       y = '-log10 p-value')
+```
+
+
+### Import
+```{r}
+seuratobj <- read_rds(file.path(data_dir, 'seuratobj_annotated.rds'))
+meta <- seuratobj@meta.data %>% rownames_to_column() 
+seuratobj
+```
+
+```{r}
+test <- read.table('data/derived/tildra/trm_matrix.tsv.gz', check.names = FALSE)
+test %>% head()
+
+cells <- meta %>% filter(merged_label == 'Trm_merge', treatment %in% c('Pre', 'Mid')) %>% pull(rowname)
+test <- seuratobj@assays$RNA@data[,cells]
+```
+
+Correlation matrix with IL17A
+```{r}
+test_mat <- test %>% as.matrix()
+test_mat <- test_mat[rowSums(test_mat) > 0, ]
+
+norm_mat <- t(t(test_mat) / colSums(test_mat)) * 1e6
+norm_mat <- test_mat
+```
+
+```{r}
+test_mat['GAPDH',] %>% head()
+```
+
+```{r}
+norm_mat['GAPDH',] %>% head()
+```
+
+```{r}
+colSums(test_mat) %>% head()
+```
+
+```{r}
+
+tic()
+cor_table <- map(rownames(norm_mat), function(i) {
+  res <- cor.test(norm_mat['IL17A',], 
+                  norm_mat[i,])
+  
+  tibble('gene' = i,
+         'rho' = res$estimate,
+         'p' = res$p.value)
+  
+}) %>% bind_rows()
+toc()
+
+cor_table
+```
+```{r}
+volcano %>% arrange(-IL17A_rho) %>% filter(IL17A_corgene %in% genes_to_highlight)
+```
+
+```{r}
+cor_table %>% filter(gene %in% genes_to_highlight) %>% arrange(-rho)
+```
+
+```{r}
+plot_input <- cor_table %>% mutate(highlight = ifelse(gene %in% genes_to_highlight, 'Highlight', 'Other'),
+                                   padj = p.adjust(p))
+
+plot_input %>% 
+  ggplot(aes(x = rho,
+             y = -log10(p),
+             label = gene)) +
+  geom_point(alpha = 0.1, size = 0.5) +
+  geom_text_repel(data = plot_input %>% filter(highlight == 'Highlight'), direction = 'x', max.overlaps = 50) +
+  #ylim(c(0, 350)) +
+  labs(x = 'rho',
+       y = '-log10 p-value')
+```
+```{r}
+plot_input %>% 
+  ggplot(aes(x = rho,
+             y = -log10(p),
+             label = gene)) +
+  geom_point(alpha = 0.1, size = 0.5) +
+  geom_text_repel(data = plot_input %>% filter(highlight == 'Highlight'), direction = 'x', max.overlaps = 50) +
+  labs(x = 'rho',
+       y = '-log10 p-value')
+```
+
+```{r}
+library(iCellR)
+```
+
+
+```{r}
+my.obj <- qc.stats(my.obj)
+```
+
+
+```{r}
+my.obj <- cell.filter(my.obj,
+	min.mito = 0,
+	max.mito = 0.05,
+	min.genes = 200,
+	max.genes = 5000,
+	min.umis = 0,
+	max.umis = Inf)
+```
+
+
+```{r}
+my.obj <- norm.data(my.obj, 
+     norm.method = "ranked.glsf",
+     top.rank = 500)
+
+my.obj <- data.scale(my.obj)
+```
+```{r}
+my.obj <- gene.stats(my.obj, which.data = "main.data")
+```
+
+
+```{r}
+my.obj <- make.gene.model(my.obj, my.out.put = "data",
+	dispersion.limit = 1.5, 
+	base.mean.rank = 500, 
+	no.mito.model = T, 
+	mark.mito = T, 
+	interactive = F,
+	out.name = "gene.model")
+
+```
+
+### Imputation
+```{r}
+counts_mat <- read.table('data/derived/tildra/trm_matrix.tsv.gz', check.names = FALSE)
+```
+
+```{r}
+split_names <- colnames(counts_mat) %>% str_split('_', simplify = T)
+new_names <- paste(split_names[,2], split_names[,1], sep = '_')
+new_names %>% head()
+
+```
+
+```{r}
+colnames(counts_mat) <- new_names
+```
+
+
+```{r}
+mouse_genes <- str_detect(rownames(counts_mat), 'mm10')
+
+```
+
+```{r}
+seurat_subset <- CreateSeuratObject(counts = counts_mat[-mouse_genes,]) %>% NormalizeData() %>% ScaleData() %>% FindVariableFeatures() %>% RunPCA()
+```
+
+```{r}
+library(iCellR)
+my.obj <- make.obj(as.data.frame(as.matrix(seurat_subset@assays$RNA@counts)))
+my.obj@main.data <- my.obj@raw.data
+my.obj
+```
+
+
+```{r}
+myPCA <- as.data.frame(seurat_subset@reductions$pca@cell.embeddings)
+rownames(myPCA) <- new_names
+my.obj@pca.data <- myPCA
+```
+
+```{r}
+
+my.obj <- run.impute(my.obj, dims = 1:10, nn = 10, data.type = 'pca')
+
+```
+```{r}
+imputed_data <- my.obj@imputed.data %>% as.matrix()
+```
+
+```{r}
+seurat_imputed <- CreateSeuratObject(counts = imputed_data) %>% NormalizeData()
+```
+
+
+```{r}
+cor_input <- seurat_imputed@assays$RNA@data %>% as.matrix()
+
+#cor_input <- t(t(cor_input) / colSums(cor_input)) * 1e6
+```
+
+
+
+```{r}
+tic()
+cor_table <- map(rownames(cor_input), function(i) {
+  res <- cor.test(cor_input['IL17A',], 
+                  cor_input[i,])
+  
+  tibble('gene' = i,
+         'rho' = res$estimate,
+         'p' = res$p.value)
+  
+}) %>% bind_rows()
+toc()
+
+cor_table
+```
+```{r}
+cor_table %>% filter(gene %in% genes_to_highlight) %>% arrange(-rho)
+```
+
+```{r}
+
+```
+
+```{r}
+plot_input <- cor_table %>% mutate(highlight = ifelse(gene %in% genes_to_highlight, 'Highlight', 'Other'),
+                                   padj = p.adjust(p, method = 'bonferroni'))
+
+p <- plot_input %>% 
+  ggplot(aes(x = rho,
+             y = -log10(padj),
+             label = gene,
+             color = padj < 0.05)) +
+  geom_point(alpha = 1, size = 0.5) +
+  geom_point(data = plot_input %>% filter(highlight == 'Highlight', rho > 0.2), size = 2, color = 'orangered') +
+  geom_text_repel(data = plot_input %>% filter(highlight == 'Highlight', abs(rho) > 0.2), 
+                  #direction = 'x', 
+                  #nudge_y = 0.1,
+                  nudge_x = -0.1,
+                  box.padding = 0.5,
+                  max.overlaps = 50, 
+                  segment.color = 'grey50',
+                  color = 'black') +
+  # geom_text_repel(data = plot_input %>% filter(highlight == 'Highlight', rho < 0.05), 
+  #                 #direction = 'x', 
+  #                 nudge_y = 20,
+  #                 #nudge_x = 0.1,
+  #                 max.overlaps = 50, 
+  #                 color = 'black') +
+  scale_color_manual(values = c('grey50', 'dodgerblue4')) +
+  scale_x_continuous(limits = c(-0.5, 0.5)) +
+  #scale_y_continuous(expand = expansion(mult = 0.1)) +
+  labs(x = 'Spearman rho',
+       y = '-log10 adj. p-value')
+
+
+p
+```
+
+```{r}
+ggsave(plot = p,
+       filename = 'volcano.pdf',
+       path = 'figures/',
+       h = 6,
+       w = 6)
+```
+
+```{r}
+plot_input %>% 
+  filter(p > 0) %>% 
+  ggplot(aes(x = abs(rho),
+             y = -log10(p))) +
+  geom_point(size = 1) 
+```
+
+### random
+```{r}
+rand_mat <- matrix(data = rnorm(mean = 0, sd = 1, n = nrow(cor_input) * ncol(cor_input)), nrow = nrow(cor_input), ncol = ncol(cor_input))[1:9000,1:8000]
+```
+```{r}
+tic()
+cor_table_rand <- map(1:nrow(rand_mat), function(i) {
+  res <- cor.test(rand_mat[1,], 
+                  rand_mat[i,])
+  
+  tibble('rho' = res$estimate,
+         'p' = res$p.value)
+  
+}) %>% bind_rows()
+toc()
+
+cor_table_rand
+```
+```{r}
+p <- cor_table_rand %>% 
+  ggplot(aes(x = rho,
+             y = -log10(p),
+             color = p < 0.05)) +
+  geom_point(alpha = 1, size = 0.5) 
+
+p
+```
+
+## Session Info
+```{r}
+sessionInfo()
+```
+
+
+
