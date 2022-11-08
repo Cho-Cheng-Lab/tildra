@@ -60,12 +60,15 @@ metadata %>% filter(`Skin id #` !=  `Skin #`)
 metadata_subset <- 
   metadata %>% 
   mutate(id = paste0('skin', id)) %>% 
-  filter(is.na(exclude)) %>% 
+  filter(is.na(exclude),
+         condition == 'HC' | treatment %in% c('Pre', 'Mid')) %>% 
   select(sample,
+         patient,
          id,
          condition,
          treatment,
          response,
+         group,
          path,
          published = `In SI paper`,
          citeseq = `Awaiting Cite Seq?`,
@@ -97,6 +100,9 @@ metadata_subset[!(metadata_subset$path %in% paths),]
 
 ```{r}
 paths[!(paths %in% metadata$`Box folder Name`)]
+```
+```{r}
+metadata_subset
 ```
 
 ### Transfer .h5 files to input directory

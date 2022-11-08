@@ -35,24 +35,6 @@ library(ggExtra)
 library(ggplotify)
 ```
 
-
-```{r, message=FALSE}
-# library(metap) 
-# library(MAST) 
-# 
-# library(ggplot2) 
-# library(cowplot) 
-# library(patchwork) 
-# library(writexl)
-# library(dplyr)
-# library(xlsx)
-# library(harmony)
-# library(openxlsx)
-# library(rgl)
-# library(ggExtra)
-# library(ggplotify)
-```
-
 ### Specifying the input and output channels
 ```{r}
 samples_dir <- "analysis/input/samples/"
@@ -63,7 +45,6 @@ dir.create(file.path(output_dir, 'qc_plots', 'scatter_plot_per_sample'), recursi
 
 ### Making the needed empty lists and functions
 ```{r}
-#setwd(samples_dir)
 all_samples <- list()
 all_samples_data <- list()
 all_samples_sce <- list()

@@ -17,10 +17,15 @@ knitr::purl(current_file, output = output_file)
 file.edit(output_file)
 ```
 
+### Here library for robust paths
+```{r}
+library(here)
+```
+
 ### Directories
 ```{r, message=FALSE}
 output_dir <- 'analysis/output/08_de_analyses' # analysis file output directory
-data_dir <- 'data/derived/seurat' # data file output directory
+data_dir <- 'data/derived/tildra' # data file output directory
 
 dir.create(output_dir, showWarnings = FALSE)
 dir.create(data_dir, showWarnings = FALSE)
@@ -32,7 +37,7 @@ library(Seurat)
 library(tidyverse)
 library(ggExtra)
 library(ggthemes)
-#library(SeuratWrappers) # devtools::install_github('satijalab/seurat-wrappers')
+library(SeuratWrappers) # devtools::install_github('satijalab/seurat-wrappers')
 library(wutilities) # devtools::install_github('symbiologist/wutilities')
 library(tictoc)
 library(rcartocolor)
@@ -42,7 +47,7 @@ theme_set(theme_dwu()) # set default theme
 
 ### Import
 ```{r}
-seuratobj <- read_rds(file.path(data_dir, 'seuratobj_annotated.rds'))
+seuratobj <- read_rds(here(data_dir, 'seuratobj_annotated.rds'))
 meta <- seuratobj@meta.data %>% rownames_to_column()
 seuratobj
 ```
@@ -68,6 +73,10 @@ analyze <- meta %>%
 
 ```{r}
 de_combined <- read_tsv('analysis/output/07_de/de_combined.tsv.gz')
+```
+
+```{r}
+
 ```
 
 ### Proportion of cells in each cluster
