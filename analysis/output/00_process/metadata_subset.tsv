@@ -1,26 +1,32 @@
-sample	patient	id	condition	treatment	response	group	path	published	citeseq	chemistry	n_cells	n_reads	reads_per_cell	genes_per_cell	saturation	f_ab_reads	f_ab_reads_usable	f_ab_unrecog	f_ab_reads_in_cells	n_ab_reads_usable_per_cell	adt
-P7-Pre	P7	skin277	PV	Pre	Partial	Non-responder	19006-FL-37-01-02	No	NA	v3.1	4255	121706093	28603	1387	51.3	91.8	7.4	8.2	8.2	1160	Yes
-P7-Mid	P7	skin296	PV	Mid	Partial	Non-responder	19006FL-40-05-06-withADT-AH-61022	No	NA	v3.1	2437	110807980	45469	1817	66.6	93.6	20.4	6.4	22.1	186	Yes
-P1-Pre	P1	skin235	PV	Pre	Full	Responder	19006FL-25-01-02	Yes	NA	v3	4355	194961242	44767	1546	67.7	92.8	35	7.2	38.1	3497	Yes
-P1-Mid	P1	skin285	PV	Mid	Full	Responder	19006FL-38-01-02-AH-613	No	NA	v3.1	575	67757392	117838	1567	89.9	89.9	30.9	10.1	34.7	16209	Yes
-P2-Pre	P2	skin244	PV	Pre	Full	Responder	19006FL-28-05-06-NEW	No	NA	v3.1	8508	203211763	23884	1331	52.5	90.3	24.8	9.7	27.7	1415	Yes
-P2-Mid	P2	skin269	PV	Mid	Full	Responder	19006FL-35-01-02 AH	No	no cite seq	v3.1	982	143924425	146562	1783	88.6	NO cite-seq	NA	NA	NA	NA	Yes
-P3-Pre	P3	skin253	PV	Pre	Full	Responder	19006FL-32-03-04	No	NA	v3.1	4367	172605667	39524	1260	73.7	90.2	7.4	9.8	8.3	1162	Yes
-P3-Mid	P3	skin264	PV	Mid	Full	Responder	19006FL-33-01-02	No	no cite-seq	v3.1	843	196686395	233317	1687	87.5	NO cite-seq	NA	NA	NA	NA	Yes
-P8-Pre	P8	skin279	PV	Pre	Failure	Non-responder	19006FL-37-03-04	No	NA	v3.1	5703	128691866	22565	1277	56.7	93	27.7	7	30.1	2363	Yes
-P8-Mid	P8	skin292	PV	Mid	Failure	Non-responder	19006-40-04-05-7302022-ah	No	NO	v3.1	6315	188755387	29890	1483	56.9	92.2	22.5	7.8	24.8	2998	Yes
-P9-Pre	P9	skin289	PV	Pre	Failure	Non-responder	await cite seq - skin 289 v3 AH	No	pending at admera as of 6/17/22	v3.1	6065	427074762	70416	2066	76.3	pending CITE-seq	NA	NA	NA	NA	Yes
-P9-Mid	P9	skin305	PV	Mid	Failure	Non-responder	19006FL-42-03	No	no cite seq	v3.1	2575	180902241	70253	1561	84	NO cite-seq	NA	NA	NA	NA	Yes
-P4-Pre	P4	skin290	PV	Pre	Full	Responder	19006FL-39-03-04	No	NA	v3.1	6734	184941496	27463	1342	63.5	91.1	49.4	8.9	54.8	2514	Yes
-P4-Mid	P4	skin304	PV	Mid	Full	Responder	19006FL-41-02	No	no cite seq	v3.1	1085	75760459	69825	1465	85.5	NO cite-seq	NA	NA	NA	NA	Yes
-HC1	HC1	skin150	HC	None	NA	NA	19006FL-01-result brst150	Yes	NA	v2	4822	356474532	73926	922	90.6	94.30%	79.60%	5.7	85.8	7976	Yes
-HC2	HC2	skin154	HC	None	NA	NA	abd154 with ADT cr 302 rerun 4202022 AH	Yes	NA	v2	7986	723563122	90808	1170	87.3	97.60%	20.00%	2.4	21	2624	Yes
-HC3	HC3	skin155	HC	None	NA	NA	19006FL-03-01-02 no mouse 20220727	Yes	NA	v2	7097	134643848	18971	636	74.4	91.80%	20.80%	8.2	23	1497	Yes
-HC4	HC4	skin169	HC	None	NA	NA	19006FL-06-02-06	Yes	NA	v3	5720	123750324	21634	1322	46.8	89.90%	58.80%	10.1	66.2	5618	Yes
-HC5	HC5	skin195	HC	None	NA	NA	19006FL-11-01-02	Yes	NA	v3	5580	151289043	27112	1469	49.4	78.7	23	21.3	29.5	1948	Yes
-HC6	HC6	skin204	HC	None	NA	NA	19006FL-15-03-04	Yes	NA	v3	8661	178450740	20603	1163	42.10%	83.60%	52.70%	16.40%	65.30%	2827	Yes
-HC7	HC7	skin207	HC	None	NA	NA	19006FL-18-03-04	Yes	NA	v3	7960	256680698	32246	1341	59.3	57.9	28.1	42.1	49.1	1720	Yes
-HC8	HC8	skin239	HC	None	NA	NA	19006FL-27-01-02-rerun-AH	No	NA	v3.1	9149	173905686	19008	1126	49.9	89.5	41.5	10.5	46.8	1414	Yes
-HC9	HC9	skin242	HC	None	NA	NA	19006FL-28-03-04-NEW	No	NA	v3.1	4453	104934147	23564	1271	54.4	91.8	21.8	8.2	24	920	Yes
-HC10	HC10	skin248	HC	None	NA	NA	19006FL-29-05-06-NEW AH	No	NA	v3.1	7137	181605077	25445	1189	55.5	92.4	25.1	7.6	27.4	1888	Yes
-HC11	HC11	skin286	HC	None	NA	NA	19006FL-39-01-02-AH-20220820-with mouse transcriptome	No	NA	v3.1	7598	224292285	29519	1460	55.6	91.2	23.9	8.8	26.5	1549	Yes
+sample	patient	id	condition	treatment	response	group	sample_label	patient_label	path	published	citeseq	chemistry	n_cells	n_reads	reads_per_cell	genes_per_cell	saturation	f_ab_reads	f_ab_reads_usable	f_ab_unrecog	f_ab_reads_in_cells	n_ab_reads_usable_per_cell	adt
+HC1	HC1	skin150	HC	None	NA	Healthy	NA	NA	19006FL-01-result brst150	yes	NA	v3.1	4255	121706093	28603	1387	51.3	91.8	7.4	8.2	8.2	1160	Yes
+HC2	HC2	skin154	HC	None	NA	Healthy	NA	NA	abd154 with ADT cr 302 rerun 4202022 AH	yes	NA	v3.1	2437	110807980	45469	1817	66.6	93.6	20.4	6.4	22.1	186	Yes
+HC3	HC3	skin155	HC	None	NA	Healthy	NA	NA	19006FL-03-01-02 no mouse 20220727	yes	NA	v3	4355	194961242	44767	1546	67.7	92.8	35	7.2	38.1	3497	Yes
+HC4	HC4	skin169	HC	None	NA	Healthy	NA	NA	19006FL-06-02-06	yes	NA	v3.1	575	67757392	117838	1567	89.9	89.9	30.9	10.1	34.7	16209	Yes
+HC5	HC5	skin195	HC	None	NA	Healthy	NA	NA	19006FL-11-01-02	yes	NA	v3.1	8508	203211763	23884	1331	52.5	90.3	24.8	9.7	27.7	1415	Yes
+HC6	HC6	skin204	HC	None	NA	Healthy	NA	NA	19006FL-15-03-04	yes	no cite seq	v3.1	982	143924425	146562	1783	88.6	NO cite-seq	NA	NA	NA	NA	Yes
+HC7	HC7	skin207	HC	None	NA	Healthy	NA	NA	19006FL-18-03-04	yes	NA	v3.1	4367	172605667	39524	1260	73.7	90.2	7.4	9.8	8.3	1162	Yes
+HC8	HC8	skin239	HC	None	NA	Healthy	NA	NA	19006FL-27-01-02-rerun-AH	No	no cite-seq	v3.1	843	196686395	233317	1687	87.5	NO cite-seq	NA	NA	NA	NA	Yes
+HC9	HC9	skin242	HC	None	NA	Healthy	NA	NA	19006FL-28-03-04-NEW	No	NA	v3.1	5703	128691866	22565	1277	56.7	93	27.7	7	30.1	2363	Yes
+HC10	HC10	skin248	HC	None	NA	Healthy	NA	NA	19006FL-29-05-06-NEW AH	No	NO	v3.1	6315	188755387	29890	1483	56.9	92.2	22.5	7.8	24.8	2998	Yes
+HC11	HC11	skin286	HC	None	NA	Healthy	NA	NA	19006FL-39-01-02-AH-20220820-with mouse transcriptome	No	pending at admera as of 6/17/22	v3.1	6065	427074762	70416	2066	76.3	pending CITE-seq	NA	NA	NA	NA	Yes
+PV1	PV1	skin165	PV	None	NA	Untreated Psoriasis	NA	NA	19006FL-04-02-04	yes	NA	v3.1	11359	245745717	21634	1318	57.3	93.5	42.2	6.5	45.5	3092	Yes
+PV2	PV2	skin173	PV	None	NA	Untreated Psoriasis	NA	NA	19006FL-07-02-07	yes	NA	v3.1	9138	225486311	24675	1508	37.8	91.5	8.3	8.5	9.2	1891	Yes
+PV3	PV3	skin194	PV	None	NA	Untreated Psoriasis	NA	NA	19006FL-10-01-02	yes	NA	v3.1	9482	258573744	27269	1739	47.4	92.6	35.4	7.4	38.6	2073	Yes
+PV4	PV4	skin199	PV	None	NA	Untreated Psoriasis	NA	NA	19006FL-13-01-02	yes	NA	v3	5499	161115601	29299	1695	59	91.70%	48.30%	8.3	53.3	8089	Yes
+PV5	PV5	skin211	PV	None	NA	Untreated Psoriasis	NA	NA	19006FL-17-01-02	yes	NA	v3	2956	159052013	53806	2041	77.8	79.8	59.9	20.2	75.8	17031	Yes
+PV6	PV6	skin222	PV	None	NA	Untreated Psoriasis	NA	NA	19006FL-19-03-06	yes	NA	v3	5517	192237240	34844	1788	65	90.9	12.1	9.1	13.4	853	Yes
+P1-Pre	P1	skin235	PV	Pre	Full	Responder	P1 (235): Responder	P1 (235, 285): Responder	19006FL-25-01-02	yes	NA	v3	6778	163324917	24096	1614	52.1	80.6	35	19.4	43.9	3923	Yes
+P1-Mid	P1	skin285	PV	Mid	Full	Responder	P1 (285): Responder	P1 (235, 285): Responder	19006FL-38-01-02-AH-613	No	NA	v3	6254	204667993	32725	1283	67	80.6	31.4	19.4	39.4	3254	Yes
+P2-Pre	P2	skin244	PV	Pre	Full	Responder	P2 (244): Responder	P2 (244, 269): Responder	19006FL-28-05-06-NEW	No	NA	v3	6504	222131011	34152	1592	64.3	78.4	22.1	21.6	28.4	1475	Yes
+P2-Mid	P2	skin269	PV	Mid	Full	Responder	P2 (269): Responder	P2 (244, 269): Responder	19006FL-35-01-02 AH	No	NA	v2	4822	356474532	73926	922	90.6	94.30%	79.60%	5.7	85.8	7976	Yes
+P3-Pre	P3	skin253	PV	Pre	Full	Responder	P3 (253): Responder	P3 (253, 264): Responder	19006FL-32-03-04	No	NA	v2	7986	723563122	90808	1170	87.3	97.60%	20.00%	2.4	21	2624	Yes
+P3-Mid	P3	skin264	PV	Mid	Full	Responder	P3 (264): Responder	P3 (253, 264): Responder	19006FL-33-01-02	No	NA	v2	7097	134643848	18971	636	74.4	91.80%	20.80%	8.2	23	1497	Yes
+P4-Pre	P4	skin290	PV	Pre	Full	Responder	P4 (290): Responder	P4 (290, 304): Responder	19006FL-39-03-04	No	NA	v3	5720	123750324	21634	1322	46.8	89.90%	58.80%	10.1	66.2	5618	Yes
+P4-Mid	P4	skin304	PV	Mid	Full	Responder	P4 (304): Responder	P4 (290, 304): Responder	19006FL-41-02	No	NA	v3	5580	151289043	27112	1469	49.4	78.7	23	21.3	29.5	1948	Yes
+P7-Pre	P7	skin277	PV	Pre	Partial	Non-responder	P7 (277): Non-responder	P7 (277, 296): Non-responder	19006-FL-37-01-02	No	NA	v3	8661	178450740	20603	1163	42.10%	83.60%	52.70%	16.40%	65.30%	2827	Yes
+P7-Mid	P7	skin296	PV	Mid	Partial	Non-responder	P7 (296): Non-responder	P7 (277, 296): Non-responder	19006FL-40-05-06-withADT-AH-61022	No	NA	v3	7960	256680698	32246	1341	59.3	57.9	28.1	42.1	49.1	1720	Yes
+P8-Pre	P8	skin279	PV	Pre	Failure	Non-responder	P8 (279): Non-responder	P8 (279, 292): Non-responder	19006FL-37-03-04	No	NA	v3.1	9149	173905686	19008	1126	49.9	89.5	41.5	10.5	46.8	1414	Yes
+P8-Mid	P8	skin292	PV	Mid	Failure	Non-responder	P8 (292): Non-responder	P8 (279, 292): Non-responder	19006-40-04-05-7302022-ah	No	NA	v3.1	4453	104934147	23564	1271	54.4	91.8	21.8	8.2	24	920	Yes
+P9-Pre	P9	skin289	PV	Pre	Failure	Non-responder	P9 (289): Non-responder	P9 (289, 305): Non-responder	await cite seq - skin 289 v3 AH	No	NA	v3.1	7137	181605077	25445	1189	55.5	92.4	25.1	7.6	27.4	1888	Yes
+P9-Mid	P9	skin305	PV	Mid	Failure	Non-responder	P9 (305): Non-responder	P9 (289, 305): Non-responder	19006FL-42-03	No	NA	v3.1	7598	224292285	29519	1460	55.6	91.2	23.9	8.8	26.5	1549	Yes

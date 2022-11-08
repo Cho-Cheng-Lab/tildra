@@ -61,7 +61,7 @@ metadata_subset <-
   metadata %>% 
   mutate(id = paste0('skin', id)) %>% 
   filter(is.na(exclude),
-         condition == 'HC' | treatment %in% c('Pre', 'Mid')) %>% 
+         tildra == 'Yes') %>% 
   select(sample,
          patient,
          id,
@@ -69,6 +69,8 @@ metadata_subset <-
          treatment,
          response,
          group,
+         sample_label,
+         patient_label,
          path,
          published = `In SI paper`,
          citeseq = `Awaiting Cite Seq?`,
@@ -88,7 +90,6 @@ metadata_subset <-
 metadata_subset
 ```
 ### Match to output directories
-
 ```{r}
 paths <- list.files(data_dir)
 paths

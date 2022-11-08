@@ -20,7 +20,7 @@ file.edit(output_file)
 ### Directories
 ```{r, message=FALSE}
 output_dir <- 'analysis/output/01_import' # analysis file output directory
-data_dir <- 'data/derived/seurat' # data file output directory
+data_dir <- 'data/derived/tildra' # data file output directory
 
 dir.create(output_dir, showWarnings = FALSE)
 dir.create(data_dir, showWarnings = FALSE)
