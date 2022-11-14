@@ -1,0 +1,173 @@
+---
+title: "QC Filters"
+author: "David Wu"
+---
+
+### Use the here package for robust relative paths
+```{r}
+library(here)
+```
+
+### Optionally convert this Rmd to R script 
+```{r eval=FALSE, message=FALSE}
+current_file <- rstudioapi::getActiveDocumentContext()$path
+output_file <- stringr::str_replace(current_file, '.Rmd', '.R')
+knitr::purl(current_file, output = output_file)
+file.edit(output_file)
+```
+
+### Directories
+```{r, message=FALSE}
+output_dir <- here('analysis/output/02_qc') # analysis file output directory
+data_dir <- here('data/derived/tildra') # data file output directory
+
+dir.create(output_dir, showWarnings = FALSE)
+dir.create(data_dir, showWarnings = FALSE)
+```
+
+### Load libraries
+```{r, message=FALSE}
+library(Seurat) 
+library(tidyverse)
+library(patchwork)
+library(ggExtra)
+library(ggplotify)
+library(parallel)
+library(tictoc)
+library(wutilities) # devtools::install_github('symbiologist/wutilities')
+```
+
+
+### Load Seurat object
+```{r}
+seuratobj <- read_rds(here(data_dir, 'seurats_merged.rds'))
+```
+
+### Thresholds
+```{r}
+thresholds <- list('nFeature_RNA' = c(200, 10000),
+                   'pct_mito' = c(1, 20),
+                   'pct_ribo' = c(0, 50),
+                   'pct_stress' = c(0, 30))
+
+```
+
+### Global QC plot (post-filtering)
+```{r fig.width = 12, fig.height=16}
+qc_table_pre <- seuratobj@meta.data %>% 
+  filter(pct_mouse < 5) %>% 
+  select('id', ends_with('RNA'), starts_with('pct')) %>% 
+  pivot_longer(cols = -1,
+               names_to = 'metric',
+               values_to = 'value')
+  
+qc_plots_pre <- map(names(thresholds), function(i){
+  
+  print2(i)
+  p <- qc_table_pre %>% 
+    filter(metric == i) %>% 
+    ggplot(aes(x = id,
+               y = value,
+               fill = id)) +
+    geom_violin() +
+    geom_hline(yintercept = thresholds[[i]], linetype = 'dashed') +
+    theme_dwu() +
+    labs(x = '',
+         y = '',
+         title = i)
+  
+  if(str_detect(i, 'RNA')) {
+   p <- p + scale_y_log10()
+  }
+  
+  p
+  
+}) %>% wrap_plots(ncol = 1)
+
+ggsave(plot = qc_plots_pre,
+       path = output_dir,
+       filename = 'qc_summary_pre.png',
+       h = 16,
+       w = 12)
+
+qc_plots_pre
+
+
+```
+
+### Filters
+```{r}
+human_cells_to_keep <- seuratobj@meta.data %>% 
+  filter(pct_mouse < 5,
+         nFeature_RNA > thresholds[['nFeature_RNA']][1],
+         nFeature_RNA < thresholds[['nFeature_RNA']][2],
+         pct_mito > thresholds[['pct_mito']][1],
+         pct_mito < thresholds[['pct_mito']][2],
+         pct_ribo > thresholds[['pct_ribo']][1],
+         pct_ribo < thresholds[['pct_ribo']][2],
+         pct_stress > thresholds[['pct_stress']][1],
+         pct_stress < thresholds[['pct_stress']][2],
+         doublets == 'singlet') %>% 
+  rownames()
+
+mouse_cells_to_keep <- seuratobj@meta.data %>% 
+  filter(pct_mouse > 95,
+         doublets == 'singlet') %>% 
+  rownames()
+
+seuratobj_qc <- subset(seuratobj, cells = c(human_cells_to_keep, mouse_cells_to_keep))
+
+seuratobj_qc
+```
+```{r fig.width = 12, fig.height=16}
+qc_table_post <- seuratobj_qc@meta.data %>% 
+  filter(pct_mouse < 5) %>% 
+  select('id', ends_with('RNA'), starts_with('pct')) %>% 
+  pivot_longer(cols = -1,
+               names_to = 'metric',
+               values_to = 'value')
+  
+qc_plots_post <- map(names(thresholds), function(i){
+  
+  print2(i)
+  p <- qc_table_post %>% 
+    filter(metric == i) %>% 
+    ggplot(aes(x = id,
+               y = value,
+               fill = id)) +
+    geom_violin() +
+    geom_hline(yintercept = thresholds[[i]], linetype = 'dashed') +
+    theme_dwu() +
+    labs(x = '',
+         y = '',
+         title = i)
+  
+  if(str_detect(i, 'RNA')) {
+   p <- p + scale_y_log10()
+  }
+  
+  p
+  
+}) %>% wrap_plots(ncol = 1)
+
+ggsave(plot = qc_plots_post,
+       path = output_dir,
+       filename = 'qc_summary_post.png',
+       h = 16,
+       w = 12)
+
+qc_plots_post
+
+
+```
+### Export
+```{r}
+seuratobj_qc %>% write_rds(here(data_dir, 'seuratobj_qc.rds'))
+```
+
+
+## Session Info
+```{r}
+sessionInfo()
+```
+

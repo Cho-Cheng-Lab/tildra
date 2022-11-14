@@ -3,10 +3,9 @@ title: "Import samples"
 author: "Abed Kurdi and David Wu"
 ---
 
-Set working directory to project directory
-```{r setup}
-require(knitr)
-opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+### Use the here package for robust relative paths
+```{r}
+library(here)
 ```
 
 ### Optionally convert this Rmd to R script 
@@ -19,36 +18,28 @@ file.edit(output_file)
 
 ### Directories
 ```{r, message=FALSE}
-output_dir <- 'analysis/output/01_import' # analysis file output directory
-data_dir <- 'data/derived/tildra' # data file output directory
+output_dir <- here('analysis/output/01_import') # analysis file output directory
+data_dir <- here('data/derived/tildra') # data file output directory
 
 dir.create(output_dir, showWarnings = FALSE)
 dir.create(data_dir, showWarnings = FALSE)
 ```
 
-### Loading the libraries
+### Load libraries
 ```{r, message=FALSE}
 library(Seurat) 
 library(tidyverse)
 library(scDblFinder) 
+library(patchwork)
 library(ggExtra)
 library(ggplotify)
+library(parallel)
+library(tictoc)
+library(wutilities) # devtools::install_github('symbiologist/wutilities')
 ```
 
-### Specifying the input and output channels
+### Custom functions
 ```{r}
-samples_dir <- "analysis/input/samples/"
-metadata_df <- read_tsv('analysis/output/00_process/metadata_subset.tsv')
-stress_genes <- read_csv('analysis/input/coregene_df-FALSE-v3.csv')
-dir.create(file.path(output_dir, 'qc_plots', 'scatter_plot_per_sample'), recursive = TRUE)
-```
-
-### Making the needed empty lists and functions
-```{r}
-all_samples <- list()
-all_samples_data <- list()
-all_samples_sce <- list()
-
 #function to trim ADT:
 trim.feature.names <- function(inmat){
   newnames <- sapply(strsplit(rownames(inmat), "_"),
@@ -59,178 +50,205 @@ trim.feature.names <- function(inmat){
   rownames(inmat) <- newnames
   return(inmat)
 }
-```
 
-### read in the samples, make the Seurat objects, remove doublets and plot featurescatter figures
-```{r echo=FALSE}
-for(f in metadata_df$id){
-	print(f)
+#qc plot
+qc_plots <- function(seuratobj,
+                     filename,
+                     path) {
+  
+  dir.create(path = path, showWarnings = FALSE, recursive = TRUE)
+  
+  
+  
+  p1 <-  seuratobj@meta.data %>% 
+    filter(pct_mouse < 5) %>% 
+    ggplot(aes(x = nCount_RNA, 
+               y = nFeature_RNA)) +
+    ggtitle(filename) + 
+    geom_point(color = "blue", alpha = 0.1, size = 0.5) + 
+    geom_hline(yintercept=2500, 
+               linetype="dashed", 
+               color = "black", 
+               size=1) + 
+    geom_vline(xintercept = 10000, 
+               linetype = "dashed", 
+               color = "black", 
+               size=1) +
+    theme_bw()
+  
+  p1 <- ggMarginal(p1, type = 'densigram')
+  
+  p2 <- seuratobj@meta.data %>% 
+    filter(pct_mouse < 5) %>% 
+    ggplot(aes(x = pct_ribo, 
+               y = pct_mito)) +
+    ggtitle(filename) + 
+    geom_point(color = "blue", alpha = 0.1, size = 0.5) + 
+    geom_hline(yintercept = 20, linetype = "dashed", color = "black", size = 1) + 
+    geom_vline(xintercept = 50, linetype="dashed", color = "black", size = 1) +
+    theme_bw()
+    
+  p2 <- ggMarginal(p2, type = 'densigram')
 
-	# read in the samples and remove doublets
-	all_samples_data[[f]] <- Read10X_h5(paste0(samples_dir, f, '.h5'))
-
-	if(!is.null(names(all_samples_data[[f]]))){
-		all_samples_data[[f]][["Gene Expression"]] <- CollapseSpeciesExpressionMatrix(all_samples_data[[f]][["Gene Expression"]], prefix = "GRCh38_", controls = "mm10___", ncontrols = 500)
-		all_samples_data[[f]][["Antibody Capture"]] <- trim.feature.names(all_samples_data[[f]][["Antibody Capture"]])	
-		all_samples[[f]] <- CreateSeuratObject(counts = all_samples_data[[f]][["Gene Expression"]], project = as.character(f))
-	} else {
-		all_samples[[f]] <- CreateSeuratObject(counts = all_samples_data[[f]])
-	}
-
-	all_samples_sce[[f]] <- as.SingleCellExperiment(all_samples[[f]])
-	all_samples_sce[[f]] <- scDblFinder(all_samples_sce[[f]])
-	print(table(call=all_samples_sce[[f]]$scDblFinder.class))
-
-	all_samples[[f]] <- as.Seurat(all_samples_sce[[f]], project = f)	
-	all_samples[[f]][["percent.mt"]] <- PercentageFeatureSet(all_samples[[f]], pattern = "^MT-|mt-", assay = "RNA")
-	all_samples[[f]][["percent.ribo"]] <- PercentageFeatureSet(all_samples[[f]], pattern = "^RP[SL]|^MRP[SL]|Rp[sl]|Mrp[sl]", assay = "RNA")
-	all_samples[[f]][["percent.stress"]] <- PercentageFeatureSet(all_samples[[f]], features = intersect(stress_genes$gene_symbol, rownames(all_samples[[f]])), assay="RNA")
-	all_samples[[f]][["percent.mouse"]] <- PercentageFeatureSet(all_samples[[f]], pattern = '^mm10', assay = "RNA")
-	
-	if(!is.null(names(all_samples_data[[f]]))){
-		all_samples[[f]][["ADT"]] <- CreateAssayObject(counts = all_samples_data[[f]][["Antibody Capture"]])
-	}
-
-	all_samples[[f]] <- subset(all_samples[[f]], scDblFinder.class == "singlet")
-	
-	# add the metadata
-	tmp_df <- subset(metadata_df, id == str_remove(f, '.h5'))
-	print(paste0("adding metadata for sample ",f))
-
-	for(m in colnames(tmp_df)){
-		print(paste0("adding ",m))
-		all_samples[[f]][[m]] <- tmp_df[[m]]
-	}
-	
-	## scatterplot
-	pdf(paste0(output_dir,"/qc_plots/scatter_plot_per_sample/",f,".pdf"), width=14)
-	options(repr.plot.height = 6, repr.plot.width = 15)
-	
-	p1 <- all_samples[[f]]@meta.data %>% 
-	  filter(percent.mouse < 5) %>% 
-	  ggplot(aes(x = nCount_RNA, 
-	             y = percent.mt)) +
-	  ggtitle(f) + 
-	  geom_point(color = "blue", alpha = 0.1, size = 0.5) + 
-	  geom_hline(yintercept = 15, linetype = "dashed", color = "black", size = 1.5) + 
-	  geom_vline(xintercept = 10000, linetype="dashed", color = "black", size = 1.5) +
-	  theme_bw()
-
-	p2 <-  all_samples[[f]]@meta.data %>% 
-	  filter(percent.mouse < 5) %>% 
-	  ggplot(aes(x = nCount_RNA, 
-	             y = nFeature_RNA)) +
-	  ggtitle(f) + 
-	  geom_point(color = "blue", alpha = 0.1, size = 0.5) + 
-		geom_hline(yintercept=2500, 
-		           linetype="dashed", 
-		           color = "black", 
-		           size=1.5) + 
-	  geom_vline(xintercept = 10000, 
-	             linetype = "dashed", 
-	             color = "black", 
-	             size=1.5) +
-	  theme_bw()
-
-	print(p1+p2)
-
-	### histograph
-	options(repr.plot.height = 6, repr.plot.width = 24)
-	plot1 <-  hist(all_samples[[f]]$nCount_RNA, breaks = 100, main=f, xlab = "Count depth (Counts/cell)", col='wheat')
-	plot1 <-  abline(v=400,col="red")
-	plot2 <-  hist(all_samples[[f]]$nFeature_RNA, breaks = 200, main=f, xlab = "Number of genes per cell", xlim = c(0, 4000), col='wheat')
-	plot2 <-  abline(v=250,col="red")
-
-	print(plot1 + plot2)
-
-	dev.off()
+    p3 <- seuratobj@meta.data %>% 
+    filter(pct_mouse < 5) %>% 
+    ggplot(aes(x = pct_stress, 
+               y = pct_mito)) +
+    ggtitle(filename) + 
+    geom_point(color = "blue", alpha = 0.1, size = 0.5) + 
+    geom_hline(yintercept = 20, linetype = "dashed", color = "black", size = 1) + 
+    geom_vline(xintercept = 30, linetype="dashed", color = "black", size = 1) +
+    theme_bw()
+    
+        species_tally <- seuratobj@meta.data %>% 
+      mutate(species = factor(ifelse(pct_human > 95, 'Human', 'Mouse'), levels = c('Human', 'Mouse'))) %>% 
+      group_by(species, .drop = FALSE) %>% 
+      tally() %>% 
+      mutate(pct = round(100 * n / sum(n), 2))
+    
+    doublet_tally <- seuratobj@meta.data %>% 
+      group_by(doublets) %>% 
+      tally() %>% 
+      mutate(pct = round(100 * n / sum(n), 2))
+    
+    p4 <- species_tally %>% 
+      ggplot(aes(x = species,
+                 y = pct,
+                 label = paste0('n = ',n, ', ', pct, '%'),
+                 fill = species)) +
+      geom_col(color = 'black') +
+      geom_label(fill = 'white') +
+      ggthemes::scale_fill_few() +
+      theme_bw() +
+      theme(legend.position = 'none') +
+      labs(title = 'Species Assignment', 
+           y = 'Percent of Cells',
+           x = 'Species') +
+      ylim(c(0, 100))
+    
+    p5 <- doublet_tally %>% 
+      ggplot(aes(x = doublets,
+                 y = pct,
+                 label = paste0('n = ',n, ', ', pct, '%'),
+                 fill = doublets)) +
+      geom_col(color = 'black') +
+      geom_label(fill = 'white') +
+      ggthemes::scale_fill_few(palette = 'Light') +
+      theme_bw() +
+      theme(legend.position = 'none') +
+      labs(title = 'Doublet Assignment',
+           y = 'Percent of Cells',
+           x = 'Doublet Status') +
+      ylim(c(0, 100))
+      
+    ### histograph
+    page1 <- list(p1, p2) %>% wrap_plots(nrow = 1)
+    page2 <- p3 | (p4 + p5)
+    
+    pdf(paste0(path, '/', filename, '.pdf'), width=14)
+    options(repr.plot.height = 6, repr.plot.width = 15)
+  
+    print(page1)
+    print(page2)
+    
+    options(repr.plot.height = 6, repr.plot.width = 24)
+    plot1 <-  hist(seuratobj$nCount_RNA, breaks = 100, main=filename, xlab = "Count depth (Counts/cell)", col='wheat')
+    plot1 <-  abline(v=400,col="red")
+    plot2 <-  hist(seuratobj$nFeature_RNA, breaks = 200, main=filename, xlab = "Number of genes per cell", xlim = c(0, 4000), col='wheat')
+    plot2 <-  abline(v=250,col="red")
+    print(plot1 + plot2)
+    
+    dev.off()
+  
 }
 ```
 
-### plot the mito/ribo/stress percentages correlation plots
+### Load metadata
 ```{r}
-pdf(paste0(output_dir,"/qc_plots/mito_ribo_stress_qc_final.pdf"), width=14, height=6)
-for(s in names(all_samples)){
-  mt_ribo_stress <- all_samples[[s]]@meta.data %>% filter(percent.mouse < 5)
-  
-  p1 <- ggplot(mt_ribo_stress, aes(x=percent.ribo, y=percent.mt))+geom_point(alpha=0.25, size=0.5)+ylim(0,100)+xlim(0,100)+ggtitle(s)
-  p2 <- ggplot(mt_ribo_stress, aes(x=percent.stress, y=percent.mt))+geom_point(alpha=0.25, size=0.5)+ylim(0,100)+xlim(0,100)+ggtitle(s)
-  
-  # with marginal histogram
-  p11 <- ggMarginal(p1, type="histogram")
-  p21 <- ggMarginal(p2, type="histogram")
-  print(as.ggplot(p11) + as.ggplot(p21))
-  
-}
-dev.off()
+samples_dir <- "analysis/input/samples/"
+metadata <- read_tsv('analysis/output/00_process/metadata_subset.tsv')
+stress_genes <- read_csv('analysis/input/coregene_df-FALSE-v3.csv')
 ```
 
-### merge all samples in one object
-#### renaming the cells
+### Import cellranger data and add metadata, QC metrics
 ```{r}
-for(s in names(all_samples)){
-    print(s)
-    all_samples[[s]] <- RenameCells(all_samples[[s]], new.names=paste0(colnames(all_samples[[s]]),"_",s))
-}
+samples <- metadata$id %>% set_names(.) 
+
+tic()
+seurats <- 
+  #mclapply(samples, mc.cores = 10, # in parallel
+  map(samples,         
+      function(i) {
+        
+        print2(i)
+        
+        # Sample metadata
+        sample_subset <- metadata %>% filter(id == i) %>% as.data.frame()
+        metadata_to_add <- sample_subset %>% 
+          select(id,
+                 sample,
+                 patient,
+                 condition,
+                 treatment,
+                 response,
+                 group,
+                 sample_label,
+                 patient_label, 
+                 adt,
+                 mouse,
+                 saturation,
+                 chemistry,
+                 contains('ab_'))
+        
+        # read in data from 10x output
+        tenx_matrix <- Read10X_h5(here(sample_subset$h5))
+        
+        if(length(tenx_matrix) == 2) { # two assays
+          # create seurat obj
+          seuratobj <- CreateSeuratObject(counts = CollapseSpeciesExpressionMatrix(tenx_matrix[['Gene Expression']], prefix = 'GRCh38_', controls = 'mm10___'), project = i)
+          
+          # add additional ADT assay
+          seuratobj[['ADT']] <- CreateAssayObject(counts = trim.feature.names(tenx_matrix[['Antibody Capture']]))
+          
+        } else { # single assay, gene expression only
+          seuratobj <- CreateSeuratObject(counts = tenx_matrix,
+                                          project = i)
+        }
+        
+        # calculate doublets
+        sceobj <- as.SingleCellExperiment(seuratobj, assay = 'RNA')
+        sceobj <- scDblFinder(sceobj, verbose = FALSE)
+        
+        # add metadata
+        seuratobj <- AddMetaData(seuratobj, metadata = rep(metadata_to_add, ncol(seuratobj)))
+        
+        # add QC metrics
+        seuratobj <- PercentageFeatureSet(seuratobj, pattern = '^MT-|mt-', col.name = 'pct_mito')
+        seuratobj <- PercentageFeatureSet(seuratobj, pattern = '^RP[SL]|^MRP[SL]|Rp[sl]|Mrp[sl]', col.name = 'pct_ribo')
+        seuratobj <- PercentageFeatureSet(seuratobj, features = intersect(stress_genes$gene_symbol, rownames(seuratobj)), col.name = 'pct_stress')
+        seuratobj <- PercentageFeatureSet(seuratobj, pattern = '^mm10', col.name = 'pct_mouse')
+        seuratobj$pct_human <- round(100 - seuratobj$pct_mouse, 2)
+        seuratobj$doublets <- sceobj$scDblFinder.class
+        
+        # plot QC metrics
+        qc_plots(seuratobj = seuratobj,
+                 filename = i,
+                 path = here(output_dir, 'qc_plots/individual'))
+        
+        # return seurat object
+        seuratobj
+        
+      })
+toc()
 ```
 
 #### merge all
 ```{r}
-merged_samples <- merge(all_samples[[1]], all_samples[-1])
-merged_samples
+seurats_merged <- merge(seurats[[1]], seurats[-1])
+seurats_merged
 ```
 ```{r}
-p <- merged_samples@meta.data %>% 
-  ggplot(aes(y = nFeature_RNA,
-             x = percent.mouse)) + 
-  geom_point(alpha = 0.1,
-             size = 0.05) +
-  geom_hline(yintercept = 200, linetype = 'dashed') +
-  geom_vline(xintercept = c(5, 95), linetype = 'dashed') +
-  scale_y_log10() +
-  theme_bw()
-
-p_marginal <- ggMarginal(p, type = 'densigram')
-
-ggsave(plot = p_marginal,
-       filename = 'nFeature_vs_percent.mouse.png',
-       h = 4,
-       w = 6,
-       path = file.path(output_dir, 'qc_plots'))
-```
-
-
-### according to the upper plots, I set the thresholds
-#### applying filters: nFeatures > 200 and < 6000, percent.mt < 20, percent.ribo < 50, and percent.stress < 30
-```{r}
-human_cells_to_keep <- merged_samples@meta.data %>% 
-  filter(percent.mouse < 5 &
-           nFeature_RNA > 200 & 
-           nFeature_RNA < 6000 & 
-           percent.mt > 1 &
-           percent.mt < 20 & 
-           percent.ribo > 0 &
-           percent.ribo < 50 &
-           percent.stress > 0 &
-           percent.stress < 30) %>% 
-  rownames()
-
-mouse_cells_to_keep <- merged_samples@meta.data %>% 
-  filter(percent.mouse > 95) %>% 
-  rownames()
-
-merged_samples <- subset(merged_samples, 
-                         cells = c(human_cells_to_keep, mouse_cells_to_keep))
-
-merged_samples
-```
-```{r}
-merged_samples@meta.data
-```
-
-### Combined QC violin plots
-```{r fig.width = 12, fig.height=5}
-adt <- merged_samples@meta.data %>% 
+adt <- seurats_merged@meta.data %>% 
   select(id, nCount_ADT) %>% 
   group_by(id) %>% 
   summarize(median = median(nCount_ADT)) %>% 
@@ -238,21 +256,20 @@ adt <- merged_samples@meta.data %>%
   mutate(ADT = ifelse(median > 0, 'Yes', 'No')) %>% 
   select(id, ADT)
 
-qc_table <- merged_samples@meta.data %>% 
-  left_join(adt) %>% 
-  filter(percent.mouse < 5) %>% 
-  select('id', ends_with('RNA'), starts_with('percent')) %>% 
+qc_table <- seurats_merged@meta.data %>% 
+  filter(pct_mouse < 5) %>% 
+  select('id', ends_with('RNA'), starts_with('pct')) %>% 
   pivot_longer(cols = -1,
                names_to = 'metric',
                values_to = 'value')
   
-  qc_table %>% head()
+qc_table %>% head()
 ```
 
-
+### Global QC plot (pre-filtering)
 ```{r fig.width = 12, fig.height=16}
 p <- qc_table %>% 
-  filter(metric != 'percent.mouse') %>% 
+  filter(metric != 'pct_mouse') %>% 
   ggplot(aes(x = id,
              y = value,
              fill = id)) +
@@ -263,35 +280,28 @@ p <- qc_table %>%
         legend.position = 'none') +
   labs(title = 'QC Metrics by Sample',
        x = '',
-       y = '') 
+       y = '')  +
+  theme_dwu()
 
 ggsave(plot = p,
-       filename = 'qc_by_sample.png',
+       filename = 'qc_summary_linear.png',
        h = 12,
        w = 12,
-       path = file.path(output_dir, 'qc_plots'))
+       path = output_dir)
+
+ggsave(plot = p + scale_y_log10(),
+       filename = 'qc_summary_log.png',
+       h = 12,
+       w = 12,
+       path = output_dir)
 p
 ```
 
-
-### Normalize, FindVariableFeatures, ScaleData and RunPCA
+### Export
 ```{r}
-merged_samples <- Seurat::NormalizeData(merged_samples, 
-                                        assay = "RNA") %>% 
-  FindVariableFeatures(selection.method = "vst", 
-                       nfeatures = 2000, 
-                       assay = "RNA") %>%
-  ScaleData(verbose = FALSE, 
-            assay = "RNA") %>%
-  RunPCA(npcs = 30, 
-         verbose = FALSE, 
-         assay = "RNA")
+seurats_merged %>% write_rds(here(data_dir, 'seurats_merged.rds'))
 ```
 
-## Export
-```{r}
-merged_samples %>% write_rds(file.path(data_dir, 'seuratobj_merged.rds'))
-```
 
 ## Session Info
 ```{r}

@@ -7,10 +7,9 @@ output: html_notebook
 Process raw data. Provided data is already processed by cellranger; use this notebook to organize metadata
 
 ## Setup
-Set working directory to project directory
-```{r setup}
-require(knitr)
-opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+### Use the here package for robust relative paths
+```{r}
+library(here)
 ```
 
 ### Optionally convert this Rmd to R script 
@@ -23,8 +22,8 @@ file.edit(output_file)
 
 ### Directories
 ```{r, message=FALSE}
-analysis_dir <- 'analysis/output/00_process' # analysis file output directory
-data_dir <- 'data/derived/pipestance' # data file output directory
+analysis_dir <- here('analysis/output/00_process') # analysis file output directory
+data_dir <- here('data/derived/pipestance') # data file output directory
 
 dir.create(analysis_dir, showWarnings = FALSE)
 dir.create(data_dir, showWarnings = FALSE)
@@ -35,7 +34,7 @@ dir.create(data_dir, showWarnings = FALSE)
 library(tidyverse)
 ```
 
-### Copy files
+### Copy pipestance files from Box
 Start in project directory
 ```{bash eval=FALSE} 
 cd data/derived
@@ -55,11 +54,14 @@ metadata
 ```{r}
 metadata %>% filter(`Skin id #` !=  `Skin #`)
 ```
-
+### Prepare metadata subset
 ```{r}
+dest_dir <- 'analysis/input/samples/'
+dir.create(dest_dir)
+
 metadata_subset <- 
   metadata %>% 
-  mutate(id = paste0('skin', id)) %>% 
+  mutate(id = paste0('S', id)) %>% 
   filter(is.na(exclude),
          tildra == 'Yes') %>% 
   select(sample,
@@ -84,8 +86,13 @@ metadata_subset <-
          f_ab_reads_usable = `fraction antibody reads usable`,
          f_ab_unrecog = `fraction unrecognized antibody`,
          f_ab_reads_in_cells = `antibody reads in cells`,
-         n_ab_reads_usable_per_cell = `antibody reads usable/cell`) %>% 
-  mutate(adt = ifelse(is.na(f_ab_reads), 'No', 'Yes'))
+         n_ab_reads_usable_per_cell = `antibody reads usable/cell`,
+         mouse = `mouse spike in?`) %>% 
+  mutate(adt = ifelse(is.na(f_ab_reads), 'No', 'Yes'),
+         mouse = ifelse(mouse == 'yes', 'Yes', 'No'),
+         pipestance = paste0('data/derived/pipestance/', path),
+         h5 = paste0(dest_dir, id, '.h5'))
+
 
 metadata_subset
 ```
@@ -108,19 +115,14 @@ metadata_subset
 
 ### Transfer .h5 files to input directory
 ```{r}
-dest_dir <- 'analysis/input/samples/'
-dir.create(dest_dir)
-
 transfer <- metadata_subset %>% 
-  mutate(origin = paste0('data/derived/pipestance/', path, '/filtered_feature_bc_matrix.h5'),
-         dest = paste0(dest_dir, id, '.h5')) %>% 
-  select(sample, id, origin, dest)
+  select(sample, id, pipestance, h5)
 
 transfer
 ```
 ```{r}
-file.copy(transfer$origin,
-          transfer$dest, 
+file.copy(from = here(transfer$pipestance, '/filtered_feature_bc_matrix.h5'),
+          to = here(transfer$h5), 
           overwrite = TRUE)
 ```
 
