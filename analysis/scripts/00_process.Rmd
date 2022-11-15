@@ -73,8 +73,9 @@ metadata_subset <-
          group,
          sample_label,
          patient_label,
-         path,
-         published = `In SI paper`,
+         pipestance_path,
+         adt_path,
+         published,
          citeseq = `Awaiting Cite Seq?`,
          chemistry = `10x kit`,
          n_cells = `est # of cells`,
@@ -90,7 +91,7 @@ metadata_subset <-
          mouse = `mouse spike in?`) %>% 
   mutate(adt = ifelse(is.na(f_ab_reads), 'No', 'Yes'),
          mouse = ifelse(mouse == 'yes', 'Yes', 'No'),
-         pipestance = paste0('data/derived/pipestance/', path),
+         pipestance = paste0('data/derived/pipestance/', pipestance_path),
          h5 = paste0(dest_dir, id, '.h5'))
 
 
@@ -103,7 +104,7 @@ paths
 ```
 ### Check for missing paths
 ```{r}
-metadata_subset[!(metadata_subset$path %in% paths),]
+metadata_subset[!(metadata_subset$pipestance_path %in% paths),]
 ```
 
 ```{r}
@@ -116,6 +117,7 @@ metadata_subset
 ### Transfer .h5 files to input directory
 ```{r}
 transfer <- metadata_subset %>% 
+  filter(pipestance_path %in% paths) %>% 
   select(sample, id, pipestance, h5)
 
 transfer
@@ -129,7 +131,7 @@ file.copy(from = here(transfer$pipestance, '/filtered_feature_bc_matrix.h5'),
 
 ## Export
 ```{r}
-metadata_subset %>% write_tsv(file.path(analysis_dir, 'metadata_subset.tsv'))
+metadata_subset %>% filter(pipestance_path %in% paths) %>% write_tsv(file.path(analysis_dir, 'metadata_subset.tsv'))
 ```
 
 ## Session info

@@ -176,8 +176,8 @@ samples <- metadata$id %>% set_names(.)
 
 tic()
 seurats <- 
-  #mclapply(samples, mc.cores = 10, # in parallel
-  map(samples,         
+  mclapply(samples, mc.cores = 10, # in parallel
+  #map(samples,         
       function(i) {
         
         print2(i)
@@ -210,6 +210,9 @@ seurats <-
           # add additional ADT assay
           seuratobj[['ADT']] <- CreateAssayObject(counts = trim.feature.names(tenx_matrix[['Antibody Capture']]))
           
+          # normalize ADT within sample
+          seuratobj <- seuratobj %>% NormalizeData(normalization.method = 'CLR', margin = 2, assay = 'ADT')
+          
         } else { # single assay, gene expression only
           seuratobj <- CreateSeuratObject(counts = tenx_matrix,
                                           project = i)
@@ -228,12 +231,17 @@ seurats <-
         seuratobj <- PercentageFeatureSet(seuratobj, features = intersect(stress_genes$gene_symbol, rownames(seuratobj)), col.name = 'pct_stress')
         seuratobj <- PercentageFeatureSet(seuratobj, pattern = '^mm10', col.name = 'pct_mouse')
         seuratobj$pct_human <- round(100 - seuratobj$pct_mouse, 2)
+        seuratobj$species <- case_when(
+          seuratobj$pct_human > 95 ~ 'Human',
+          seuratobj$pct_mouse > 95 ~ 'Mouse',
+          TRUE ~ 'Mixed'
+        )
         seuratobj$doublets <- sceobj$scDblFinder.class
         
         # plot QC metrics
         qc_plots(seuratobj = seuratobj,
                  filename = i,
-                 path = here(output_dir, 'qc_plots/individual'))
+                 path = here(output_dir, 'qc_plots'))
         
         # return seurat object
         seuratobj
@@ -241,6 +249,8 @@ seurats <-
       })
 toc()
 ```
+
+
 
 #### merge all
 ```{r}
@@ -268,33 +278,36 @@ qc_table %>% head()
 
 ### Global QC plot (pre-filtering)
 ```{r fig.width = 12, fig.height=16}
-p <- qc_table %>% 
-  filter(metric != 'pct_mouse') %>% 
-  ggplot(aes(x = id,
-             y = value,
-             fill = id)) +
-  geom_violin() +
-  theme_bw() +
-  facet_wrap(~metric, scales = 'free_y', ncol = 1) +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1),
-        legend.position = 'none') +
-  labs(title = 'QC Metrics by Sample',
-       x = '',
-       y = '')  +
-  theme_dwu()
+qc_plots_pre <- map(qc_table$metric %>% unique(), function(i){
+  
+  print2(i)
+  p <- qc_table %>% 
+    filter(metric == i) %>% 
+    ggplot(aes(x = id,
+               y = value,
+               fill = id)) +
+    geom_violin() +
+    theme_dwu() +
+    labs(x = '',
+         y = '',
+         title = i)
+  
+  if(str_detect(i, 'RNA')) {
+   p <- p + scale_y_log10()
+  }
+  
+  p
+  
+}) %>% wrap_plots(ncol = 1)
 
-ggsave(plot = p,
-       filename = 'qc_summary_linear.png',
-       h = 12,
+ggsave(plot = qc_plots_pre,
+       path = output_dir,
+       filename = 'qc_summary_pre.png',
+       h = 16,
        w = 12,
-       path = output_dir)
+       dpi = 150)
 
-ggsave(plot = p + scale_y_log10(),
-       filename = 'qc_summary_log.png',
-       h = 12,
-       w = 12,
-       path = output_dir)
-p
+qc_plots_pre
 ```
 
 ### Export

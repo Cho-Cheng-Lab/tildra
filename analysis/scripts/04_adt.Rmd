@@ -1,0 +1,81 @@
+---
+title: "ADT Analysis"
+author: "David Wu"
+---
+
+### Use the here package for robust relative paths
+```{r}
+library(here)
+```
+
+### Optionally convert this Rmd to R script 
+```{r eval=FALSE, message=FALSE}
+current_file <- rstudioapi::getActiveDocumentContext()$path
+output_file <- stringr::str_replace(current_file, '.Rmd', '.R')
+knitr::purl(current_file, output = output_file)
+file.edit(output_file)
+```
+
+### Directories
+```{r, message=FALSE}
+output_dir <- here('analysis/output/04_adt') # analysis file output directory
+data_dir <- here('data/derived/tildra') # data file output directory
+
+dir.create(output_dir, showWarnings = FALSE)
+dir.create(data_dir, showWarnings = FALSE)
+```
+
+### Load libraries
+```{r, message=FALSE}
+library(Seurat) 
+library(tidyverse)
+library(ggExtra)
+library(harmony)
+library(SeuratWrappers)
+library(wutilities) # devtools::install_github('symbiologist/wutilities')
+library(tictoc)
+```
+
+### Load Seurat object
+```{r}
+seuratobj <- read_rds(here(data_dir, 'seuratobj_clustered.rds'))
+metadata <- seuratobj@meta.data %>% rownames_to_column() %>% as_tibble()
+seuratobj
+```
+### Analysis
+#### ADT colnames
+```{r}
+seuratobj <- seuratobj %>% NormalizeData(normalization.method = "CLR", margin = 2, assay = 'ADT')
+
+seuratobj@assays$ADT %>% rownames()
+```
+```{r}
+seurat_feature(seuratobj, features = c('ADT_CD4'))
+```
+```{r}
+VlnPlot(seuratobj, features = c('ADT_CD4'), group.by = 'id', pt.size = 0.1)
+```
+#### Which samples have mouse cells?
+```{r}
+metadata %>% 
+  filter(species == 'Mouse' | adt == 'Yes') %>% 
+  select(id, sample, mouse, adt) %>% 
+  unique()
+```
+```{r}
+adt_samples <- metadata %>% filter(adt == 'Yes')
+```
+
+
+## Export
+```{r}
+
+```
+
+## Session Info
+```{r}
+sessionInfo()
+```
+
+
+

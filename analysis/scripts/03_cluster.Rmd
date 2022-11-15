@@ -34,6 +34,8 @@ library(harmony)
 library(SeuratWrappers)
 library(wutilities) # devtools::install_github('symbiologist/wutilities')
 library(tictoc)
+library(rcartocolor)
+theme_set(theme_dwu()) # set default theme
 ```
 
 ### Load Seurat object
@@ -119,6 +121,13 @@ p <- seurat_feature(seuratobj, features = c('RNA_snn_res.1'),
                     color_palette = 'custom1', 
                     legend_position = 'right', 
                     title = 'Resolution: 1.0')
+
+p
+```
+```{r}
+p <- seurat_feature(seuratobj, 
+                    features = c('pct_mouse'), 
+                    facet_hide = TRUE)
 
 p
 ```

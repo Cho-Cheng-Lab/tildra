@@ -31,17 +31,28 @@ library(Seurat)
 library(tidyverse)
 library(patchwork)
 library(ggExtra)
-library(ggplotify)
-library(parallel)
+library(ggforce)
 library(tictoc)
 library(wutilities) # devtools::install_github('symbiologist/wutilities')
+library(rcartocolor)
+theme_set(theme_dwu()) # set default theme
 ```
 
 
 ### Load Seurat object
 ```{r}
 seuratobj <- read_rds(here(data_dir, 'seurats_merged.rds'))
+metadata <- seuratobj@meta.data %>% rownames_to_column() %>% as_tibble()
 ```
+
+### Species assignment
+```{r}
+metadata %>% 
+  ggplot(aes(x = species, y = pct_human)) + 
+  geom_boxplot(outlier.shape = NA) +
+  geom_sina(size = 0.5, alpha = 0.5) 
+```
+
 
 ### Thresholds
 ```{r}
@@ -54,8 +65,8 @@ thresholds <- list('nFeature_RNA' = c(200, 10000),
 
 ### Global QC plot (post-filtering)
 ```{r fig.width = 12, fig.height=16}
-qc_table_pre <- seuratobj@meta.data %>% 
-  filter(pct_mouse < 5) %>% 
+qc_table_pre <- metadata %>% 
+  filter(species == 'Human') %>% 
   select('id', ends_with('RNA'), starts_with('pct')) %>% 
   pivot_longer(cols = -1,
                names_to = 'metric',
@@ -94,11 +105,40 @@ qc_plots_pre
 
 
 ```
+### Species
+```{r}
+metadata %>%
+  group_by(id, sample, mouse) %>% 
+  summarize(n_mouse = sum(pct_mouse > 95)) %>% 
+  arrange(mouse)
+```
+
+
+```{r}
+n_human <- map(c(0, 5, 10, 50, 90, 95, 100), function(i) {
+  
+  n_above_threshold <- metadata %>% 
+    filter(mouse == 'Yes') %>% 
+    select(pct_human,
+           id,
+           sample,
+           mouse) %>% 
+    filter(pct_human >= i) %>% 
+    nrow()
+  
+  tibble('threshold' = i,
+         'n_above_threshold' = n_above_threshold)
+  
+}) %>% bind_rows() %>% 
+  mutate()
+
+n_human
+```
 
 ### Filters
 ```{r}
 human_cells_to_keep <- seuratobj@meta.data %>% 
-  filter(pct_mouse < 5,
+  filter(species == 'Human',
          nFeature_RNA > thresholds[['nFeature_RNA']][1],
          nFeature_RNA < thresholds[['nFeature_RNA']][2],
          pct_mito > thresholds[['pct_mito']][1],
@@ -111,7 +151,7 @@ human_cells_to_keep <- seuratobj@meta.data %>%
   rownames()
 
 mouse_cells_to_keep <- seuratobj@meta.data %>% 
-  filter(pct_mouse > 95,
+  filter(species == 'Mouse',
          doublets == 'singlet') %>% 
   rownames()
 
@@ -121,7 +161,7 @@ seuratobj_qc
 ```
 ```{r fig.width = 12, fig.height=16}
 qc_table_post <- seuratobj_qc@meta.data %>% 
-  filter(pct_mouse < 5) %>% 
+  filter(species == 'Human') %>% 
   select('id', ends_with('RNA'), starts_with('pct')) %>% 
   pivot_longer(cols = -1,
                names_to = 'metric',
