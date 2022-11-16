@@ -43,6 +43,7 @@ theme_set(theme_dwu()) # set default theme
 ```{r}
 seuratobj <- read_rds(here(data_dir, 'seurats_merged.rds'))
 metadata <- seuratobj@meta.data %>% rownames_to_column() %>% as_tibble()
+seuratobj
 ```
 
 ### Species assignment
@@ -83,6 +84,7 @@ qc_plots_pre <- map(names(thresholds), function(i){
     geom_violin() +
     geom_hline(yintercept = thresholds[[i]], linetype = 'dashed') +
     theme_dwu() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
     labs(x = '',
          y = '',
          title = i)
@@ -178,6 +180,7 @@ qc_plots_post <- map(names(thresholds), function(i){
     geom_violin() +
     geom_hline(yintercept = thresholds[[i]], linetype = 'dashed') +
     theme_dwu() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
     labs(x = '',
          y = '',
          title = i)

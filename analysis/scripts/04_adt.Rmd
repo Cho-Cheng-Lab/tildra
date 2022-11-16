@@ -34,6 +34,7 @@ library(harmony)
 library(SeuratWrappers)
 library(wutilities) # devtools::install_github('symbiologist/wutilities')
 library(tictoc)
+theme_set(theme_dwu()) # set default theme
 ```
 
 ### Load Seurat object
@@ -45,9 +46,8 @@ seuratobj
 ### Analysis
 #### ADT colnames
 ```{r}
-seuratobj <- seuratobj %>% NormalizeData(normalization.method = "CLR", margin = 2, assay = 'ADT')
-
-seuratobj@assays$ADT %>% rownames()
+adt_markers <- seuratobj@assays$ADT %>% rownames()
+adt_markers
 ```
 ```{r}
 seurat_feature(seuratobj, features = c('ADT_CD4'))
@@ -63,9 +63,52 @@ metadata %>%
   unique()
 ```
 ```{r}
-adt_samples <- metadata %>% filter(adt == 'Yes')
+adt_samples <- metadata %>% filter(adt == 'Yes') %>% pull(id) %>% unique()
 ```
 
+### Calling ADT
+```{r}
+adt_data <- FetchData(seuratobj, vars = c('id', 'adt', 'species', paste0('ADT_', adt_markers))) %>% 
+  rownames_to_column() %>% 
+  filter(adt == 'Yes') %>% 
+  pivot_longer(cols = starts_with('ADT_'),
+               names_to = 'marker',
+               values_to = 'expression') %>% 
+  mutate(marker = str_remove(marker, 'ADT_')) %>% 
+  select(-adt)
+
+adt_data %>% head()
+```
+
+```{r}
+plot_dir <- here(output_dir, 'histograms')
+
+map(adt_markers, function(i) {
+  
+  sample_subset <- adt_data %>% 
+    filter(marker == i)
+  
+  p <- sample_subset %>% 
+    ggplot(aes(x = expression,
+               fill = species)) +
+    geom_histogram(bins = 100) +
+    rcartocolor::scale_fill_carto_d() +
+    facet_wrap(~id, scales = 'free') +
+    theme(legend.position = 'top') +
+    labs(x = 'Normalized Expression',
+         y = '# of Cells',
+         title = i)
+  
+  ggsave(plot = p,
+         filename = paste0(i, '.png'),
+         path = plot_dir,
+         h = 12,
+         w = 12)
+  
+})
+
+
+```
 
 ## Export
 ```{r}

@@ -90,7 +90,7 @@ qc_plots <- function(seuratobj,
     geom_vline(xintercept = 30, linetype="dashed", color = "black", size = 1) +
     theme_bw()
     
-        species_tally <- seuratobj@meta.data %>% 
+    species_tally <- seuratobj@meta.data %>% 
       mutate(species = factor(ifelse(pct_human > 95, 'Human', 'Mouse'), levels = c('Human', 'Mouse'))) %>% 
       group_by(species, .drop = FALSE) %>% 
       tally() %>% 
