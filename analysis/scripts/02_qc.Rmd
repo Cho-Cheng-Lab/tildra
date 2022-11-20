@@ -111,7 +111,7 @@ qc_plots_pre
 ```{r}
 metadata %>%
   group_by(id, sample, mouse) %>% 
-  summarize(n_mouse = sum(pct_mouse > 95)) %>% 
+  summarize(n_mouse = sum(species == 'Mouse')) %>% 
   arrange(mouse)
 ```
 
@@ -149,12 +149,12 @@ human_cells_to_keep <- seuratobj@meta.data %>%
          pct_ribo < thresholds[['pct_ribo']][2],
          pct_stress > thresholds[['pct_stress']][1],
          pct_stress < thresholds[['pct_stress']][2],
-         doublets == 'singlet') %>% 
+         doublet_class == 'singlet') %>% 
   rownames()
 
 mouse_cells_to_keep <- seuratobj@meta.data %>% 
   filter(species == 'Mouse',
-         doublets == 'singlet') %>% 
+         doublet_class == 'singlet') %>% 
   rownames()
 
 seuratobj_qc <- subset(seuratobj, cells = c(human_cells_to_keep, mouse_cells_to_keep))

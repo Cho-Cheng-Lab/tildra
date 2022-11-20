@@ -1,0 +1,267 @@
+---
+title: "ADT Analysis"
+author: "David Wu"
+---
+
+### Use the here package for robust relative paths
+```{r}
+library(here)
+```
+
+### Optionally convert this Rmd to R script 
+```{r eval=FALSE, message=FALSE}
+current_file <- rstudioapi::getActiveDocumentContext()$path
+output_file <- stringr::str_replace(current_file, '.Rmd', '.R')
+knitr::purl(current_file, output = output_file)
+file.edit(output_file)
+```
+
+### Directories
+```{r, message=FALSE}
+output_dir <- here('analysis/output/03_adt') # analysis file output directory
+data_dir <- here('data/derived/tildra') # data file output directory
+
+dir.create(output_dir, showWarnings = FALSE)
+dir.create(data_dir, showWarnings = FALSE)
+```
+
+### Load libraries
+```{r, message=FALSE}
+library(Seurat) 
+library(tidyverse)
+library(ggExtra)
+library(harmony)
+library(SeuratWrappers)
+library(wutilities) # devtools::install_github('symbiologist/wutilities')
+library(tictoc)
+theme_set(theme_dwu()) # set default theme
+```
+
+### Load Seurat object
+```{r}
+seuratobj <- read_rds(here(data_dir, 'seuratobj_qc.rds'))
+metadata <- seuratobj@meta.data %>% rownames_to_column() %>% as_tibble()
+seuratobj
+```
+### Analysis
+#### ADT colnames
+```{r}
+adt_markers <- seuratobj@assays$ADT %>% rownames()
+adt_markers
+```
+### Normalize by CLR method (margin 2 per)
+```{r}
+seuratobj <- seuratobj %>% NormalizeData(assay = 'ADT', normalization.method = 'CLR', margin = 2)
+```
+
+```{r}
+VlnPlot(seuratobj, features = c('ADT_CD4'), group.by = 'id', pt.size = 0.1) + theme(legend.position = 'none')
+```
+
+### Extract raw ADT data from ADT samples with mouse-spike
+```{r}
+adt_raw <- FetchData(seuratobj, vars = c('id', 'mouse', 'species', paste0('ADT_', adt_markers)), slot = 'count') %>% 
+  rownames_to_column() %>% 
+  filter(mouse == 'Yes') %>% 
+  set_names(str_remove(colnames(.), 'ADT_')) %>% 
+  as_tibble() %>% 
+  select(-mouse)
+
+adt_clr <- FetchData(seuratobj, vars = c('id', 'mouse', 'species', paste0('ADT_', adt_markers)), slot = 'data') %>% 
+  rownames_to_column() %>% 
+  filter(mouse == 'Yes') %>% 
+  set_names(str_remove(colnames(.), 'ADT_')) %>% 
+  as_tibble() %>% 
+  select(-mouse)
+  
+  
+adt_clr_long <- adt_clr %>% 
+  pivot_longer(cols = all_of(adt_markers),
+               names_to = 'marker',
+               values_to = 'expression') 
+
+adt_raw %>% head()
+```
+
+
+
+#### Which samples have mouse cells to set background?
+```{r}
+metadata %>% 
+  filter(species == 'Mouse' | adt == 'Yes') %>% 
+  select(id, sample, mouse, adt) %>% 
+  unique()
+```
+```{r}
+adt_samples <- metadata %>% filter(mouse == 'Yes') %>% pull(id) %>% unique()
+```
+
+
+```{r}
+plot_dir <- here(output_dir, 'density_clr2')
+
+adt_results_clr2 <- map(adt_markers, function(i) {
+  
+  sample_subset <- adt_clr_long %>% 
+    filter(marker == i)
+  
+  mouse_summary <- sample_subset %>% 
+    filter(species == 'Mouse') %>% 
+    group_by(id) %>% 
+    summarize(mean = mean(expression),
+              sd = sd(expression),
+              threshold1 = mean + sd,
+              threshold2 = mean + 2*sd)
+    
+  p <- sample_subset %>% 
+    left_join(mouse_summary) %>% 
+    ggplot(aes(x = expression,
+               fill = species)) +
+    geom_density(alpha = 0.5) +
+    geom_vline(aes(xintercept = threshold1), linetype = 'dashed', color = 'red') +
+    geom_vline(aes(xintercept = threshold2), linetype = 'dashed', color = 'red') +
+    rcartocolor::scale_fill_carto_d() +
+    facet_wrap(~id, scales = 'free') +
+    theme(legend.position = 'top') +
+    labs(x = 'Normalized Expression',
+         y = '# of Cells',
+         title = i)
+  
+  ggsave(plot = p,
+         filename = paste0(i, '.png'),
+         path = plot_dir,
+         h = 12,
+         w = 12)
+  
+  sample_subset %>% 
+    left_join(mouse_summary)
+  
+}) %>% bind_rows()
+
+
+```
+### CLR by margin 1
+```{r}
+
+seuratobj1 <- seuratobj %>% NormalizeData(assay = 'ADT', normalization.method = 'CLR', margin = 1)
+
+adt_clr <- FetchData(seuratobj1, vars = c('id', 'mouse', 'species', paste0('ADT_', adt_markers)), slot = 'data') %>% 
+  rownames_to_column() %>% 
+  filter(mouse == 'Yes') %>% 
+  set_names(str_remove(colnames(.), 'ADT_')) %>% 
+  as_tibble() %>% 
+  select(-mouse)
+  
+  
+adt_clr_long <- adt_clr %>% 
+  pivot_longer(cols = all_of(adt_markers),
+               names_to = 'marker',
+               values_to = 'expression') 
+
+plot_dir <- here(output_dir, 'density_clr1')
+
+adt_results_clr1 <- map(adt_markers, function(i) {
+  
+  sample_subset <- adt_clr_long %>% 
+    filter(marker == i)
+  
+  mouse_summary <- sample_subset %>% 
+    filter(species == 'Mouse') %>% 
+    group_by(id) %>% 
+    summarize(mean = mean(expression),
+              sd = sd(expression),
+              threshold1 = mean + sd,
+              threshold2 = mean + 2*sd)
+    
+  p <- sample_subset %>% 
+    left_join(mouse_summary) %>% 
+    ggplot(aes(x = expression,
+               fill = species)) +
+    geom_density(alpha = 0.5) +
+    geom_vline(aes(xintercept = threshold1), linetype = 'dashed', color = 'red') +
+    geom_vline(aes(xintercept = threshold2), linetype = 'dashed', color = 'red') +
+    rcartocolor::scale_fill_carto_d() +
+    facet_wrap(~id, scales = 'free') +
+    theme(legend.position = 'top') +
+    labs(x = 'Normalized Expression',
+         y = '# of Cells',
+         title = i)
+  
+  ggsave(plot = p,
+         filename = paste0(i, '.png'),
+         path = plot_dir,
+         h = 12,
+         w = 12)
+  
+  sample_subset %>% 
+    left_join(mouse_summary)
+  
+}) %>% bind_rows()
+```
+
+```{r}
+robust_markers <- c('CD1c', 
+                    'CD3',
+                    'CD4', 
+                    'CD8',
+                    'CD11c',
+                    'CD69',
+                    'CD127')
+```
+
+### ADTNorm Method of CITE-Seq normalization
+https://yezhengstat.github.io/ADTnorm/index.html
+Not working
+```{r eval=FALSE}
+library(ADTnorm)
+
+adtnorm_input <- adt_raw #%>% filter(id %in% c('S195','S1981'))
+
+
+cell_x_adt <- adtnorm_input %>% select(all_of(robust_markers))
+cell_x_feature <- adtnorm_input %>% select(sample = id,
+                                           batch = id)
+# cell_x_feature$sample = factor(cell_x_feature$study_name)
+# cell_x_feature$batch = factor(cell_x_feature$study_name)
+
+adt_results_norm <- ADTnorm(
+  cell_x_adt = cell_x_adt, 
+  cell_x_feature = cell_x_feature,
+  save_outpath = output_dir, 
+  study_name = 'adt_norm', 
+  marker_to_process = robust_markers, 
+  save_intermediate_fig = TRUE
+)
+```
+
+### Transform
+```{r}
+adt_calls <- adt_results_clr2 %>% 
+  filter(marker %in% robust_markers,
+         species == 'Human') %>% 
+  mutate('result' = ifelse(expression > threshold2, 'Positive', 'Negative')) %>% 
+  select(rowname, marker, result) %>% 
+  pivot_wider(names_from = 'marker',
+              values_from = 'result')
+
+adt_calls  
+```
+
+## Export
+```{r}
+adt_results_clr2 %>% 
+  filter(marker %in% robust_markers) %>% 
+    write_tsv(here(output_dir, 'adt_results_clr2.tsv.gz'))
+
+adt_results_norm %>% write_rds(here(output_dir, 'adt_results_norm.rds'), compress = 'gz')
+
+adt_calls %>% write_tsv(here(output_dir, 'adt_calls.tsv.gz'))
+```
+
+## Session Info
+```{r}
+sessionInfo()
+```
+
+
+

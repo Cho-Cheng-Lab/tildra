@@ -42,12 +42,9 @@ library(wutilities) # devtools::install_github('symbiologist/wutilities')
 ```{r}
 #function to trim ADT:
 trim.feature.names <- function(inmat){
-  newnames <- sapply(strsplit(rownames(inmat), "_"),
-                     function(x) {
-                       if(length(x)==1) return(x)
-                       else return(paste(x[-length(x)], collapse="_"))
-                     })
-  rownames(inmat) <- newnames
+  
+  rownames(inmat) <- rownames(inmat) %>% str_remove('_TotalA') %>% str_remove('/')
+  
   return(inmat)
 }
 
@@ -57,8 +54,6 @@ qc_plots <- function(seuratobj,
                      path) {
   
   dir.create(path = path, showWarnings = FALSE, recursive = TRUE)
-  
-  
   
   p1 <-  seuratobj@meta.data %>% 
     filter(pct_mouse < 5) %>% 
@@ -107,7 +102,7 @@ qc_plots <- function(seuratobj,
       mutate(pct = round(100 * n / sum(n), 2))
     
     doublet_tally <- seuratobj@meta.data %>% 
-      group_by(doublets) %>% 
+      group_by(doublet_class) %>% 
       tally() %>% 
       mutate(pct = round(100 * n / sum(n), 2))
     
@@ -127,10 +122,10 @@ qc_plots <- function(seuratobj,
       ylim(c(0, 100))
     
     p5 <- doublet_tally %>% 
-      ggplot(aes(x = doublets,
+      ggplot(aes(x = doublet_class,
                  y = pct,
                  label = paste0('n = ',n, ', ', pct, '%'),
-                 fill = doublets)) +
+                 fill = doublet_class)) +
       geom_col(color = 'black') +
       geom_label(fill = 'white') +
       ggthemes::scale_fill_few(palette = 'Light') +
@@ -205,20 +200,20 @@ seurats <-
         
         if(length(tenx_matrix) == 2) { # two assays
           # create seurat obj
-          seuratobj <- CreateSeuratObject(counts = CollapseSpeciesExpressionMatrix(tenx_matrix[['Gene Expression']], prefix = 'GRCh38_', controls = 'mm10___'), project = i)
+          seuratobj <- CreateSeuratObject(counts = CollapseSpeciesExpressionMatrix(tenx_matrix[['Gene Expression']], prefix = 'GRCh38_', controls = 'mm10___', ncontrols = 200), project = i)
           
           # add additional ADT assay
           seuratobj[['ADT']] <- CreateAssayObject(counts = trim.feature.names(tenx_matrix[['Antibody Capture']]))
-          
-          # normalize ADT within sample
-          seuratobj <- seuratobj %>% NormalizeData(normalization.method = 'CLR', margin = 2, assay = 'ADT')
           
         } else { # single assay, gene expression only
           seuratobj <- CreateSeuratObject(counts = tenx_matrix,
                                           project = i)
         }
         
-        # calculate doublets
+        # filter out low complexity
+        seuratobj <- subset(seuratobj, subset = nFeature_RNA > 100)
+          
+        # calculate doublet class
         sceobj <- as.SingleCellExperiment(seuratobj, assay = 'RNA')
         sceobj <- scDblFinder(sceobj, verbose = FALSE)
         
@@ -236,7 +231,7 @@ seurats <-
           seuratobj$pct_mouse > 95 ~ 'Mouse',
           TRUE ~ 'Mixed'
         )
-        seuratobj$doublets <- sceobj$scDblFinder.class
+        seuratobj$doublet_class <- sceobj$scDblFinder.class
         
         # plot QC metrics
         qc_plots(seuratobj = seuratobj,

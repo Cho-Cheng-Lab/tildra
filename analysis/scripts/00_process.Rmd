@@ -75,6 +75,7 @@ metadata_subset <-
          patient_label,
          pipestance_path,
          adt_path,
+         assay,
          published,
          citeseq = `Awaiting Cite Seq?`,
          chemistry = `10x kit`,
@@ -83,11 +84,11 @@ metadata_subset <-
          reads_per_cell = `mean reads/cell`,
          genes_per_cell = `median genes per cell`,
          saturation = `sequencing saturation`,
-         f_ab_reads = `fraction antibody reads`,
-         f_ab_reads_usable = `fraction antibody reads usable`,
-         f_ab_unrecog = `fraction unrecognized antibody`,
-         f_ab_reads_in_cells = `antibody reads in cells`,
-         n_ab_reads_usable_per_cell = `antibody reads usable/cell`,
+         f_ab_reads = `fraction αbody reads`,
+         f_ab_reads_usable = `fraction αbody reads usable`,
+         f_ab_unrecog = `fraction unrecognized αbody`,
+         f_ab_reads_in_cells = `αbody reads in cells`,
+         n_ab_reads_usable_per_cell = `αbody reads usable/cell`,
          mouse = `mouse spike in?`) %>% 
   mutate(adt = ifelse(is.na(f_ab_reads), 'No', 'Yes'),
          mouse = ifelse(mouse == 'yes', 'Yes', 'No'),
@@ -97,6 +98,7 @@ metadata_subset <-
 
 metadata_subset
 ```
+
 ### Match to output directories
 ```{r}
 paths <- list.files(data_dir)

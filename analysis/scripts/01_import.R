@@ -1,15 +1,15 @@
-## --------------------------------------------------------------------------------------------------------------------------------
+## ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 library(here)
 
 
-## ----eval=FALSE, message=FALSE---------------------------------------------------------------------------------------------------
+## ----eval=FALSE, message=FALSE-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ## current_file <- rstudioapi::getActiveDocumentContext()$path
 ## output_file <- stringr::str_replace(current_file, '.Rmd', '.R')
 ## knitr::purl(current_file, output = output_file)
 ## file.edit(output_file)
 
 
-## ---- message=FALSE--------------------------------------------------------------------------------------------------------------
+## ---- message=FALSE------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 output_dir <- here('analysis/output/01_import') # analysis file output directory
 data_dir <- here('data/derived/tildra') # data file output directory
 
@@ -17,7 +17,7 @@ dir.create(output_dir, showWarnings = FALSE)
 dir.create(data_dir, showWarnings = FALSE)
 
 
-## ---- message=FALSE--------------------------------------------------------------------------------------------------------------
+## ---- message=FALSE------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 library(Seurat) 
 library(tidyverse)
 library(scDblFinder) 
@@ -29,15 +29,12 @@ library(tictoc)
 library(wutilities) # devtools::install_github('symbiologist/wutilities')
 
 
-## --------------------------------------------------------------------------------------------------------------------------------
+## ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #function to trim ADT:
 trim.feature.names <- function(inmat){
-  newnames <- sapply(strsplit(rownames(inmat), "_"),
-                     function(x) {
-                       if(length(x)==1) return(x)
-                       else return(paste(x[-length(x)], collapse="_"))
-                     })
-  rownames(inmat) <- newnames
+  
+  rownames(inmat) <- rownames(inmat) %>% str_remove('_TotalA') %>% str_remove('/')
+  
   return(inmat)
 }
 
@@ -90,14 +87,14 @@ qc_plots <- function(seuratobj,
     geom_vline(xintercept = 30, linetype="dashed", color = "black", size = 1) +
     theme_bw()
     
-    species_tally <- seuratobj@meta.data %>% 
+        species_tally <- seuratobj@meta.data %>% 
       mutate(species = factor(ifelse(pct_human > 95, 'Human', 'Mouse'), levels = c('Human', 'Mouse'))) %>% 
       group_by(species, .drop = FALSE) %>% 
       tally() %>% 
       mutate(pct = round(100 * n / sum(n), 2))
     
     doublet_tally <- seuratobj@meta.data %>% 
-      group_by(doublets) %>% 
+      group_by(doublet_class) %>% 
       tally() %>% 
       mutate(pct = round(100 * n / sum(n), 2))
     
@@ -117,10 +114,10 @@ qc_plots <- function(seuratobj,
       ylim(c(0, 100))
     
     p5 <- doublet_tally %>% 
-      ggplot(aes(x = doublets,
+      ggplot(aes(x = doublet_class,
                  y = pct,
                  label = paste0('n = ',n, ', ', pct, '%'),
-                 fill = doublets)) +
+                 fill = doublet_class)) +
       geom_col(color = 'black') +
       geom_label(fill = 'white') +
       ggthemes::scale_fill_few(palette = 'Light') +
@@ -153,13 +150,13 @@ qc_plots <- function(seuratobj,
 }
 
 
-## --------------------------------------------------------------------------------------------------------------------------------
+## ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 samples_dir <- "analysis/input/samples/"
 metadata <- read_tsv('analysis/output/00_process/metadata_subset.tsv')
 stress_genes <- read_csv('analysis/input/coregene_df-FALSE-v3.csv')
 
 
-## --------------------------------------------------------------------------------------------------------------------------------
+## ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 samples <- metadata$id %>% set_names(.) 
 
 tic()
@@ -193,20 +190,20 @@ seurats <-
         
         if(length(tenx_matrix) == 2) { # two assays
           # create seurat obj
-          seuratobj <- CreateSeuratObject(counts = CollapseSpeciesExpressionMatrix(tenx_matrix[['Gene Expression']], prefix = 'GRCh38_', controls = 'mm10___'), project = i)
+          seuratobj <- CreateSeuratObject(counts = CollapseSpeciesExpressionMatrix(tenx_matrix[['Gene Expression']], prefix = 'GRCh38_', controls = 'mm10___', ncontrols = 200), project = i)
           
           # add additional ADT assay
           seuratobj[['ADT']] <- CreateAssayObject(counts = trim.feature.names(tenx_matrix[['Antibody Capture']]))
-          
-          # normalize ADT within sample
-          seuratobj <- seuratobj %>% NormalizeData(normalization.method = 'CLR', margin = 2, assay = 'ADT')
           
         } else { # single assay, gene expression only
           seuratobj <- CreateSeuratObject(counts = tenx_matrix,
                                           project = i)
         }
         
-        # calculate doublets
+        # filter out low complexity
+        seuratobj <- subset(seuratobj, subset = nFeature_RNA > 100)
+          
+        # calculate doublet class
         sceobj <- as.SingleCellExperiment(seuratobj, assay = 'RNA')
         sceobj <- scDblFinder(sceobj, verbose = FALSE)
         
@@ -224,7 +221,7 @@ seurats <-
           seuratobj$pct_mouse > 95 ~ 'Mouse',
           TRUE ~ 'Mixed'
         )
-        seuratobj$doublets <- sceobj$scDblFinder.class
+        seuratobj$doublet_class <- sceobj$scDblFinder.class
         
         # plot QC metrics
         qc_plots(seuratobj = seuratobj,
@@ -238,11 +235,11 @@ seurats <-
 toc()
 
 
-## --------------------------------------------------------------------------------------------------------------------------------
+## ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 seurats_merged <- merge(seurats[[1]], seurats[-1])
 seurats_merged
 
-## --------------------------------------------------------------------------------------------------------------------------------
+## ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 adt <- seurats_merged@meta.data %>% 
   select(id, nCount_ADT) %>% 
   group_by(id) %>% 
@@ -261,7 +258,7 @@ qc_table <- seurats_merged@meta.data %>%
 qc_table %>% head()
 
 
-## ----fig.width = 12, fig.height=16-----------------------------------------------------------------------------------------------
+## ----fig.width = 12, fig.height=16---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 qc_plots_pre <- map(qc_table$metric %>% unique(), function(i){
   
   print2(i)
@@ -294,10 +291,10 @@ ggsave(plot = qc_plots_pre,
 qc_plots_pre
 
 
-## --------------------------------------------------------------------------------------------------------------------------------
+## ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 seurats_merged %>% write_rds(here(data_dir, 'seurats_merged.rds'))
 
 
-## --------------------------------------------------------------------------------------------------------------------------------
+## ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 sessionInfo()
 

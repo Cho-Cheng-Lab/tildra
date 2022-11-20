@@ -35,6 +35,7 @@ library(wutilities)
 library(tictoc)
 ```
 
+
 ```{r}
 seuratobj <- read_rds(here(data_dir, 'seuratobj_clustered.rds'))
 metadata <- seuratobj@meta.data %>% rownames_to_column() %>% as_tibble()
