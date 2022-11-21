@@ -30,11 +30,10 @@ dir.create(data_dir, showWarnings = FALSE)
 library(Seurat) 
 library(tidyverse)
 library(ggExtra)
-library(harmony)
 library(SeuratWrappers)
 library(wutilities) # devtools::install_github('symbiologist/wutilities')
 library(tictoc)
-library(rcartocolor)
+library(harmony)
 theme_set(theme_dwu()) # set default theme
 ```
 
@@ -59,6 +58,8 @@ metadata_to_add <- seuratobj@meta.data %>%
   left_join(adt) %>% 
   column_to_rownames('rowname')
 
+colnames(metadata_to_add) <- paste0('ADT.', colnames(metadata_to_add))
+
 seuratobj <- Seurat::AddMetaData(seuratobj, metadata = metadata_to_add)
 
 ```
@@ -75,7 +76,7 @@ seuratobj <- seuratobj %>%
 ### Run Harmony
 ```{r}
 seuratobj <- seuratobj %>% 
-  RunHarmony(group.by.vars = c("treatment", "chemistry"), 
+  RunHarmony(group.by.vars = c('treatment', 'chemistry', 'patient', 'flow', 'mouse'), 
              plot_convergence = TRUE, 
              assay.use = 'RNA')
 ```
@@ -89,18 +90,24 @@ dev.off()
 
 ### RunUMAP, FindNeighbors, and FindClusters 
 ```{r}
-dims <- 1:10
+dims <- 1:20
 
 seuratobj <- seuratobj %>% 
     RunUMAP(reduction = "harmony", dims = dims, assay = "RNA") %>% 
-    FindNeighbors(reduction = "harmony", dims = dims, assay = "RNA") 
-
-seuratobj <- seuratobj %>% 
+    FindNeighbors(reduction = "harmony", dims = dims, assay = "RNA") %>% 
     FindClusters(resolution = c(0.2, 1, 2))
 ```
 
 ### Set default cluster resolution
 ```{r}
+### Fix cluster factor levels
+clusterings <- colnames(seuratobj@meta.data) %>% str_subset('_res')
+
+for(i in clusterings) {
+  clusters <- seuratobj@meta.data[[i]]
+  seuratobj[[i]] <- factor(clusters, levels = levels(clusters) %>% as.numeric() %>% sort())
+}
+
 Idents(seuratobj) <- 'RNA_snn_res.0.2'
 ```
 

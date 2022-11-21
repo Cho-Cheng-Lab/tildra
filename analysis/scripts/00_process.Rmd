@@ -78,6 +78,7 @@ metadata_subset <-
          assay,
          published,
          citeseq = `Awaiting Cite Seq?`,
+         flow = `CITE-seq (pre or post-flow antibody addition)`,
          chemistry = `10x kit`,
          n_cells = `est # of cells`,
          n_reads = `RNA total reads`,
@@ -133,7 +134,7 @@ file.copy(from = here(transfer$pipestance, '/filtered_feature_bc_matrix.h5'),
 
 ## Export
 ```{r}
-metadata_subset %>% filter(pipestance_path %in% paths) %>% write_tsv(file.path(analysis_dir, 'metadata_subset.tsv'))
+metadata_subset %>% filter(pipestance_path %in% paths) %>% write_tsv(here(analysis_dir, 'metadata_subset.tsv'))
 ```
 
 ## Session info

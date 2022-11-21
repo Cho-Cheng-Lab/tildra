@@ -34,9 +34,37 @@ library(SeuratWrappers)
 library(wutilities) # devtools::install_github('symbiologist/wutilities')
 library(tictoc)
 library(harmony)
-library(Nebulosa)
 ```
+### Functions
 
+```{r}
+recluster <- function(seuratobj, 
+                      assay = 'RNA',
+                      dims = 1:20,
+                      resolution = c(0.2, 1.0, 2.0),
+                      default_ident = 'RNA_snn_res.1') {
+  
+    ### RunUMAP, FindNeighbors, and FindClusters 
+  
+  seuratobj <- seuratobj %>% 
+    RunUMAP(reduction = "harmony", dims = dims, assay = assay) %>% 
+    FindNeighbors(reduction = "harmony", dims = dims, assay = assay) %>% 
+    FindClusters(resolution = resolution)
+  
+  ### Fix cluster factor levels
+  clusterings <- colnames(seuratobj@meta.data) %>% str_subset('_res')
+  
+  for(i in clusterings) {
+    clusters <- seuratobj@meta.data[[i]]
+    seuratobj[[i]] <- factor(clusters, levels = levels(clusters) %>% as.numeric() %>% sort())
+  }
+  
+  Idents(seuratobj) <- default_ident
+  seuratobj$seurat_clusters <- seuratobj[[default_ident]]
+  
+  seuratobj
+}
+```
 ```{r}
 seuratobj <- read_rds(file.path(data_dir, 'seuratobj_clustered.rds'))
 seuratobj
@@ -88,10 +116,18 @@ seurat_feature(seuratobj, features = markers_keratinocytes, nrow = 1)
 ```
 
 
-### Mast Cell
+### Major cell types
 ```{r}
-seurat_feature(seuratobj, features = c('CD3D','TPSAB1', 'COL6A2'))
+seurat_feature(seuratobj, 
+               features = c('CD3D', #lymphocytes
+                            'IGKC', # b cells
+                            'TPSAB1', # mast cells
+                            'COL6A2')) # endothelial cells
 ```
+```{r}
+seurat_feature(seuratobj, features = 'RNA_snn_res.2')
+```
+
 ### Subclusters
 Use UMAP as input to clustering for cleanly selecting clusters
 ```{r}
@@ -102,41 +138,111 @@ seuratobj <- seuratobj %>%
 
 seuratobj %>% seurat_feature(features = 'seurat_clusters')
 ```
-
+### Subscluster and re-harmonize
 ```{r}
-apc_clusters <- 2
-lymphocyte_clusters <- c(0, 1)
-apcs <- subset(seuratobj, subset = seurat_clusters %in% apc_clusters)
-lymphocytes <- subset(seuratobj, subset = seurat_clusters %in% lymphocyte_clusters)
+apc_clusters <- 1
+lymphocyte_clusters <- c(0, 2, 3)
+
+batch <- c('treatment', 'patient', 'flow', 'mouse', 'chemistry')
+
+apcs <- subset(seuratobj, subset = seurat_clusters %in% apc_clusters) %>% FindVariableFeatures(nfeatures = 3000) %>% ScaleData() %>% RunPCA() %>% RunHarmony(batch)
+lymphocytes <- subset(seuratobj, subset = seurat_clusters %in% lymphocyte_clusters) %>% FindVariableFeatures(nfeatures = 3000) %>% ScaleData() %>% RunPCA() %>% RunHarmony(batch)
 
 p1 <- seurat_feature(apcs, facet_hide = TRUE)
 p2 <- seurat_feature(lymphocytes, facet_hide = TRUE)
 p1 + p2
 ```
-
-### Identify variable genes in these subgroups separately, then recombine objects for grouped analysis
 ```{r}
-apcs <- FindVariableFeatures(apcs, nfeatures = 3000)
-lymphocytes <- FindVariableFeatures(lymphocytes, nfeatures = 3000)
-
-combined_features <- union(apcs@assays$RNA@var.features, lymphocytes@assays$RNA@var.features)
-combined_features %>% length()
+ElbowPlot(apcs, ndims = 50, reduction = 'harmony')
 ```
+
+```{r}
+ElbowPlot(lymphocytes, ndims = 50, reduction = 'harmony')
+```
+
+### Cluster subgroups separately, then recombine objects for grouped analysis
+```{r}
+dims <- 1:20
+apcs <- apcs %>% recluster(dims = dims)
+```
+```{r}
+p <- seurat_feature(apcs, facet_hide = TRUE)
+p
+```
+
+```{r}
+apcs@meta.data %>% 
+  select(seurat_clusters, id) %>% 
+  unique() %>% 
+  add_count(seurat_clusters) %>% 
+  arrange(n)
+```
+
+#### Lymphocytes
+```{r}
+lymphocytes <- lymphocytes %>% recluster(dims = dims)
+```
+
+```{r}
+p <- seurat_feature(lymphocytes, facet_hide = TRUE)
+p
+```
+```{r}
+cluster_sample_tally <- lymphocytes@meta.data %>% 
+  select(seurat_clusters, id) %>% 
+  unique() %>% 
+  add_count(seurat_clusters) %>% 
+  arrange(n)
+
+cluster_sample_tally
+```
+```{r}
+clusters_to_remove <- cluster_sample_tally %>% filter(n == 1) %>% pull(seurat_clusters) %>% as.character()
+clusters_to_remove
+```
+
+### Identify and remove B cells from clustering
+```{r}
+seurat_feature(lymphocytes, features = c('JCHAIN', 'IGKC'))
+```
+```{r}
+VlnPlot(lymphocytes, 'IGKC')
+```
+
+#### Outlier cluster likely B lymphocytes
+```{r}
+outlier <- RunPresto(lymphocytes, ident.1 = 20) %>% rownames_to_column('gene')
+outlier
+```
+
+### Extract T lymphocytes and recluster
+```{r}
+tcell_clusters <- lymphocytes$seurat_clusters %>% setdiff(c(20, clusters_to_remove))
+tlymphocytes <- subset(lymphocytes, subset = (seurat_clusters %in% tcell_clusters)) %>% FindVariableFeatures(nfeatures = 3000) %>% ScaleData() %>% RunPCA() %>% RunHarmony(batch) 
+
+ElbowPlot(tlymphocytes, ndims = 50, reduction = 'harmony')
+```
+```{r}
+tlymphocytes <- tlymphocytes %>% recluster(dims = dims)
+
+p <- seurat_feature(tlymphocytes, facet_hide = TRUE)
+p
+```
+
 ### Recombine and recluster
 ```{r}
+combined_features <- union(apcs@assays$RNA@var.features, tlymphocytes@assays$RNA@var.features)
+combined_features %>% length()
+
 subcluster <- subset(seuratobj, 
-                     subset = seurat_clusters %in% c(apc_clusters, lymphocyte_clusters))
+                     subset = seurat_clusters %in% c(apc_clusters, tcell_clusters))
 
 VariableFeatures(subcluster) <- combined_features
 
-subcluster %>% 
-  NormalizeData() %>% 
+subcluster <- subcluster %>% 
   ScaleData() %>% 
-  RunPCA(features = combined_features) %>% 
-  RunHarmony(c('treatment', 'chemistry', 'patient', 'mouse'), 
-             plot_convergence = TRUE, 
-             assay.use = 'RNA')
-
+  RunPCA() %>% 
+  RunHarmony(group.by.vars = c('treatment', 'chemistry', 'patient', 'flow', 'mouse'))
 
 ```
 ```{r}
@@ -145,62 +251,48 @@ ElbowPlot(subcluster, ndims = 50, reduction = 'harmony')
 
 ### RunUMAP, FindNeighbors, and FindClusters 
 ```{r}
-dims <- 1:20
-assay <- 'RNA'
-resolution <- c(0.2, 1, 1.6, 2, 2.4) 
-  
-subcluster <- subcluster %>% 
-  RunUMAP(reduction = "harmony", dims = dims, assay = assay) %>% 
-  FindNeighbors(reduction = "harmony", dims = dims, assay = assay) %>% 
-  FindClusters(resolution = resolution)
+subcluster <- subcluster %>% recluster(dims = 1:20,
+                                       resolution = c(0.2, 1, 1.6, 2, 2.4),
+                                       default_ident = 'RNA_snn_res.2.4')
 
-subcluster %>% seurat_feature(facet_hide = TRUE, title = 'Resolution: 2.4', color_package = 'generate', color_palette = 'pimp')
+subcluster %>% seurat_feature(facet_hide = TRUE)
 ```
+
+
+### Any clusters with only 1 patient?
+```{r}
+subcluster@meta.data %>% 
+  select(seurat_clusters, id) %>% 
+  unique() %>% 
+  add_count(seurat_clusters) %>% 
+  arrange(n)
+```
+
+### Add clusters from iterative subclustering 
+
+```{r}
+apc_clustering <- apc@meta.data %>% 
+  rownames_to_column() %>% 
+  select(rowname, seurat_clusters) %>% 
+  mutate(seurat_clusters = paste0('APC_', seurat_clusters))
+
+tlymphocyte_clustering <- tlymphocyte@meta.data %>% 
+  rownames_to_column() %>% 
+  select(rowname, seurat_clusters) %>% 
+  mutate(seurat_clusters = paste0('T_', seurat_clusters))
+```
+
 
 ## Export
 ```{r}
 subcluster %>% write_rds(file.path(data_dir, 'seuratobj_subcluster.rds'))
 ```
 
-
-### Pipeline
 ```{r}
-recluster <- function(seuratobj, 
-                      assay = 'RNA',
-                      batch = c('treatment', 'chemistry'),
-                      dims,
-                      resolution = seq(0.2, 2, by = 0.2),
-                      default_ident = 'RNA_snn_res.0.2') {
-  
-  seuratobj <- seuratobj %>% 
-    FindVariableFeatures() %>% 
-    RunPCA() %>% 
-    RunHarmony(c("treatment", "chemistry"), 
-               plot_convergence = TRUE, 
-               assay.use = 'RNA')
-  
-  ElbowPlot(seuratobj, ndims = 30, reduction = 'harmony')
-  
-  ### RunUMAP, FindNeighbors, and FindClusters 
-  
-  seuratobj <- seuratobj %>% 
-    RunUMAP(reduction = "harmony", dims = dims, assay = assay) %>% 
-    FindNeighbors(reduction = "harmony", dims = dims, assay = assay) %>% 
-    FindClusters(resolution = resolution)
-  
-  ### Fix cluster factor levels
-  clusterings <- colnames(seuratobj@meta.data) %>% str_subset('_res')
-  
-  for(i in clusterings) {
-    clusters <- seuratobj@meta.data[[i]]
-  seuratobj[[i]] <- factor(clusters, levels = levels(clusters) %>% as.numeric() %>% sort())
-}
-
-Idents(seuratobj) <- default_ident
-
-seuratobj
-}
+seuratobj@meta.data %>% select(clust = RNA_snn_res.2, id) %>% unique() %>% add_count(clust) %>% arrange(n)
 ```
+
+
 
 
 ## Session Info

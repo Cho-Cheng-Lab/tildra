@@ -190,6 +190,7 @@ seurats <-
                  sample_label,
                  patient_label, 
                  adt,
+                 flow,
                  mouse,
                  saturation,
                  chemistry,

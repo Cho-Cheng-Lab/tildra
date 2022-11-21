@@ -42,10 +42,6 @@ library(extrafont)
 seuratobj <- read_rds(file.path(data_dir, 'seuratobj_annotated.rds'))
 seuratobj
 ```
-```{r}
-
-```
-
 
 ### Figure 1A
 #### Global
@@ -54,8 +50,9 @@ h <- 3
 w <- 3
 dpi <- 600
 ```
+
 #### UMAP of points only (PNG)
-```{r fig.height = 4, fig.width=4}
+```{r fig.height=4, fig.width=4, dpi=300}
 p <- seurat_feature(seuratobj, features = 'cluster', facet_hide = TRUE, legend_position = 'none', label = FALSE) +
   theme(text = element_text(family = 'Arial'))
 
@@ -69,7 +66,7 @@ ggsave(plot = p,
 p
 ```
 #### UMAP of labels only
-```{r fig.height = 4, fig.width=4}
+```{r}
 p <- seurat_feature(seuratobj, features = 'cluster', facet_hide = TRUE, legend_position = 'none', label = TRUE, drop_points = TRUE, label_color = c('black', NA)) +
   theme(text = element_text(family = 'Arial'))
 
@@ -131,15 +128,20 @@ main_markers <- c("CD3D",
                   "ITGA4","NCR1","IL17A","IL17F","IL23R")
 ```
 
+```{r}
+Idents(seuratobj) <- 'rashx_merge'
+```
+
 #### F1B dot plot horizontal
 ```{r}
 p <- DotPlot(seuratobj, 
-             features = main_markers, 
+             features = main_markers[1],
              cluster.idents = TRUE,
              #cols = c('dodgerblue3', 'orangered'), 
-             cols = viridis::viridis(n = 2, option = 'C'),
+             #cols = viridis::viridis(n = 2, option = 'C'),
              dot.min = 0.1,
-             dot.scale = 4, scale = FALSE) + 
+             dot.scale = 4, 
+             scale = FALSE) + 
   theme(axis.text.x = element_text(angle = 90, hjust = 1, face = 'italic'))
 
 ggsave(plot = p,
@@ -158,7 +160,8 @@ p <- DotPlot(seuratobj,
              #cols = c('dodgerblue3', 'orangered'), 
              cols = viridis::viridis(n = 2, option = 'C'),
              dot.min = 0.1,
-             dot.scale = 4, scale = FALSE) + 
+             dot.scale = 4, 
+             scale = FALSE) + 
   theme(axis.text.x = element_text(angle = 90, hjust = 1),
         axis.text.y = element_text(face = 'italic')) +
   coord_flip()

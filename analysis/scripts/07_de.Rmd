@@ -22,7 +22,7 @@ file.edit(output_file)
 ### Directories
 ```{r, message=FALSE}
 output_dir <- 'analysis/output/07_de' # analysis file output directory
-data_dir <- 'data/derived/seurat' # data file output directory
+data_dir <- 'data/derived/tildra' # data file output directory
 
 dir.create(output_dir, showWarnings = FALSE)
 dir.create(data_dir, showWarnings = FALSE)
@@ -154,7 +154,7 @@ seuratobj
 ### Prepare metadata subset
 ```{r}
 analyze <- meta %>% 
-  select(rowname, id, sample, condition, treatment, cluster, merged_label, response, response_group) %>% 
+  select(rowname, id, sample, condition, treatment, annotation, response, group) %>% 
   mutate(description = factor(paste(condition, treatment) %>% str_remove(' None'),
                               levels = c('PV Pre',
                                          'PV Mid',
@@ -168,7 +168,7 @@ analyze %>% head()
 
 ```{r}
 patient_meta <- meta %>% 
-  select(id, patient, sample, treatment, condition, response, response_group) %>% 
+  select(id, patient, sample, treatment, condition, response, group) %>% 
   unique()
 
 patient_meta
@@ -178,7 +178,7 @@ patient_meta
 ### Global parameters
 ```{r}
 which_test <- 'Presto'
-which_cluster <- 'merged_label'
+which_cluster <- 'annotation'
 sample_threshold <- 2 # at least 3 samples per comparison group (within a cluster)
 responder_threshold <- 1 # fewer patients
 cell_threshold <- 10 # at least 10 cells per sample (within a cluster)
@@ -186,7 +186,7 @@ cell_threshold <- 10 # at least 10 cells per sample (within a cluster)
 
 
 ### AD vs HC (11 v 11)
-```{r}
+```{r eval=FALSE}
 group1_filters <- list('condition' = 'AD')
 group2_filters <- list('condition' = 'HC')
 
@@ -276,7 +276,7 @@ de_pv_vs_hc %>% head()
 
 
 ### AD+PV vs HC (24 v 11)
-```{r}
+```{r eval=FALSE}
 group1_filters <- list('condition' = c('AD', 'PV'),
                        'treatment' = c('None', 'Pre'))
 group2_filters <- list('condition' = 'HC')
@@ -321,7 +321,7 @@ de_adpv_vs_hc %>% head()
 ```
 
 ### PV vs AD (13 v 11)
-```{r}
+```{r eval=FALSE}
 group1_filters <- list('condition' = 'AD')
 
 group2_filters <- list('condition' = 'PV',
@@ -418,11 +418,11 @@ de_pre_vs_mid %>% head()
 ```{r}
 group1_filters <- list('condition' = 'PV',
                        'treatment' = 'Pre',
-                       'response_group' = 'Responder')
+                       'group' = 'Responder')
 
 group2_filters <- list('condition' = 'PV',
                        'treatment' = 'Mid',
-                       'response_group' = 'Responder')
+                       'group' = 'Responder')
 
 data_subset <- bind_rows(
   analyze %>% apply_filters(group1_filters) %>% mutate(group = 'group1'),
@@ -464,11 +464,11 @@ write_excel_notebook(input_table = de_pre_vs_mid_responder,
 ```{r}
 group1_filters <- list('condition' = 'PV',
                        'treatment' = 'Pre',
-                       'response_group' = 'Non-responder')
+                       'group' = 'Non-responder')
 
 group2_filters <- list('condition' = 'PV',
                        'treatment' = 'Mid',
-                       'response_group' = 'Non-responder')
+                       'group' = 'Non-responder')
 
 data_subset <- bind_rows(
   analyze %>% apply_filters(group1_filters) %>% mutate(group = 'group1'),
@@ -511,11 +511,11 @@ write_excel_notebook(input_table = de_pre_vs_mid_nonresponder,
 ```{r}
 group1_filters <- list('condition' = 'PV',
                        'treatment' = 'Pre',
-                       'response_group' = 'Responder')
+                       'group' = 'Responder')
 
 group2_filters <- list('condition' = 'PV',
                        'treatment' = 'Pre',
-                       'response_group' = 'Non-responder')
+                       'group' = 'Non-responder')
 
 data_subset <- bind_rows(
   analyze %>% apply_filters(group1_filters) %>% mutate(group = 'group1'),
@@ -557,11 +557,11 @@ write_excel_notebook(input_table = de_responder_vs_nonresponder_pre,
 ```{r}
 group1_filters <- list('condition' = 'PV',
                        'treatment' = 'Mid',
-                       'response_group' = 'Responder')
+                       'group' = 'Responder')
 
 group2_filters <- list('condition' = 'PV',
                        'treatment' = 'Mid',
-                       'response_group' = 'Non-responder')
+                       'group' = 'Non-responder')
 
 data_subset <- bind_rows(
   analyze %>% apply_filters(group1_filters) %>% mutate(group = 'group1'),
@@ -603,15 +603,16 @@ write_excel_notebook(input_table = de_responder_vs_nonresponder_mid,
 ```{r}
 patients <- patient_meta %>% 
   filter(treatment != 'None') %>% 
+  select(patient, id, group, treatment) %>% 
   pivot_wider(names_from = treatment, values_from = id)
 
-cluster <- 'Trm_merge'
+cluster <- '3 Trm_merge'
 
 de_pre_vs_mid_per_patient <- map(patients$patient, function(i) {
   
   single_patient <- patients %>% filter(patient == i)
-  response <- single_patient$response
-  cluster_subset <- meta %>% filter(merged_label == {{cluster}})
+  response <- single_patient$group
+  cluster_subset <- meta %>% filter(annotation == {{cluster}})
   pre_barcodes <- cluster_subset %>% filter(id == single_patient$Pre) %>% pull(rowname)
   mid_barcodes <- cluster_subset %>% filter(id == single_patient$Mid) %>% pull(rowname)
   
@@ -641,12 +642,12 @@ write_excel_notebook(input_table = de_pre_vs_mid_per_patient,
 patients <- patient_meta %>% 
   filter(condition == 'HC' | (treatment != 'None')) 
 
-cluster <- 'Trm_merge'
+cluster <- '3 Trm_merge'
 
 de_per_sample_vs_hc <- map(patients %>% filter(condition == 'PV') %>% pull(id), function(i) {
   
   single_patient <- patients %>% filter(id == i)
-  cluster_subset <- meta %>% filter(merged_label == {{cluster}})
+  cluster_subset <- meta %>% filter(annotation == {{cluster}})
   single_barcodes <- cluster_subset %>% filter(id == single_patient$id) %>% pull(rowname)
   control_barcodes <- cluster_subset %>% filter(condition == 'HC') %>% pull(rowname)
   display <- paste0(single_patient$patient,' ', single_patient$treatment, '', single_patient$id, '', single_patient$response)
@@ -678,10 +679,10 @@ write_excel_notebook(input_table = de_per_sample_vs_hc %>%
 
 ### Combined DE table
 ```{r}
-list(de_ad_vs_hc,
+list(#de_ad_vs_hc,
      de_pv_vs_hc,
-     de_adpv_vs_hc,
-     de_ad_vs_pv,
+     #de_adpv_vs_hc,
+     #de_ad_vs_pv,
      de_pre_vs_mid,
      de_pre_vs_mid_responder,
      de_pre_vs_mid_nonresponder,

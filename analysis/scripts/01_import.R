@@ -45,8 +45,6 @@ qc_plots <- function(seuratobj,
   
   dir.create(path = path, showWarnings = FALSE, recursive = TRUE)
   
-  
-  
   p1 <-  seuratobj@meta.data %>% 
     filter(pct_mouse < 5) %>% 
     ggplot(aes(x = nCount_RNA, 
@@ -180,6 +178,7 @@ seurats <-
                  sample_label,
                  patient_label, 
                  adt,
+                 flow,
                  mouse,
                  saturation,
                  chemistry,
