@@ -211,7 +211,8 @@ prior_metadata %>% head()
 prior_annotations <- metadata %>% 
   separate(rowname, sep = '_', into = c('barcode', NA), remove = FALSE) %>% 
   select(barcode, id, seurat_clusters) %>% 
-  left_join(prior_metadata %>% select(barcode, id, label, cluster)) 
+  left_join(prior_metadata %>% select(barcode, id, label, cluster)) %>% 
+  drop_na()
 
 prior_annotations
 
@@ -330,6 +331,76 @@ pheatmap_input <- cluster_wide %>% column_to_rownames('group2') %>% as.matrix()
 pheatmap(mat = pheatmap_input, 
          scale = 'column',
          angle_col = 0)
+
+
+## ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+  cluster_subset <- merged_annotations %>% 
+    filter(seurat_clusters == which_cluster) %>% 
+    group_by(cluster) %>% 
+    add_count() %>%
+    ungroup() %>% 
+    mutate(pct = round(100 * n / n(), 1),
+           cluster = paste0(cluster, ' ', pct, '%'))
+
+top_matches <- cluster_subset %>% select(cluster, n) %>% unique() %>% top_n(5, n)
+
+
+sankey <- function(df,
+                   nodes,
+                   names = nodes,
+                   top_n = NULL, # only applicable for single category breakdown
+                   percentages = TRUE,
+                   title = NULL) {
+  
+  sankey_input <-  df %>% select(all_of(nodes))
+  
+  if(names != nodes) {
+    colnames(sankey_input) <- names
+  }
+  
+  if(!is.null(top_n) | percentages) {
+    
+    tallies <- sankey_input %>% 
+      group_by_all() %>% 
+      tally() %>% 
+      mutate(pct = round(100 * n/sum(n), 1))
+  }
+  
+  if(!is.null(top_n)) {
+    tallies <- tallies %>% top_n(top_n, n) %>% arrange(-n)
+    sankey_input <- sankey_input %>% filter()
+  }
+  
+  
+  sankey_input <- sankey_input %>% make_long(1:2)
+  
+  ggplot(sankey_input, 
+                aes(x = x, 
+                    next_x = next_x, 
+                    node = node, 
+                    next_node = next_node,
+                    fill = factor(node),
+                    label = node)) +
+  geom_sankey(flow.alpha = 0.6,
+              node.color = 'black') +
+  theme_sankey(base_size = 12) +
+    theme(legend.position = 'none',
+          text = element_text(family = 'Arial'),
+          plot.title = element_text(hjust = 0.5),
+          axis.text.x = element_text(size = 12, color = 'black')) +
+  geom_sankey_label(size = 4, color = "black", fill = "white") + 
+  scale_fill_viridis_d() + 
+  labs(x = '',
+       title = title)
+  
+}
+
+
+sankey(prior_annotations %>% filter(seurat_clusters == 'L0'),
+       nodes = c('seurat_clusters',
+                 'label'),
+       names = c('Current',
+                 'RashX'))
 
 
 ## ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------

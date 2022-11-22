@@ -215,14 +215,12 @@ Not working
 ```{r eval=FALSE}
 library(ADTnorm)
 
-adtnorm_input <- adt_raw #%>% filter(id %in% c('S195','S1981'))
+adtnorm_input <- adt_raw 
 
 
 cell_x_adt <- adtnorm_input %>% select(all_of(robust_markers))
 cell_x_feature <- adtnorm_input %>% select(sample = id,
                                            batch = id)
-# cell_x_feature$sample = factor(cell_x_feature$study_name)
-# cell_x_feature$batch = factor(cell_x_feature$study_name)
 
 adt_results_norm <- ADTnorm(
   cell_x_adt = cell_x_adt, 
