@@ -186,6 +186,7 @@ cluster_enrichment <- function(metadata_table,
 ```{r}
 gg_sankey_components <- list(theme_sankey(base_size = 12),
                              theme(legend.position = 'none',
+                                   text = element_text(family = 'Arial'),
                                    plot.title = element_text(hjust = 0.5),
                                    axis.text.x = element_text(size = 12, color = 'black')))
 ```
@@ -224,7 +225,8 @@ prior_metadata %>% head()
 prior_annotations <- metadata %>% 
   separate(rowname, sep = '_', into = c('barcode', NA), remove = FALSE) %>% 
   select(barcode, id, seurat_clusters) %>% 
-  left_join(prior_metadata %>% select(barcode, id, label, cluster)) 
+  left_join(prior_metadata %>% select(barcode, id, label, cluster)) %>% 
+  drop_na()
 
 prior_annotations
 ```
@@ -247,17 +249,18 @@ prior_top
 ```
 
 ```{r}
- sankey_input <- prior_annotations %>% 
-  select(`Current Cluster` = seurat_clusters,
-         `Old Cluster` = label) %>% 
-  make_long(`Current Cluster`, `Old Cluster`)
+sankey_input <- prior_annotations %>% 
+  select(Current = seurat_clusters,
+         Old = label) %>% 
+  make_long(Current, Old) %>% 
+  mutate(node = factor(node, levels = rev(c(NA, levels(prior_annotations$seurat_clusters), levels(prior_annotations$label)))))
 
 p <- ggplot(sankey_input, 
                 aes(x = x, 
                     next_x = next_x, 
-                    node = factor(node, levels = c(0:42, as.character(prior_annotations$label %>% unique() %>% sort()))),
+                    node = factor(node),
                     next_node = next_node,
-                    fill = factor(node, levels = c(0:42, as.character(prior_annotations$label %>% unique() %>% sort()))),
+                    fill = factor(node),
                     label = node)) +
   geom_sankey(flow.alpha = 0.6,
               node.color = "black") +
@@ -351,7 +354,7 @@ cluster_wide
 ```{r}
 library(pheatmap)
 
-pheatmap_input <- cluster_wide %>% column_to_rownames(1) %>% as.matrix()
+pheatmap_input <- cluster_wide %>% column_to_rownames('group2') %>% as.matrix()
 pheatmap(mat = pheatmap_input, 
          scale = 'column',
          angle_col = 0)
@@ -359,10 +362,83 @@ pheatmap(mat = pheatmap_input,
 ### Sankey
 
 ```{r}
+  cluster_subset <- merged_annotations %>% 
+    filter(seurat_clusters == which_cluster) %>% 
+    group_by(cluster) %>% 
+    add_count() %>%
+    ungroup() %>% 
+    mutate(pct = round(100 * n / n(), 1),
+           cluster = paste0(cluster, ' ', pct, '%'))
+
+top_matches <- cluster_subset %>% select(cluster, n) %>% unique() %>% top_n(5, n)
+
+
+sankey <- function(df,
+                   nodes,
+                   names = nodes,
+                   top_n = NULL, # only applicable for single category breakdown
+                   percentages = TRUE,
+                   title = NULL) {
+  
+  sankey_input <-  df %>% select(all_of(nodes))
+  
+  if(names != nodes) {
+    colnames(sankey_input) <- names
+  }
+  
+  if(!is.null(top_n) | percentages) {
+    
+    tallies <- sankey_input %>% 
+      group_by_all() %>% 
+      tally() %>% 
+      mutate(pct = round(100 * n/sum(n), 1))
+  }
+  
+  if(!is.null(top_n)) {
+    tallies <- tallies %>% top_n(top_n, n) %>% arrange(-n)
+    sankey_input <- sankey_input %>% filter()
+  }
+  
+  
+  sankey_input <- sankey_input %>% make_long(1:2)
+  
+  ggplot(sankey_input, 
+                aes(x = x, 
+                    next_x = next_x, 
+                    node = node, 
+                    next_node = next_node,
+                    fill = factor(node),
+                    label = node)) +
+  geom_sankey(flow.alpha = 0.6,
+              node.color = 'black') +
+  theme_sankey(base_size = 12) +
+    theme(legend.position = 'none',
+          text = element_text(family = 'Arial'),
+          plot.title = element_text(hjust = 0.5),
+          axis.text.x = element_text(size = 12, color = 'black')) +
+  geom_sankey_label(size = 4, color = "black", fill = "white") + 
+  scale_fill_viridis_d() + 
+  labs(x = '',
+       title = title)
+  
+}
+
+
+sankey(prior_annotations %>% filter(seurat_clusters == 'L0'),
+       nodes = c('seurat_clusters',
+                 'label'),
+       names = c('Current',
+                 'RashX'))
+```
+
+
+```{r}
+library(parallel)
+
 which_cluster <- 0
 
-map(merged_annotations$seurat_clusters %>% unique() %>% sort(), function(which_cluster) {
-#mclapply(merged_annotations$seurat_clusters %>% unique() %>% sort(), mc.cores = 40, function(which_cluster) {
+#map(merged_annotations$seurat_clusters %>% unique() %>% sort(), function(which_cluster) {
+mclapply(merged_annotations$seurat_clusters %>% unique() %>% sort(), mc.cores = 40, function(which_cluster) {
   
   cluster_subset <- merged_annotations %>% 
     filter(seurat_clusters == which_cluster) %>% 
@@ -376,9 +452,9 @@ map(merged_annotations$seurat_clusters %>% unique() %>% sort(), function(which_c
   
   sankey_input <-  cluster_subset %>% 
     filter(cluster %in% top_matches$cluster) %>% 
-  select(`Current Cluster` = seurat_clusters,
-         `RashX Cluster` = cluster) %>% 
-  make_long(`Current Cluster`, `RashX Cluster`)
+  select(Current = seurat_clusters,
+         RashX = cluster) %>% 
+  make_long(Current, RashX)
 
 p <- ggplot(sankey_input, 
                 aes(x = x, 
@@ -406,9 +482,9 @@ ggsave(plot = p,
 
 ### Old cluster centric
 ```{r}
-library(parallel)
-map(merged_annotations$cluster %>% unique() %>% sort(), function(which_cluster) {
-#mclapply(merged_annotations$cluster %>% unique() %>% sort(), mc.cores = 40, function(which_cluster) {
+
+#map(merged_annotations$cluster %>% unique() %>% sort(), function(which_cluster) {
+mclapply(merged_annotations$cluster %>% unique() %>% sort(), mc.cores = 40, function(which_cluster) {
   
   cluster_subset <- merged_annotations %>% 
     filter(cluster == which_cluster) %>% 
@@ -422,9 +498,9 @@ map(merged_annotations$cluster %>% unique() %>% sort(), function(which_cluster) 
   
   sankey_input <-  cluster_subset %>% 
     filter(seurat_clusters %in% top_matches) %>% 
-    select(`Current Cluster` = seurat_clusters,
-           `RashX Cluster` = cluster) %>% 
-    make_long(`RashX Cluster`, `Current Cluster`) %>% 
+    select(Current = seurat_clusters,
+           RashX = cluster) %>% 
+    make_long(RashX, Current) %>% 
     #mutate(node = factor(node, levels = c(top_matches, which_cluster))) %>% 
     arrange(node)
 
@@ -471,9 +547,9 @@ labels_to_keep <- c('Trm1',
  sankey_input <- merged_annotations %>% 
    filter(seurat_clusters %in% mismatched_clusters,
           cluster %in% labels_to_keep) %>% 
-  select(`Current Cluster` = seurat_clusters,
-         `RashX Cluster` = cluster) %>% 
-  make_long(`Current Cluster`, `RashX Cluster`)
+  select(Current = seurat_clusters,
+         RashX = cluster) %>% 
+  make_long(Current, RashX)
 p <- ggplot(sankey_input, 
                 aes(x = x, 
                     next_x = next_x, 
@@ -508,9 +584,9 @@ labels_to_keep <- c('Trm1',
  sankey_input <- merged_annotations %>% 
    filter(seurat_clusters %in% mismatched_clusters,
           cluster %in% labels_to_keep) %>% 
-  select(`Current Cluster` = seurat_clusters,
-         `RashX Cluster` = cluster) %>% 
-  make_long(`Current Cluster`, `RashX Cluster`)
+  select(Current = seurat_clusters,
+         RashX = cluster) %>% 
+  make_long(Current, RashX)
 p <- ggplot(sankey_input, 
                 aes(x = x, 
                     next_x = next_x, 

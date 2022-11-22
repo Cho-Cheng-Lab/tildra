@@ -1,0 +1,623 @@
+## ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+library(here)
+
+
+## ----eval=FALSE, message=FALSE-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+## current_file <- rstudioapi::getActiveDocumentContext()$path
+## output_file <- stringr::str_replace(current_file, '.Rmd', '.R')
+## knitr::purl(current_file, output = output_file)
+## file.edit(output_file)
+
+
+## ---- message=FALSE----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+output_dir <- 'analysis/output/06_annotate' # analysis file output directory
+data_dir <- 'data/derived/tildra' # data file output directory
+
+dir.create(output_dir, showWarnings = FALSE)
+dir.create(data_dir, showWarnings = FALSE)
+
+
+## ---- message=FALSE----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+library(Seurat) 
+library(tidyverse)
+library(ggExtra)
+library(SeuratWrappers)
+library(wutilities) # devtools::install_github('symbiologist/wutilities')
+library(tictoc)
+library(googlesheets4)
+library(ggsankey)
+
+
+## ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+tabulate_frequency <- function(df,
+                               group1 = NULL,
+                               group2 = NULL,
+                               rename = FALSE) {
+  frequency_table <- 
+    df %>% 
+    mutate_all(as.factor) %>% 
+    mutate_all(droplevels) %>% 
+    dplyr::select({{group1}}, 
+                  {{group2}}) 
+  
+  if(rename) {
+    colnames(frequency_table) <- c('group1', 'group2')
+  }
+  
+  frequency_table %>% table()
+  
+}
+
+calculate_proportions <- function(frequency_table, 
+                                  group1 = 'group1',
+                                  group2 = 'group2') {
+  
+  # totals
+  group1_totals <- rowSums(frequency_table) %>% 
+    as.data.frame() %>% 
+    rownames_to_column()
+  colnames(group1_totals) <- c('group1', 'n_group1')
+  
+  group2_totals <- colSums(frequency_table) %>% 
+    as.data.frame() %>% 
+    rownames_to_column()
+  
+  overlap_totals <- frequency_table %>% 
+    as.data.frame() %>% 
+    dplyr::rename(n_overlap = Freq)
+  
+  # proportions
+  group1_proportion <- prop.table(frequency_table, margin = 1) %>% 
+    as.data.frame() %>% 
+    mutate(f_group1 = round(Freq, 3)) %>% 
+    dplyr::select(-Freq)
+  
+  group2_proportion <- prop.table(frequency_table, margin = 2) %>% 
+    as.data.frame() %>%
+    mutate(f_group2 = round(Freq, 3)) %>% 
+    dplyr::select(-Freq)
+  
+
+  
+  colnames(group2_totals) <- c('group2', 'n_group2')
+  
+  
+  proportion_table <- group1_totals %>% 
+    inner_join(group2_totals) %>% 
+    inner_join(overlap_totals) %>% 
+    inner_join(group1_proportion) %>% 
+    inner_join(group2_proportion) %>% 
+    mutate(max_proportion = ifelse(f_group2 > f_group1, f_group2, f_group1),
+           score = round(f_group1 * f_group2, 3)) %>% 
+    arrange(-max_proportion)
+  
+  proportion_table
+  
+}
+
+proportion_pipeline <- function(df,
+                                group1,
+                                group2,
+                                rename = TRUE) {
+  
+  
+  df %>% 
+    tabulate_frequency(group1 = 'seurat_clusters',
+                       group2 = 'label',
+                       rename = TRUE) %>% 
+    calculate_proportions()
+  
+}
+
+cluster_enrichment <- function(metadata_table,
+                               group1 = 'guide_target',
+                               group2 = 'seurat_clusters',
+                               rename = TRUE,
+                               print = FALSE,
+                               method = 'fisher',
+                               parallel = FALSE) {
+  
+  frequency_table <- metadata_table %>% 
+    dplyr::select(barcode,
+                  {{group1}}, 
+                  {{group2}})
+  
+  if(rename) {
+    colnames(frequency_table) <- c('barcode', 'target', 'cluster')
+  }
+  
+  targets <- frequency_table$target %>% unique() %>% sort()
+  clusters <- frequency_table$cluster %>% as.character() %>% unique() %>% sort()
+  all_barcodes <- frequency_table$barcode
+  
+  enrich <- map(targets, function(i) {
+    print2(paste('Running', i, '\n'))
+    
+    map(clusters, function(j) {
+      
+      target_subset <- frequency_table %>% filter(target == i) %>% pull(barcode) 
+      cluster_subset <- frequency_table %>% filter(cluster == j) %>% pull(barcode)
+      overlap_subset <- intersect(target_subset, cluster_subset)
+      
+      # run enrichment test
+      enrichment_res <- enrichment_test(target_subset,
+                                        cluster_subset,
+                                        background = all_barcodes,
+                                        print = print,
+                                        method = method)
+      
+      odds <- enrichment_res$estimate
+      pval <- enrichment_res$p.value
+      
+      output <- tibble('group1_id' = group1,
+                       'group2_id' = group2,
+                       'group1' = i,
+                       'group2' = j,
+                       'n_group1' = length(target_subset),
+                       'n_group2' = length(cluster_subset),
+                       'n_overlap' = length(overlap_subset),
+                       'f_group1' = round(n_overlap/n_group1, 3),
+                       'f_group2' = round(n_overlap/n_group2, 3),
+                       'f_max' = ifelse(f_group2 > f_group1, f_group2, f_group1),
+                       'score' = round(f_group1 * f_group2, 3),
+                       'odds' = round(enrichment_res$fisher$estimate, 3),
+                       'log2odds' = round(log2(odds), 3),
+                       'pval' = enrichment_res$fisher$p.value)
+      
+      output
+    }) %>% bind_rows()
+  }) %>% bind_rows()
+  
+  enrich %>% 
+    arrange(pval)
+}
+
+
+## ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+gg_sankey_components <- list(theme_sankey(base_size = 12),
+                             theme(legend.position = 'none',
+                                   text = element_text(family = 'Arial'),
+                                   plot.title = element_text(hjust = 0.5),
+                                   axis.text.x = element_text(size = 12, color = 'black')))
+
+
+## ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+seuratobj <- read_rds(file.path(data_dir, 'seuratobj_subcluster.rds'))
+metadata <- seuratobj@meta.data %>% rownames_to_column()
+seuratobj
+
+
+## ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+prior <- read_rds(here('data/derived/seurat/seuratobj_annotated.rds'))
+prior_metadata <- prior@meta.data %>% 
+  rownames_to_column() %>% 
+  separate(rowname, sep = '_', into = c('barcode', NA), remove = FALSE) %>% 
+  mutate(id = str_replace(id, 'skin', 'S')) %>% 
+  select(rowname, barcode, id, label, everything()) %>% 
+  mutate(annotation = ifelse(str_detect(label, 'Trm'), '3 Trm_merge', as.character(label))) 
+
+annotation_order <- prior_metadata %>% 
+  select(cluster, label, annotation) %>% 
+  unique() %>% 
+  arrange(cluster)
+
+prior_metadata <- prior_metadata %>% 
+  mutate(annotation = factor(annotation, levels = unique(annotation_order$annotation)))
+
+prior_metadata %>% head()
+
+
+## ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+prior_annotations <- metadata %>% 
+  separate(rowname, sep = '_', into = c('barcode', NA), remove = FALSE) %>% 
+  select(barcode, id, seurat_clusters) %>% 
+  left_join(prior_metadata %>% select(barcode, id, label, cluster)) 
+
+prior_annotations
+
+
+## ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+prior_comparison <- cluster_enrichment(prior_annotations,
+                                         group1 = 'seurat_clusters',
+                                         group2 = 'label')
+
+prior_comparison %>% arrange(-f_max)
+
+## ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+prior_top <- prior_comparison %>% 
+  group_by(group1) %>% 
+  top_n(1, f_group1) %>% 
+  add_count(group2) %>% 
+  select(contains('group'), n)
+
+prior_top
+
+
+## ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+sankey_input <- prior_annotations %>% 
+  select(Current = seurat_clusters,
+         Old = label) %>% 
+  make_long(Current, Old) %>% 
+  mutate(node = factor(node, levels = rev(c(NA, levels(prior_annotations$seurat_clusters), levels(prior_annotations$label)))))
+
+p <- ggplot(sankey_input, 
+                aes(x = x, 
+                    next_x = next_x, 
+                    node = factor(node),
+                    next_node = next_node,
+                    fill = factor(node),
+                    label = node)) +
+  geom_sankey(flow.alpha = 0.6,
+              node.color = "black") +
+  gg_sankey_components +
+  scale_fill_viridis_d() +
+  geom_sankey_label(size = 4, color = "black", fill = "white") + 
+  labs(x = '',
+       title = 'Manual Annotations') 
+
+ggsave(plot = p,
+       filename = 'manual_clusters.png',
+       path = here(output_dir),
+       h = 12,
+       w = 6)
+
+p
+
+
+## ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+rashxobj <- read_rds(here('data/external/rashx.rds'))
+rashx_clusters <- read_tsv(here('analysis/output/rashx/cluster_data.tsv.gz'))
+rashx_clusters %>% head()
+
+
+## ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+merged_annotations <- metadata %>% 
+  select(rowname, seurat_clusters, id) %>% 
+  separate(rowname, sep = '_', into = c('barcode', NA), remove = FALSE) %>% 
+  left_join(rashx_clusters) %>% 
+  drop_na()
+
+merged_annotations
+
+
+## ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+cluster_comparison <- cluster_enrichment(merged_annotations,
+                                         group1 = 'seurat_clusters',
+                                         group2 = 'cluster')
+
+cluster_comparison %>% arrange(-f_max)
+
+## ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+cluster_max <- cluster_comparison %>% 
+  group_by(group1) %>% 
+  top_n(1, score) %>%
+  #top_n(1, -pval) %>%
+  ungroup() %>% 
+  add_count(group2)
+
+cluster_max %>% 
+  arrange(group2) %>% 
+  select(group1,
+         group2,
+         n_group1,
+         n_group2,
+         n_overlap,
+         f_group1,
+         f_group2,
+         f_max,
+         odds,
+         log2odds,
+         n)
+
+## ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+cluster_wide <- cluster_comparison %>% 
+  filter(n_group1 > 10 & n_group2 > 10) %>% 
+  mutate(value = case_when(
+    is.infinite(log2odds) ~ -13,
+    (pval > 0.05) ~ NaN,
+    TRUE ~ log2odds)) %>% 
+  select(group1, group2, value) %>% 
+  pivot_wider(names_from = group1,
+              values_from = value)
+
+cluster_wide
+
+
+## ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+library(pheatmap)
+
+pheatmap_input <- cluster_wide %>% column_to_rownames('group2') %>% as.matrix()
+pheatmap(mat = pheatmap_input, 
+         scale = 'column',
+         angle_col = 0)
+
+
+## ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+library(parallel)
+
+which_cluster <- 0
+
+#map(merged_annotations$seurat_clusters %>% unique() %>% sort(), function(which_cluster) {
+mclapply(merged_annotations$seurat_clusters %>% unique() %>% sort(), mc.cores = 40, function(which_cluster) {
+  
+  cluster_subset <- merged_annotations %>% 
+    filter(seurat_clusters == which_cluster) %>% 
+    group_by(cluster) %>% 
+    add_count() %>%
+    ungroup() %>% 
+    mutate(pct = round(100 * n / n(), 1),
+           cluster = paste0(cluster, ' ', pct, '%'))
+  
+  top_matches <- cluster_subset %>% select(cluster, n) %>% unique() %>% top_n(5, n)
+  
+  sankey_input <-  cluster_subset %>% 
+    filter(cluster %in% top_matches$cluster) %>% 
+  select(Current = seurat_clusters,
+         RashX = cluster) %>% 
+  make_long(Current, RashX)
+
+p <- ggplot(sankey_input, 
+                aes(x = x, 
+                    next_x = next_x, 
+                    node = node, 
+                    next_node = next_node,
+                    fill = factor(node),
+                    label = node)) +
+  geom_sankey(flow.alpha = 0.6,
+              node.color = "black") +
+  gg_sankey_components +
+  geom_sankey_label(size = 4, color = "black", fill = "white") + 
+  scale_fill_viridis_d() + 
+  labs(x = '',
+       title = paste0('Top 5 matches for cluster ', which_cluster))
+
+ggsave(plot = p,
+       filename = paste0(which_cluster, '.png'),
+       path = here(output_dir, 'new_clusters'),
+       h = 4,
+       w = 4)
+  
+}) %>% invisible
+
+
+## ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+#map(merged_annotations$cluster %>% unique() %>% sort(), function(which_cluster) {
+mclapply(merged_annotations$cluster %>% unique() %>% sort(), mc.cores = 40, function(which_cluster) {
+  
+  cluster_subset <- merged_annotations %>% 
+    filter(cluster == which_cluster) %>% 
+    group_by(seurat_clusters) %>% 
+    add_count() %>%
+    ungroup() %>% 
+    mutate(pct = round(100 * n / n(), 1),
+           seurat_clusters = paste0(seurat_clusters, ', ', pct, '%'))
+  
+  top_matches <- cluster_subset %>% select(seurat_clusters, n) %>% unique() %>% top_n(5, n) %>% arrange(-n) %>% pull(seurat_clusters)
+  
+  sankey_input <-  cluster_subset %>% 
+    filter(seurat_clusters %in% top_matches) %>% 
+    select(Current = seurat_clusters,
+           RashX = cluster) %>% 
+    make_long(RashX, Current) %>% 
+    #mutate(node = factor(node, levels = c(top_matches, which_cluster))) %>% 
+    arrange(node)
+
+p <- ggplot(sankey_input, 
+                aes(x = x, 
+                    next_x = next_x, 
+                    node = node, 
+                    next_node = next_node,
+                    fill = node,
+                    label = node)) +
+  geom_sankey(flow.alpha = 0.6,
+              node.color = "black") +
+  gg_sankey_components +
+  geom_sankey_label(size = 4, color = "black", fill = "white") + 
+  scale_fill_viridis_d() + 
+  labs(x = '',
+       title = paste0('Top 5 matches for ', which_cluster))
+
+ggsave(plot = p,
+       filename = paste0(str_replace(which_cluster, '/', '-'), '.png'),
+       path = here(output_dir, 'old_clusters'),
+       h = 4,
+       w = 4)
+
+
+  
+}) %>% invisible()
+
+
+## ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+mismatched_clusters <- c(0, 1, 4, 5, 7, 8, 10, 14, 15)
+labels_to_keep <- c('Trm1',
+                    'Trm2',
+                    'Trm3',
+                    'Tet',
+                    'Tmm1',
+                    'Tmm2',
+                    'Tmm3',
+                    'Tcm',
+                    'CTLex',
+                    'CTLem')
+
+ sankey_input <- merged_annotations %>% 
+   filter(seurat_clusters %in% mismatched_clusters,
+          cluster %in% labels_to_keep) %>% 
+  select(Current = seurat_clusters,
+         RashX = cluster) %>% 
+  make_long(Current, RashX)
+p <- ggplot(sankey_input, 
+                aes(x = x, 
+                    next_x = next_x, 
+                    node = factor(node, levels = c(mismatched_clusters, labels_to_keep)),
+                    next_node = next_node,
+                    fill = factor(node, levels = mismatched_clusters),
+                    label = node)) +
+  geom_sankey(flow.alpha = 0.6,
+              node.color = "black") +
+  gg_sankey_components +
+  #scale_fill_viridis_d() +
+  rcartocolor::scale_fill_carto_d() +
+  geom_sankey_label(size = 4, color = "black", fill = "white") + 
+  labs(x = '',
+       title = 'Mismatched Clusters') 
+
+ggsave(plot = p,
+       filename = 'mismatched_clusters.png',
+       path = here(output_dir),
+       h = 6,
+       w = 4)
+
+p
+
+
+## ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+mismatched_clusters <- c(0, 1, 4, 5, 7, 8, 10, 14, 15, 16, 17)
+labels_to_keep <- c('Trm1',
+                    'Trm2',
+                    'Trm3')
+
+ sankey_input <- merged_annotations %>% 
+   filter(seurat_clusters %in% mismatched_clusters,
+          cluster %in% labels_to_keep) %>% 
+  select(Current = seurat_clusters,
+         RashX = cluster) %>% 
+  make_long(Current, RashX)
+p <- ggplot(sankey_input, 
+                aes(x = x, 
+                    next_x = next_x, 
+                    node = factor(node, levels = c(mismatched_clusters, labels_to_keep)),
+                    next_node = next_node,
+                    fill = factor(node, levels = mismatched_clusters),
+                    label = node)) +
+  geom_sankey(flow.alpha = 0.6,
+              node.color = "black") +
+  gg_sankey_components +
+  #scale_fill_viridis_d() +
+  rcartocolor::scale_fill_carto_d() +
+  geom_sankey_label(size = 4, color = "black", fill = "white") + 
+  labs(x = '',
+       title = 'Trm Clusters') 
+
+ggsave(plot = p,
+       filename = 'trm_clusters.png',
+       path = here(output_dir),
+       h = 6,
+       w = 4)
+
+p
+
+
+## ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+new_annotations <- seuratobj@meta.data %>% 
+  rownames_to_column() %>% 
+  select(rowname, seurat_clusters) %>% 
+  left_join(prior_top %>% select(seurat_clusters = group1,
+                                 label = group2)) %>% 
+  left_join(prior_metadata %>% select(label, cluster, annotation) %>% unique()) %>% 
+  left_join(cluster_max %>% select(seurat_clusters = group1,
+                                   rashx_cluster = group2)) %>% 
+  mutate(rashx_merge = str_remove(rashx_cluster, '[:digit:]')) %>% 
+  column_to_rownames() 
+
+new_annotations 
+
+## ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+seuratobj@meta.data
+
+
+## ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+seuratobj <- AddMetaData(seuratobj, new_annotations)
+seuratobj
+
+
+## ----eval=FALSE--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+## library(SingleR)
+
+
+## ----eval=FALSE--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+## rashx_sce <- as.SingleCellExperiment(rashxobj %>% DietSeurat(), assay = 'RNA')
+## tildra_sce <- as.SingleCellExperiment(seuratobj %>% DietSeurat(), assay = 'RNA')
+
+
+## ----eval=FALSE--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+## singler_pred <- SingleR(test = tildra_sce,
+##                         ref = rashx_sce,
+##                         labels = rashx_sce$Ident2 %>% set_names(.),
+##                         de.method = 'wilcox', )
+
+
+## ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+## ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+annotations <- read_sheet('https://docs.google.com/spreadsheets/d/1pLMOaXkSGq3qSX7bTIw2daWd3ItA5JxqFomQn_km1IU/edit#gid=0') %>% 
+  filter(!is.na(cluster)) %>% 
+  mutate(cluster = factor(cluster))
+
+annotations$label <- factor(annotations$label, levels = annotations$label)
+annotations$merged_label <- factor(annotations$merged_label, levels = unique(annotations$merged_label))
+annotations
+
+
+## ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+levels(annotations$label)
+
+
+## ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+cluster_annotation <- seuratobj@meta.data %>% 
+  select(cluster = seurat_clusters) %>% 
+  rownames_to_column() %>% 
+  left_join(annotations %>% select(cluster, label, merged_label)) %>% 
+  column_to_rownames('rowname')
+cluster_annotation
+
+
+## ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+seuratobj <- AddMetaData(seuratobj, cluster_annotation)
+Idents(seuratobj) <- 'merged_label'
+Idents(seuratobj) %>% head()
+
+
+## ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+p <- seuratobj %>% seurat_feature(features = 'merged_label', facet_hide = TRUE, size = 0.1, alpha = 0.1)
+
+ggsave(plot = p,
+       filename = 'umap_annotated.png',
+       path = output_dir,
+       dpi = 100,
+       w = 20, 
+       h = 10)
+p
+
+
+## ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+Idents(seuratobj) <- 'annotation'
+
+seuratobj@meta.data %>% rownames_to_column() %>% write_rds(here(output_dir, 'metadata.rds'), compress = 'gz')
+
+seuratobj %>% write_rds(here(data_dir, 'seuratobj_annotated.rds'))
+
+
+## ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+sessionInfo()
+
+
+## ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+seuratobj <- SetIdent(seuratobj, value = 'label')
+
+
+## ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+levels(seuratobj) 
+
+
+## ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+DotPlot(seuratobj, features = main_markers[1])
+
+
+## ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
