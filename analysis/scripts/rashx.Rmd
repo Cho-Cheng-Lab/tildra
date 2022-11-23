@@ -24,39 +24,22 @@ data_dir <- 'data/derived/tildra' # data file output directory
 dir.create(output_dir, showWarnings = FALSE)
 ```
 
-### Loading the libraries
+### Load libraries
 ```{r, message=FALSE}
 library(Seurat) 
 library(tidyverse)
-library(ggExtra)
-library(openxlsx)
 library(SeuratWrappers)
 library(wutilities)
 library(tictoc)
 ```
 
-
+### Import
+RashX Seurat object from https://zenodo.org/record/6471748
 ```{r}
 seuratobj <- read_rds(here('data/external/rashx.rds'))
 metadata <- seuratobj@meta.data %>% rownames_to_column() %>% as_tibble()
 seuratobj
 ```
-```{r}
-cluster_data <- metadata %>% 
-  separate(rowname, sep = '_', into = c('celltype', 'barcode', 'sample', 'sample_id')) %>% 
-  select(barcode, 
-         id = ident, 
-         label = Ident1, 
-         cluster = Ident2, 
-         type,
-         Phase) %>% 
-  mutate(id = str_remove(id, 'kin'))
-
-cluster_data %>% head()
-```
-
-
-
 ```{r}
 sample_info <- metadata %>% 
   select(ident, donor, dis, treat, STATUS) %>% 
@@ -64,9 +47,26 @@ sample_info <- metadata %>%
 sample_info
 ```
 
+#### Prepare clustering data
+```{r}
+rashx_clusters <- metadata %>% 
+  separate(rowname, sep = '_', into = c('celltype', 'barcode', 'sample', 'sample_id')) %>% 
+  mutate(id = str_remove(ident, 'kin'),
+         supercluster = str_remove(Ident2, '[:digit:]')) %>% 
+  select(barcode, 
+         id,
+         label = Ident1, 
+         cluster = Ident2, 
+         supercluster,
+         type,
+         Phase)
+
+rashx_clusters %>% head()
+```
+
 ## Export
 ```{r}
-cluster_data %>% write_tsv(here(output_dir, 'cluster_data.tsv.gz'))
+rashx_clusters %>% write_tsv(here(output_dir, 'rashx_clusters.tsv.gz'))
 ```
 
 ## Session Info
