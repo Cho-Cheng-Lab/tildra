@@ -332,8 +332,10 @@ tallies
 
 ### Proportion of cells in each cluster
 ```{r}
+which_celltype <- ifelse(str_detect(which_annotation, 'global'), 'global_celltype', 'celltype')
+
 analyze <- metadata %>% 
-  select(rowname, id, patient, sample, condition, treatment, annotation, celltype, group) %>% 
+  select(rowname, id, patient, sample, condition, treatment, annotation, group, celltype = all_of(which_celltype)) %>% 
   mutate(description = factor(paste(condition, treatment) %>% str_remove(' None'),
                               levels = c('PV Pre',
                                          'PV Mid',
@@ -479,7 +481,7 @@ p
 #### Individual
 ```{r}
 plot_input <- analyze %>% 
-  filter(description %in% c('PV Pre', 'PV Mid')) %>% 
+  filter(description %in% c('PV Pre', 'PV Mid', 'HC')) %>% 
   group_by(sample, patient, description, annotation, celltype, treatment, group) %>% 
   tally() %>% 
   group_by(sample) %>% 
@@ -499,7 +501,7 @@ text_color <- ifelse(patient_info$group == 'Responder', 'dodgerblue4', 'orangere
 
 ```{r}
 p <- plot_input %>% 
-  #mutate(sample = factor(sample, levels = rev(tildra_order$sample))) %>% 
+  filter(description != 'HC') %>% 
   ggplot(aes(x = sample,
              y = fraction * 100,
              fill = annotation)) +
@@ -523,7 +525,7 @@ p
 ```
 ```{r}
 p <- plot_input %>% 
-  
+  filter(description != 'HC') %>% 
     ggplot(aes(x = sample,
              y = n,
              fill = annotation)) +
@@ -548,6 +550,7 @@ p
 ### All facets
 ```{r}
 p <- plot_input %>% 
+  filter(description != 'HC') %>% 
   ggplot(aes(x = sample,
              y = fraction * 100,
              fill = annotation)) +
@@ -572,7 +575,7 @@ p
 
 ```{r}
 p <- plot_input %>% 
-  
+  filter(description != 'HC') %>% 
     ggplot(aes(x = sample,
              y = n,
              fill = annotation)) +
@@ -601,6 +604,7 @@ which_clusters <- str_subset(plot_input$annotation, 'Trm') %>% unique()
 
 ```{r}
 p <- plot_input %>% 
+  filter(description != 'HC') %>% 
   filter(annotation %in% which_clusters) %>% 
   ggplot(aes(x = sample,
              y = fraction * 100,
@@ -624,6 +628,7 @@ p
 
 ```{r}
 p <- plot_input %>% 
+  filter(description != 'HC') %>% 
   filter(annotation %in% which_clusters) %>% 
     ggplot(aes(x = sample,
              y = n,
@@ -648,36 +653,103 @@ p
 ```
 ```{r}
 p <- plot_input %>% 
-  group_by(patient, treatment,celltype) %>% 
-  summarize(n = sum(n)) %>% 
-  #filter(annotation %in% which_clusters) %>% 
-    ggplot(aes(x = treatment,
+  filter(annotation %in% which_clusters) %>% 
+    ggplot(aes(x = sample,
              y = n,
-             fill = celltype)) +
-  geom_boxplot() +
+             fill = annotation)) +
+  geom_bar(stat = 'identity') +
   #rcartocolor::scale_fill_carto_d(palette = 'Bold') +
   labs(x = '',
        y = '# of Cells') +
-  facet_wrap(~celltype, scales = 'free_y') +
-  #scale_y_log10() +
   theme_dwu(legend.position = 'top') +
-  ggthemes::scale_fill_few()
+  #theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  coord_flip() +
+  theme(axis.text.y = element_text(angle = 0, hjust = 1, color = rev(text_color))) +
+  facet_wrap(~annotation, scales = 'free_x')
 
 ggsave(plot = p,
-       filename = 'F1E_box_patient_centric_n_celltype.pdf',
+       filename = 'F1D_bar_patient_centric_n_trm_hc.pdf',
        path = output_dir,
        h = 4,
        w = 4)
 
 p
 ```
+
 ```{r}
+four_colors <- carto_pal(n = 5, name = 'Bold')
+  
+conditions <- c('APC', 'Innate', 'Lymphocyte')
 
+plots <- map(1:3, function(i) {
+  
+  plot_input %>% 
+    filter(description != 'HC') %>% 
+    group_by(patient, treatment, celltype, group) %>% 
+    summarize(n = sum(n)) %>% 
+    filter(celltype == conditions[i]) %>% 
+    ggplot(aes(x = treatment,
+               y = n,
+               fill = celltype)) +
+    geom_boxplot() +
+    labs(x = '',
+         y = '# of Cells') +
+    facet_wrap(~group, nrow = 2) +
+    scale_fill_manual(values = four_colors[i]) +
+    theme_dwu(legend.position = 'top')
+  
+  
+}) 
+
+p2 <- plot_input %>% 
+  filter(description != 'HC') %>% 
+    group_by(patient, treatment, annotation, group) %>% 
+    summarize(n = sum(n)) %>% 
+    filter(annotation %in% 'Trm') %>% 
+    ggplot(aes(x = treatment,
+               y = n,
+               fill = annotation)) +
+    geom_boxplot() +
+    labs(x = '',
+         y = '# of Cells') +
+    facet_wrap(~group, nrow = 2) +
+    scale_fill_manual(values = four_colors[4]) +
+    theme_dwu(legend.position = 'top')
+
+p3 <- plot_input %>% 
+  #filter(description == 'HC') %>% 
+    filter(annotation %in% 'Trm') %>% 
+    ggplot(aes(x = treatment,
+               y = n,
+               fill = annotation)) +
+    geom_boxplot() +
+    labs(x = '',
+         y = '# of Cells') +
+    facet_wrap(~group, nrow = 1) +
+    scale_fill_manual(values = four_colors[5]) +
+    theme_dwu(legend.position = 'top')
+
+
+
+p <- list(plots[[1]],
+          plots[[2]],
+          plots[[3]],
+          p2,
+          p3) %>% wrap_plots(nrow = 1)
+
+ggsave(plot = p,
+       filename = 'F1E_box_patient_centric_n_celltype.pdf',
+       path = output_dir,
+       h = 4,
+       w = 6)
+
+p
 ```
-
 ```{r}
 p <- plot_input %>% 
-  filter(celltype == 'Lymphocyte') %>% 
+  group_by(patient, treatment, annotation, group) %>% 
+  summarize(n = sum(n)) %>% 
+  filter(annotation == 'Trm') %>% 
     ggplot(aes(x = treatment,
              y = n,
              fill = annotation)) +
@@ -685,15 +757,40 @@ p <- plot_input %>%
   #rcartocolor::scale_fill_carto_d(palette = 'Bold') +
   labs(x = '',
        y = '# of Cells') +
-  
-  facet_wrap(~annotation, scales = 'free_y') +
-theme_dwu(legend.position = 'top') 
+  facet_wrap(~group + annotation, nrow = 2) +
+  #scale_y_log10() +
+  theme_dwu(legend.position = 'top') +
+  scale_fill_manual(values = c('red4'))
 
 ggsave(plot = p,
        filename = 'F1E_box_patient_centric_n_trm.pdf',
        path = output_dir,
        h = 4,
-       w = 4)
+       w = 2)
+
+p
+```
+
+```{r}
+p <- plot_input %>% 
+  filter(celltype == 'Lymphocyte') %>% 
+    ggplot(aes(x = treatment,
+             y = n,
+             fill = group)) +
+  geom_boxplot() +
+  #rcartocolor::scale_fill_carto_d(palette = 'Bold') +
+  labs(x = '',
+       y = '# of Cells') +
+  
+  facet_wrap(~annotation, scales = 'free_y') +
+  theme_dwu(legend.position = 'top') +
+  ggthemes::scale_fill_few()
+
+ggsave(plot = p,
+       filename = 'F1E_box_patient_centric_n_by_annotation.pdf',
+       path = output_dir,
+       h = 8,
+       w = 8)
 
 p
 ```

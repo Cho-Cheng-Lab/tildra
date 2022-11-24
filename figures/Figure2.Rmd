@@ -37,6 +37,7 @@ library(tictoc)
 library(rcartocolor)
 library(ggrepel)
 library(extrafont)
+loadfonts()
 theme_set(theme_dwu()) # set default theme
 
 ```

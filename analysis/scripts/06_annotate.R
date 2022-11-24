@@ -329,7 +329,7 @@ seuratobj
 
 
 ## ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-which_annotation <- 'subcluster'
+which_annotation <- 'global'
 Idents(seuratobj) <- which_annotation
 
 seuratobj$seurat_clusters <- seuratobj[[which_annotation]]
@@ -696,6 +696,10 @@ annotation_subcluster_levels
 
 
 ## ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+lymphocyte_clusters <- str_subset(rashx_clusters$cluster, 'T|B|P') %>% unique()
+innate_clusters <- str_subset(rashx_clusters$cluster, 'NK|ILC') %>% unique()
+apc_clusters <- str_subset(rashx_clusters$cluster, 'M|DC|^LC') %>% unique()
+
 new_annotations <- seuratobj@meta.data %>% 
   rownames_to_column() %>% 
   select(rowname, seurat_clusters, global = global) %>% 
@@ -704,7 +708,15 @@ new_annotations <- seuratobj@meta.data %>%
   mutate(cluster = factor(cluster, levels = annotation_subcluster_levels$cluster),
          supercluster = factor(supercluster, levels = unique(annotation_subcluster_levels$supercluster)),
          global_cluster = factor(global_cluster, levels = annotation_global_levels$global_cluster),
-         global_supercluster = factor(global_supercluster, levels = unique(annotation_subcluster_levels$global_supercluster))) %>% 
+         global_supercluster = factor(global_supercluster, levels = unique(annotation_global_levels$global_supercluster)),
+         celltype = case_when(
+           cluster %in% lymphocyte_clusters ~ 'Lymphocyte',
+           cluster %in% innate_clusters ~ 'Innate',
+           cluster %in% apc_clusters ~ 'APC'),
+         global_celltype = case_when(
+           cluster %in% lymphocyte_clusters ~ 'Lymphocyte',
+           cluster %in% innate_clusters ~ 'Innate',
+           cluster %in% apc_clusters ~ 'APC')) %>% 
   column_to_rownames()
 
 new_annotations 
