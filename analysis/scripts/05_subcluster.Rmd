@@ -218,17 +218,11 @@ p <- seurat_feature(lymphocytes, facet_hide = TRUE)
 p
 ```
 ```{r}
-cluster_sample_tally <- lymphocytes@meta.data %>%
+lymphocytes@meta.data %>%
   select(seurat_clusters, id) %>%
   unique() %>%
   add_count(seurat_clusters) %>%
   arrange(n)
-
-cluster_sample_tally
-```
-```{r}
- clusters_to_remove <- cluster_sample_tally %>% filter(n == 1) %>% pull(seurat_clusters) %>% as.character()
- clusters_to_remove
 ```
 
 ### Identify and remove B cells from clustering
@@ -237,49 +231,6 @@ seurat_feature(lymphocytes, features = c('JCHAIN', 'MS4A1'))
 ```
 ```{r}
 VlnPlot(lymphocytes, 'MS4A1')
-```
-
-#### Outlier cluster likely B lymphocytes
-```{r}
-outlier <- RunPresto(lymphocytes, ident.1 = 20) %>% rownames_to_column('gene') %>% mutate(pct.diff = pct.1 - pct.2) %>% arrange(-pct.diff)
-outlier
-```
-
-### Extract T lymphocytes and recluster
-```{r}
-tcell_clusters <- lymphocytes$seurat_clusters %>% setdiff(20)
-tcells <- subset(lymphocytes, subset = (seurat_clusters %in% tcell_clusters)) %>% DietSeurat() %>% FindVariableFeatures(nfeatures = 3000) %>% ScaleData() %>% RunPCA() %>% RunHarmony(batch) 
-
-ElbowPlot(tcells, ndims = 50, reduction = 'harmony')
-```
-```{r}
-tcells <- tcells %>% recluster(dims = dims)
-
-p <- seurat_feature(tcells, facet_hide = TRUE, title = 'T Cell Subcluster', legend_position = 'none')
-
-ggsave(plot = p,
-       filename = 'umap_t.png',
-       h = 5,
-       w = 5,
-       path = output_dir)
-
-p
-```
-
-```{r}
-tcell_cluster_sample_tally <- tcells@meta.data %>% 
-  select(seurat_clusters, id) %>% 
-  unique() %>% 
-  add_count(seurat_clusters) %>% 
-  arrange(n)
-
-tcell_cluster_sample_tally
-```
-```{r}
-clusters_to_remove <- tcell_cluster_sample_tally %>% filter(n == 1) %>% pull(seurat_clusters) %>% as.character()
-clusters_to_remove
-
-tcells_to_remove <- tcells@meta.data %>% filter(seurat_clusters %in% clusters_to_remove) %>% rownames()
 ```
 
 ### Recombine and recluster
@@ -304,6 +255,8 @@ ElbowPlot(subcluster, ndims = 50, reduction = 'harmony')
 subcluster <- subcluster %>% recluster(dims = 1:20,
                                        resolution = c(0.2, 1, 2),
                                        default_ident = 'RNA_snn_res.2')
+
+subcluster$global <- Idents(subcluster)
 ```
 
 ```{r}
@@ -382,7 +335,7 @@ subclusters_to_remove
 
 ```{r}
 cells_to_keep <- subcluster@meta.data %>% 
-  filter(!(seurat_clusters %in% clusters_to_remove),
+  filter(!(RNA_snn_res.2 %in% clusters_to_remove),
          !(subcluster %in% subclusters_to_remove)) %>% 
   rownames()
 ```
@@ -446,7 +399,7 @@ ggsave(plot = p6,
 
 ## Export
 ```{r}
-subcluster %>% write_rds(file.path(data_dir, 'seuratobj_subcluster.rds'))
+subcluster %>% write_rds(here(data_dir, 'seuratobj_subcluster.rds'))
 ```
 
 ## Session Info

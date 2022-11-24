@@ -47,21 +47,27 @@ sample_info <- metadata %>%
 sample_info
 ```
 
-#### Prepare clustering data
+#### Prepare clustering data and add supercluster
 ```{r}
 rashx_clusters <- metadata %>% 
   separate(rowname, sep = '_', into = c('celltype', 'barcode', 'sample', 'sample_id')) %>% 
   mutate(id = str_remove(ident, 'kin'),
-         supercluster = str_remove(Ident2, '[:digit:]')) %>% 
+         supercluster = str_remove(Ident2, '[:digit:]|-c')) %>% # add supercluster
   select(barcode, 
          id,
          label = Ident1, 
          cluster = Ident2, 
          supercluster,
          type,
-         Phase)
+         Phase) %>% 
+  separate(label, into = c('order', NA), sep = ' ', remove = FALSE) %>% 
+  mutate(order = as.factor(as.integer(order))) 
 
-rashx_clusters %>% head()
+rashx_clusters 
+```
+
+```{r}
+rashx_clusters %>% select(cluster, supercluster) %>% unique() %>% arrange(supercluster)
 ```
 
 ## Export

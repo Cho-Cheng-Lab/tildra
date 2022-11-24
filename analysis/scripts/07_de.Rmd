@@ -4,11 +4,9 @@ author: "David Wu"
 ---
 
 ## Setup
-Set working directory to project directory 
-Alternatively, set "Evaluate chunks in directory" to "Project" in Global Options > R Markdown
-```{r setup}
-require(knitr)
-opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+### Use the here package for robust relative paths
+```{r}
+library(here)
 ```
 
 ### Optionally convert this Rmd to R script 
@@ -21,8 +19,8 @@ file.edit(output_file)
 
 ### Directories
 ```{r, message=FALSE}
-output_dir <- 'analysis/output/07_de' # analysis file output directory
-data_dir <- 'data/derived/tildra' # data file output directory
+output_dir <- here('analysis/output/07_de') # analysis file output directory
+data_dir <- here('data/derived/tildra') # data file output directory
 
 dir.create(output_dir, showWarnings = FALSE)
 dir.create(data_dir, showWarnings = FALSE)
@@ -42,7 +40,7 @@ library(openxlsx)
 ### Custom functions
 ```{r}
 de_pipeline <- function(seuratobj,
-                        cluster_col = 'seurat_clusters',
+                        cluster_col = 'annotation',
                         cluster = 'All',
                         comparison = NULL,
                         group1_id,
@@ -56,14 +54,13 @@ de_pipeline <- function(seuratobj,
                         test.use = 'Presto') {
 
   # Extract metadata, set cluster column, and filter columns
-  metadata <- seuratobj@meta.data %>% 
-    rownames_to_column() 
+  metadata <- seuratobj@meta.data %>% rownames_to_column() 
   
   if(cluster != 'All') {
     
     metadata <- metadata %>% 
       mutate(cluster_col = .[[cluster_col]]) %>% 
-      filter(cluster_col == {{cluster}})
+      filter(cluster_col %in% {{cluster}})
     
   }
   
@@ -147,10 +144,22 @@ write_excel_notebook <- function(input_table,
 ### Import
 
 ```{r}
-seuratobj <- read_rds(file.path(data_dir, 'seuratobj_annotated.rds'))
-meta <- seuratobj@meta.data %>% rownames_to_column()
+seuratobj <- read_rds(here(data_dir, 'seuratobj_annotated.rds'))
 seuratobj
 ```
+
+### Set identity
+```{r}
+which_annotation <- 'global_cluster'
+seuratobj$annotation <- seuratobj[[which_annotation]]
+Idents(seuratobj) <- 'annotation'
+
+meta <- seuratobj@meta.data %>% rownames_to_column()
+
+output_dir <- here(output_dir, which_annotation)
+dir.create(output_dir)
+```
+
 ### Prepare metadata subset
 ```{r}
 analyze <- meta %>% 
@@ -221,10 +230,10 @@ de_ad_vs_hc <- map(patients_per_cluster[[which_cluster]], function(i) {
   
 }) %>% bind_rows()
 
-de_ad_vs_hc %>% write_tsv(file.path(output_dir, 'de_ad_vs_hc.tsv.gz'))
+de_ad_vs_hc %>% write_tsv(here(output_dir, 'de_ad_vs_hc.tsv.gz'))
 
 write_excel_notebook(input_table = de_ad_vs_hc,
-                     output_file = file.path(output_dir, 'de_ad_vs_hc.xlsx'))
+                     output_file = here(output_dir, 'de_ad_vs_hc.xlsx'))
 
 de_ad_vs_hc %>% head()
 ```
@@ -265,10 +274,10 @@ de_pv_vs_hc <- map(patients_per_cluster[[which_cluster]], function(i) {
   
 }) %>% bind_rows()
 
-de_pv_vs_hc %>% write_tsv(file.path(output_dir, 'de_pv_vs_hc.tsv.gz'))
+de_pv_vs_hc %>% write_tsv(here(output_dir, 'de_pv_vs_hc.tsv.gz'))
 
 write_excel_notebook(input_table = de_pv_vs_hc,
-                     output_file = file.path(output_dir, 'de_pv_vs_hc.xlsx'))
+                     output_file = here(output_dir, 'de_pv_vs_hc.xlsx'))
 
 de_pv_vs_hc %>% head()
 ```
@@ -312,10 +321,10 @@ de_adpv_vs_hc <- map(patients_per_cluster[[which_cluster]], function(i) {
   
 }) %>% bind_rows()
 
-de_adpv_vs_hc %>% write_tsv(file.path(output_dir, 'de_adpv_vs_hc.tsv.gz'))
+de_adpv_vs_hc %>% write_tsv(here(output_dir, 'de_adpv_vs_hc.tsv.gz'))
 
 write_excel_notebook(input_table = de_adpv_vs_hc,
-                     output_file = file.path(output_dir, 'de_adpv_vs_hc.xlsx'))
+                     output_file = here(output_dir, 'de_adpv_vs_hc.xlsx'))
 
 de_adpv_vs_hc %>% head()
 ```
@@ -358,9 +367,9 @@ de_ad_vs_pv <- map(patients_per_cluster[[which_cluster]], function(i) {
   
 }) %>% bind_rows()
 
-de_ad_vs_pv %>% write_tsv(file.path(output_dir, 'de_ad_vs_pv.tsv.gz'))
+de_ad_vs_pv %>% write_tsv(here(output_dir, 'de_ad_vs_pv.tsv.gz'))
 write_excel_notebook(input_table = de_ad_vs_pv,
-                     output_file = file.path(output_dir, 'de_ad_vs_pv.xlsx'))
+                     output_file = here(output_dir, 'de_ad_vs_pv.xlsx'))
 
 de_ad_vs_pv %>% head() 
 
@@ -407,9 +416,9 @@ de_pre_vs_mid <- map(patients_per_cluster[[which_cluster]], function(i) {
   
 }) %>% bind_rows()
 
-de_pre_vs_mid %>% write_tsv(file.path(output_dir, 'de_pre_vs_mid.tsv.gz'))
+de_pre_vs_mid %>% write_tsv(here(output_dir, 'de_pre_vs_mid.tsv.gz'))
 write_excel_notebook(input_table = de_pre_vs_mid,
-                     output_file = file.path(output_dir, 'de_pre_vs_mid.xlsx'))
+                     output_file = here(output_dir, 'de_pre_vs_mid.xlsx'))
 
 de_pre_vs_mid %>% head()
 ```
@@ -455,9 +464,9 @@ de_pre_vs_mid_responder <- map(patients_per_cluster[[which_cluster]], function(i
   
 }) %>% bind_rows()
 
-de_pre_vs_mid_responder %>% write_tsv(file.path(output_dir, 'de_pre_vs_mid_responder.tsv.gz'))
+de_pre_vs_mid_responder %>% write_tsv(here(output_dir, 'de_pre_vs_mid_responder.tsv.gz'))
 write_excel_notebook(input_table = de_pre_vs_mid_responder,
-                     output_file = file.path(output_dir, 'de_pre_vs_mid_responder.xlsx'))
+                     output_file = here(output_dir, 'de_pre_vs_mid_responder.xlsx'))
 ```
 
 ### Pre vs Mid, Non-responders
@@ -501,9 +510,9 @@ de_pre_vs_mid_nonresponder <- map(patients_per_cluster[[which_cluster]], functio
   
 }) %>% bind_rows()
 
-de_pre_vs_mid_nonresponder %>% write_tsv(file.path(output_dir, 'de_pre_vs_mid_nonresponder.tsv.gz'))
+de_pre_vs_mid_nonresponder %>% write_tsv(here(output_dir, 'de_pre_vs_mid_nonresponder.tsv.gz'))
 write_excel_notebook(input_table = de_pre_vs_mid_nonresponder,
-                     output_file = file.path(output_dir, 'de_pre_vs_mid_nonresponder.xlsx'))
+                     output_file = here(output_dir, 'de_pre_vs_mid_nonresponder.xlsx'))
 ```
 
 
@@ -548,9 +557,9 @@ de_responder_vs_nonresponder_pre <- map(patients_per_cluster[[which_cluster]], f
   
 }) %>% bind_rows()
 
-de_responder_vs_nonresponder_pre %>% write_tsv(file.path(output_dir, 'de_responder_vs_nonresponder_pre.tsv.gz'))
+de_responder_vs_nonresponder_pre %>% write_tsv(here(output_dir, 'de_responder_vs_nonresponder_pre.tsv.gz'))
 write_excel_notebook(input_table = de_responder_vs_nonresponder_pre,
-                     output_file = file.path(output_dir, 'de_responder_vs_nonresponder_pre.xlsx'))
+                     output_file = here(output_dir, 'de_responder_vs_nonresponder_pre.xlsx'))
 ```
 
 ### Responders vs non-responders in mid samples (all clusters)
@@ -594,9 +603,9 @@ de_responder_vs_nonresponder_mid <- map(patients_per_cluster[[which_cluster]], f
   
 }) %>% bind_rows()
 
-de_responder_vs_nonresponder_mid %>% write_tsv(file.path(output_dir, 'de_responder_vs_nonresponder_mid.tsv.gz'))
+de_responder_vs_nonresponder_mid %>% write_tsv(here(output_dir, 'de_responder_vs_nonresponder_mid.tsv.gz'))
 write_excel_notebook(input_table = de_responder_vs_nonresponder_mid,
-                     output_file = file.path(output_dir, 'de_responder_vs_nonresponder_mid.xlsx'))
+                     output_file = here(output_dir, 'de_responder_vs_nonresponder_mid.xlsx'))
 ```
 
 ### Per sample analysis of Trm 
@@ -606,13 +615,13 @@ patients <- patient_meta %>%
   select(patient, id, group, treatment) %>% 
   pivot_wider(names_from = treatment, values_from = id)
 
-cluster <- '3 Trm_merge'
+cluster <- str_subset(analyze$annotation, 'Trm') %>% unique() %>% head(1)
 
 de_pre_vs_mid_per_patient <- map(patients$patient, function(i) {
   
   single_patient <- patients %>% filter(patient == i)
   response <- single_patient$group
-  cluster_subset <- meta %>% filter(annotation == {{cluster}})
+  cluster_subset <- meta %>% filter(annotation %in% {{cluster}})
   pre_barcodes <- cluster_subset %>% filter(id == single_patient$Pre) %>% pull(rowname)
   mid_barcodes <- cluster_subset %>% filter(id == single_patient$Mid) %>% pull(rowname)
   
@@ -623,13 +632,13 @@ de_pre_vs_mid_per_patient <- map(patients$patient, function(i) {
               group2_barcodes = mid_barcodes,
               group1_id = paste0(i, '_Pre'),
               group2_id = paste0(i, '_Mid'), 
-              test.use = which_test)
+              test.use = which_test) 
    
 }) %>% bind_rows()
 
-de_pre_vs_mid_per_patient %>% write_tsv(file.path(output_dir, 'de_pre_vs_mid_per_patient.tsv.gz'))
+de_pre_vs_mid_per_patient %>% write_tsv(here(output_dir, 'de_pre_vs_mid_per_patient.tsv.gz'))
 write_excel_notebook(input_table = de_pre_vs_mid_per_patient,
-                     output_file = file.path(output_dir, 'de_pre_vs_mid_per_patient.xlsx'),
+                     output_file = here(output_dir, 'de_pre_vs_mid_per_patient.xlsx'),
                      tabs = 'patient',
                      prefix = 'patient_')
 
@@ -641,8 +650,6 @@ write_excel_notebook(input_table = de_pre_vs_mid_per_patient,
 ```{r}
 patients <- patient_meta %>% 
   filter(condition == 'HC' | (treatment != 'None')) 
-
-cluster <- '3 Trm_merge'
 
 de_per_sample_vs_hc <- map(patients %>% filter(condition == 'PV') %>% pull(id), function(i) {
   
@@ -663,13 +670,13 @@ de_per_sample_vs_hc <- map(patients %>% filter(condition == 'PV') %>% pull(id), 
 }) %>% bind_rows()
 
 
-de_per_sample_vs_hc %>% write_tsv(file.path(output_dir, 'de_per_sample_vs_hc.tsv.gz'))
+de_per_sample_vs_hc %>% write_tsv(here(output_dir, 'de_per_sample_vs_hc.tsv.gz'))
 
 write_excel_notebook(input_table = de_per_sample_vs_hc %>% 
                        separate(id, into = c('patient', NA, 'skin_id', 'response'), remove = F) %>% 
                        mutate(label = paste(patient, skin_id, response)) %>% 
                        select(label, patient, skin_id, id, everything()),
-                     output_file = file.path(output_dir, 'de_per_sample_vs_hc.xlsx'),
+                     output_file = here(output_dir, 'de_per_sample_vs_hc.xlsx'),
                      tabs = 'label',
                      prefix = '')
 ```
@@ -689,7 +696,7 @@ list(#de_ad_vs_hc,
      de_responder_vs_nonresponder_pre,
      de_responder_vs_nonresponder_mid) %>% 
   bind_rows() %>% 
-  write_tsv(file.path(output_dir, 'de_combined.tsv.gz'))
+  write_tsv(here(output_dir, 'de_combined.tsv.gz'))
 ```
 
 ## Session Info

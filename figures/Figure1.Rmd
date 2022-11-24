@@ -3,10 +3,9 @@ title: "Figrue 1"
 author: "David Wu"
 ---
 
-Set working directory to project directory
-```{r setup}
-require(knitr)
-opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+### Use the here package for robust relative paths
+```{r}
+library(here)
 ```
 
 ### Optionally convert this Rmd to R script 
@@ -19,8 +18,8 @@ file.edit(output_file)
 
 ### Directories
 ```{r, message=FALSE}
-output_dir <- 'figures' # analysis file output directory
-data_dir <- 'data/derived/tildra' # data file output directory
+output_dir <- here('figures') # analysis file output directory
+data_dir <- here('data/derived/tildra') # data file output directory
 
 dir.create(output_dir, showWarnings = FALSE)
 dir.create(data_dir, showWarnings = FALSE)
@@ -35,12 +34,32 @@ library(wutilities) # devtools::install_github('symbiologist/wutilities')
 library(tictoc)
 library(patchwork)
 library(rcartocolor)
+library(ggrastr)
 library(extrafont)
+theme_set(theme_dwu())
 ```
 
+### Import seurat
 ```{r}
 seuratobj <- read_rds(file.path(data_dir, 'seuratobj_annotated.rds'))
 seuratobj
+```
+
+### Select identity
+```{r}
+which_annotation <- 'global_supercluster'
+seuratobj$annotation <- seuratobj[[which_annotation]]
+Idents(seuratobj) <- 'annotation'
+
+output_dir <- here(output_dir, which_annotation)
+dir.create(output_dir)
+```
+
+```{r}
+seuratobj$condition <- factor(seuratobj$condition, levels = c('HC', 'PV'))
+seuratobj$treatment <- factor(seuratobj$treatment, levels = c('None', 'Pre', 'Mid'))
+seuratobj$group <- factor(seuratobj$group, levels = c('Responder', 'Non-responder'))
+metadata <- seuratobj@meta.data %>% rownames_to_column() %>% as_tibble()
 ```
 
 ### Figure 1A
@@ -53,7 +72,7 @@ dpi <- 600
 
 #### UMAP of points only (PNG)
 ```{r fig.height=4, fig.width=4, dpi=300}
-p <- seurat_feature(seuratobj, features = 'cluster', facet_hide = TRUE, legend_position = 'none', label = FALSE) +
+p <- seurat_feature(seuratobj, features = 'annotation', facet_hide = TRUE, legend_position = 'none', label = FALSE, color_package = 'carto', color_palette = 'Bold') +
   theme(text = element_text(family = 'Arial'))
 
 ggsave(plot = p,
@@ -65,9 +84,23 @@ ggsave(plot = p,
 
 p
 ```
+```{r}
+p <- seurat_feature(seuratobj, features = 'annotation', facet_hide = TRUE, legend_position = 'none', label = TRUE, color_package = 'carto', color_palette = 'Bold', label_size = 3) +
+  theme(text = element_text(family = 'Arial'))
+
+ggsave(plot = p,
+       path = output_dir,
+       height = h,
+       width = w,
+       dpi = dpi,
+       filename = 'F1A_labeled.png') 
+
+p
+```
+
 #### UMAP of labels only
 ```{r}
-p <- seurat_feature(seuratobj, features = 'cluster', facet_hide = TRUE, legend_position = 'none', label = TRUE, drop_points = TRUE, label_color = c('black', NA)) +
+p <- seurat_feature(seuratobj, features = 'annotation', facet_hide = TRUE, legend_position = 'none', label = TRUE, drop_points = TRUE, label_color = c('black', NA)) +
   theme(text = element_text(family = 'Arial'))
 
 ggsave(plot = p,
@@ -80,12 +113,12 @@ ggsave(plot = p,
 p
 ```
 ```{r}
-DimPlot(seuratobj, group.by = 'cluster', label = TRUE)
+DimPlot(seuratobj, group.by = 'annotation', label = TRUE)
 ```
 
 #### F1A legend
 ```{r fig.height = 4, fig.width=4}
-p <- seurat_feature(seuratobj, features = 'label', facet_hide = TRUE, legend_position = 'right', label = FALSE) +
+p <- seurat_feature(seuratobj, features = 'annotation', facet_hide = TRUE, legend_position = 'right', label = FALSE) +
   theme(text = element_text(family = 'Arial'))
 
 ggsave(plot = p,
@@ -126,19 +159,82 @@ main_markers <- c("CD3D",
                   "THBD","XCR1","SIRPA","F13A1","IGKC","JCHAIN","CD79A","MS4A1","NR4A1","NR4A2","KLF4",
                   "CEBPB","LYZ","MS4A7","SERPINA1","CD14","S100A9","IL23A","TPSB2","TPSAB1","MKI67","TOP2A",
                   "ITGA4","NCR1","IL17A","IL17F","IL23R")
+
+main_markers <- c("CD3D",
+                  "CCR7",
+                  "SELL",
+                  "KLF2",
+                  "CD69",
+                  "ITGAE",
+                  "CXCR6",
+                  "CD4",
+                  "TIGIT",
+                  "FOXP3",
+                  "IL2RA",
+                  "CTLA4",
+                  "CD8A",
+                  "CD8B",
+                  "GZMB",
+                  "PDCD1",
+                  #"LAG3",
+                  "KLRB1",
+                  "PRF1",
+                  "KLRD1",
+                  "GNLY",
+                  "TNFRSF18",
+                  "PRDM1",
+                  "BATF",
+                  "TRAT1",
+                  "RORA",
+                  "GATA3",
+                  "PTGDR2",
+                  "IL7R", 
+                  "HLA-DRA",
+                  "CD83",
+                  #"IDO1",
+                  "CD207",
+                  #"EPCAM",
+                  "CD68",
+                  "C1QB",
+                  #"C1QC",
+                  "CD163",
+                  #"CLEC10A",
+                  "CD1C",
+                  "THBD",
+                  #"XCR1",
+                  "SIRPA",
+                  #"F13A1",
+                  #"IGKC",
+                  "JCHAIN",
+                  "CD79A",
+                  "MS4A1",
+                  "NR4A1",
+                  #"NR4A2",
+                  #"KLF4",
+                  "CEBPB",
+                  "LYZ",
+                  "MS4A7",
+                  #"SERPINA1",
+                  "CD14",
+                  #"S100A9",
+                  
+                  #"TPSB2",
+                  #"TPSAB1",
+                  #"ITGA4"
+                  "IL23A"
+                  )
 ```
 
-```{r}
-Idents(seuratobj) <- 'rashx_merge'
-```
+
 
 #### F1B dot plot horizontal
 ```{r}
 p <- DotPlot(seuratobj, 
-             features = main_markers[1],
+             features = main_markers,
              cluster.idents = TRUE,
              #cols = c('dodgerblue3', 'orangered'), 
              #cols = viridis::viridis(n = 2, option = 'C'),
+             cols = RColorBrewer::brewer.pal(n = 7, 'BuPu')[c(1,7)],
              dot.min = 0.1,
              dot.scale = 4, 
              scale = FALSE) + 
@@ -146,8 +242,8 @@ p <- DotPlot(seuratobj,
 
 ggsave(plot = p,
        path = output_dir,
-       height = 6,
-       width = 12,
+       height = 5,
+       width = 10,
        dpi = 300,
        filename = 'F1B.pdf') 
 
@@ -158,7 +254,8 @@ p <- DotPlot(seuratobj,
              features = main_markers, 
              cluster.idents = TRUE,
              #cols = c('dodgerblue3', 'orangered'), 
-             cols = viridis::viridis(n = 2, option = 'C'),
+             #cols = viridis::viridis(n = 2, option = 'B'),
+             cols = RColorBrewer::brewer.pal(n = 7, 'BuPu')[c(1,7)],
              dot.min = 0.1,
              dot.scale = 4, 
              scale = FALSE) + 
@@ -168,8 +265,8 @@ p <- DotPlot(seuratobj,
 
 ggsave(plot = p,
        path = output_dir,
-       height = 12,
-       width = 9,
+       height = 8,
+       width = 8,
        dpi = 600,
        filename = 'F1B_vertical.pdf') 
 
@@ -177,10 +274,6 @@ p
 ```
 
 ### Figure 1C
-```{r}
-seuratobj$condition <- factor(seuratobj$condition, levels = c('HC', 'PV'))
-seuratobj$treatment <- factor(seuratobj$treatment, levels = c('None', 'Pre', 'Mid'))
-```
 
 
 ```{r}
@@ -218,12 +311,17 @@ p
 
 ### Figure 1D
 ```{r}
-meta <- seuratobj@meta.data %>% rownames_to_column()
+patient_order <- metadata %>% select(patient, sample, condition, treatment, response, group, ends_with('label')) %>% unique()
+
+tildra_order <- patient_order %>% filter(treatment != 'None') %>% 
+  arrange(patient, treatment)
+
+tildra_order
 ```
 ### Cluster size and % 
 ```{r}
-tallies <- meta %>% 
-  group_by(merged_label) %>% 
+tallies <- metadata %>% 
+  group_by(annotation) %>% 
   tally() %>% 
   mutate(total = sum(n),
          f = n/total,
@@ -234,8 +332,8 @@ tallies
 
 ### Proportion of cells in each cluster
 ```{r}
-analyze <- meta %>% 
-  select(rowname, id, patient, sample, condition, treatment, cluster, merged_label, response_group) %>% 
+analyze <- metadata %>% 
+  select(rowname, id, patient, sample, condition, treatment, annotation, celltype, group) %>% 
   mutate(description = factor(paste(condition, treatment) %>% str_remove(' None'),
                               levels = c('PV Pre',
                                          'PV Mid',
@@ -248,9 +346,9 @@ analyze %>% head()
 
 ```{r}
 plot_input <- analyze %>% 
-  group_by(description, cluster, merged_label) %>% 
+  group_by(description, annotation) %>% 
   tally() %>% 
-  group_by(merged_label) %>% 
+  group_by(annotation) %>% 
   mutate(total = sum(n),
          fraction = n/total)
 
@@ -259,7 +357,7 @@ plot_input
 
 ```{r}
 p <- plot_input %>% 
-  ggplot(aes(x = merged_label,
+  ggplot(aes(x = annotation,
              y = fraction,
              fill = description)) +
   geom_bar(stat = 'identity',
@@ -281,7 +379,7 @@ p
 ### Wide
 ```{r}
 p <- plot_input %>% 
-  ggplot(aes(x = merged_label,
+  ggplot(aes(x = annotation,
              y = fraction * 100,
              fill = description)) +
   geom_bar(stat = 'identity',
@@ -300,30 +398,111 @@ ggsave(plot = p,
 
 p
 ```
-#### Patient-centric version
+
+
+
+#### Patient-centric versions
 ```{r}
 plot_input <- analyze %>% 
   filter(description %in% c('PV Pre', 'PV Mid')) %>% 
-  group_by(sample, patient, description, cluster, merged_label, treatment, response_group) %>% 
+  group_by(sample, patient, description, annotation, treatment, group) %>% 
   tally() %>% 
   group_by(sample) %>% 
   mutate(total = sum(n),
-         fraction = n/total)
+         fraction = n/total) %>% 
+  ungroup() %>% 
+  select(-sample, -n, -description, -total) %>% 
+  pivot_wider(names_from = treatment,
+              values_from = fraction) %>% 
+  mutate(ratio = Mid/Pre,
+         log2ratio = log2(ratio))
 
 plot_input
 
 ```
+### Boxplots
 ```{r}
-patient_info <- plot_input %>% select(sample, patient, description, response_group) %>% unique() %>% arrange(patient, description)
-text_color <- ifelse(patient_info$response_group == 'Responder', 'dodgerblue4', 'orangered')
+p <- plot_input %>% 
+  ggplot(aes(x = group,
+             y = ratio,
+             fill = annotation)) +
+  geom_boxplot() +
+  facet_wrap(~annotation, scales = 'free_y') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggsave(plot = p,
+       path = output_dir,
+       filename = 'box_f_ratios.pdf',
+       h = 8,
+       w = 8)
+
+p
+```
+```{r}
+plot_input <- analyze %>% 
+  filter(description %in% c('PV Pre', 'PV Mid')) %>% 
+  group_by(sample, patient, description, annotation, treatment, group) %>% 
+  tally() %>% 
+  group_by(sample) %>% 
+  mutate(total = sum(n),
+         fraction = n/total) %>% 
+  ungroup() %>% 
+  select(-sample, -fraction, -description, -total) %>% 
+  pivot_wider(names_from = treatment,
+              values_from = n) %>% 
+  mutate(ratio = Mid/Pre,
+         log2ratio = log2(ratio))
+
+plot_input
+
+```
+### Boxplots
+```{r}
+p <- plot_input %>% 
+  ggplot(aes(x = group,
+             y = ratio,
+             fill = annotation)) +
+  geom_boxplot() +
+  facet_wrap(~annotation, scales = 'free_y') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggsave(plot = p,
+       path = output_dir,
+       filename = 'box_n_ratios.pdf',
+       h = 8,
+       w = 8)
+
+p
+```
+
+
+#### Individual
+```{r}
+plot_input <- analyze %>% 
+  filter(description %in% c('PV Pre', 'PV Mid')) %>% 
+  group_by(sample, patient, description, annotation, celltype, treatment, group) %>% 
+  tally() %>% 
+  group_by(sample) %>% 
+  mutate(total = sum(n),
+         fraction = n/total,
+         sample = factor(sample, levels = rev(tildra_order$sample)))
+
+plot_input
+
+```
+
+```{r}
+patient_info <- plot_input %>% select(sample, patient, description, group) %>% unique() %>% arrange(patient, description)
+text_color <- ifelse(patient_info$group == 'Responder', 'dodgerblue4', 'orangered')
 ```
 
 
 ```{r}
 p <- plot_input %>% 
+  #mutate(sample = factor(sample, levels = rev(tildra_order$sample))) %>% 
   ggplot(aes(x = sample,
              y = fraction * 100,
-             fill = merged_label)) +
+             fill = annotation)) +
   geom_bar(stat = 'identity',
            position = 'stack') +
   #rcartocolor::scale_fill_carto_d(palette = 'Bold') +
@@ -332,7 +511,7 @@ p <- plot_input %>%
   theme_dwu(legend.position = 'top') +
   coord_flip() +
   #theme(axis.text.x = element_text(angle = 90, hjust = 1, color = text_color))
-  theme(axis.text.y = element_text(angle = 0, hjust = 1, color = text_color))
+  theme(axis.text.y = element_text(angle = 0, hjust = 1, color = rev(text_color)))
 
 ggsave(plot = p,
        filename = 'F1D_bar_patient_centric_f.pdf',
@@ -344,9 +523,10 @@ p
 ```
 ```{r}
 p <- plot_input %>% 
-  ggplot(aes(x = sample,
+  
+    ggplot(aes(x = sample,
              y = n,
-             fill = merged_label)) +
+             fill = annotation)) +
   geom_bar(stat = 'identity',
            position = 'stack') +
   #rcartocolor::scale_fill_carto_d(palette = 'Bold') +
@@ -355,13 +535,165 @@ p <- plot_input %>%
   theme_dwu(legend.position = 'top') +
   #theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
   coord_flip() +
-  theme(axis.text.y = element_text(angle = 0, hjust = 1, color = text_color))
+  theme(axis.text.y = element_text(angle = 0, hjust = 1, color = rev(text_color)))
 
 ggsave(plot = p,
        filename = 'F1D_bar_patient_centric_n.pdf',
        path = output_dir,
        h = 4,
        w = 8)
+
+p
+```
+### All facets
+```{r}
+p <- plot_input %>% 
+  ggplot(aes(x = sample,
+             y = fraction * 100,
+             fill = annotation)) +
+  geom_bar(stat = 'identity') +
+  labs(x = '',
+       y = '% of Cells') +
+  theme_dwu(legend.position = 'top') +
+  coord_flip() +
+  theme(axis.text.y = element_text(angle = 0, hjust = 1, color = rev(text_color))) +
+  facet_wrap(~annotation, scales = 'free_x')
+
+ggsave(plot = p,
+       filename = 'S1X_bar_patient_centric_f_facet.pdf',
+       path = output_dir,
+       h = 12,
+       w = 12)
+
+p
+```
+
+
+
+```{r}
+p <- plot_input %>% 
+  
+    ggplot(aes(x = sample,
+             y = n,
+             fill = annotation)) +
+  geom_bar(stat = 'identity') +
+  #rcartocolor::scale_fill_carto_d(palette = 'Bold') +
+  labs(x = '',
+       y = '# of Cells') +
+  theme_dwu(legend.position = 'top') +
+  #theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  coord_flip() +
+  theme(axis.text.y = element_text(angle = 0, hjust = 1, color = rev(text_color))) +
+  facet_wrap(~annotation, scales = 'free_x')
+
+ggsave(plot = p,
+       filename = 'S1X_bar_patient_centric_n_facet.pdf',
+       path = output_dir,
+       h = 12,
+       w = 12)
+
+p
+```
+### Trm focused
+```{r}
+which_clusters <- str_subset(plot_input$annotation, 'Trm') %>% unique()
+```
+
+```{r}
+p <- plot_input %>% 
+  filter(annotation %in% which_clusters) %>% 
+  ggplot(aes(x = sample,
+             y = fraction * 100,
+             fill = annotation)) +
+  geom_bar(stat = 'identity') +
+  labs(x = '',
+       y = '% of Cells') +
+  theme_dwu(legend.position = 'top') +
+  coord_flip() +
+  theme(axis.text.y = element_text(angle = 0, hjust = 1, color = rev(text_color))) + 
+  facet_wrap(~annotation, scales = 'free_x')
+
+ggsave(plot = p,
+       filename = 'F1D_bar_patient_centric_f_trm.pdf',
+       path = output_dir,
+       h = 4,
+       w = 4)
+
+p
+```
+
+```{r}
+p <- plot_input %>% 
+  filter(annotation %in% which_clusters) %>% 
+    ggplot(aes(x = sample,
+             y = n,
+             fill = annotation)) +
+  geom_bar(stat = 'identity') +
+  #rcartocolor::scale_fill_carto_d(palette = 'Bold') +
+  labs(x = '',
+       y = '# of Cells') +
+  theme_dwu(legend.position = 'top') +
+  #theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  coord_flip() +
+  theme(axis.text.y = element_text(angle = 0, hjust = 1, color = rev(text_color))) +
+  facet_wrap(~annotation, scales = 'free_x')
+
+ggsave(plot = p,
+       filename = 'F1D_bar_patient_centric_n_trm.pdf',
+       path = output_dir,
+       h = 4,
+       w = 4)
+
+p
+```
+```{r}
+p <- plot_input %>% 
+  group_by(patient, treatment,celltype) %>% 
+  summarize(n = sum(n)) %>% 
+  #filter(annotation %in% which_clusters) %>% 
+    ggplot(aes(x = treatment,
+             y = n,
+             fill = celltype)) +
+  geom_boxplot() +
+  #rcartocolor::scale_fill_carto_d(palette = 'Bold') +
+  labs(x = '',
+       y = '# of Cells') +
+  facet_wrap(~celltype, scales = 'free_y') +
+  #scale_y_log10() +
+  theme_dwu(legend.position = 'top') +
+  ggthemes::scale_fill_few()
+
+ggsave(plot = p,
+       filename = 'F1E_box_patient_centric_n_celltype.pdf',
+       path = output_dir,
+       h = 4,
+       w = 4)
+
+p
+```
+```{r}
+
+```
+
+```{r}
+p <- plot_input %>% 
+  filter(celltype == 'Lymphocyte') %>% 
+    ggplot(aes(x = treatment,
+             y = n,
+             fill = annotation)) +
+  geom_boxplot() +
+  #rcartocolor::scale_fill_carto_d(palette = 'Bold') +
+  labs(x = '',
+       y = '# of Cells') +
+  
+  facet_wrap(~annotation, scales = 'free_y') +
+theme_dwu(legend.position = 'top') 
+
+ggsave(plot = p,
+       filename = 'F1E_box_patient_centric_n_trm.pdf',
+       path = output_dir,
+       h = 4,
+       w = 4)
 
 p
 ```
