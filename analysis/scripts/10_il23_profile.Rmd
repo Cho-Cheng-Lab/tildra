@@ -4,10 +4,10 @@ author: "David Wu"
 ---
 
 Set working directory to project directory
-```{r setup}
-require(knitr)
-opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+```{r}
+library(here)
 ```
+
 
 ### Optionally convert this Rmd to R script 
 ```{r eval=FALSE, message=FALSE}
@@ -20,7 +20,7 @@ file.edit(output_file)
 ### Directories
 ```{r, message=FALSE}
 output_dir <- 'analysis/output/10_il23_profile' # analysis file output directory
-data_dir <- 'data/derived/seurat' # data file output directory
+data_dir <- 'data/derived/tildra' # data file output directory
 
 dir.create(output_dir, showWarnings = FALSE)
 dir.create(data_dir, showWarnings = FALSE)
@@ -56,37 +56,53 @@ calculate_signature <- function(seuratobj,
 
 ### Import seurat object
 ```{r}
-seuratobj <- read_rds(file.path(data_dir, 'seuratobj_annotated.rds'))
-visiumobj <- read_rds(file.path(data_dir, 'integrated_samples.rds'))
+seuratobj <- read_rds(here(data_dir, 'seuratobj_annotated.rds'))
+visiumobj <- read_rds(here(data_dir, 'integrated_samples.rds'))
 DefaultAssay(visiumobj) <- 'SCT'
 
-seurat_meta <- seuratobj@meta.data %>% rownames_to_column()
-visium_meta <- read_tsv('analysis/output/10_visium/visium_meta.tsv.gz') %>% 
-  mutate(id = ifelse(id == 'skin234', 'skin277', id))
+visium_meta <- read_tsv(here('analysis/output/10_visium/visium_meta.tsv.gz')) %>% 
+  mutate(id = ifelse(id == 'S234', 'S277', id))
 
 seuratobj
 ```
+### Select identity
 ```{r}
-patient_meta <- seurat_meta %>% 
-  select(id, patient, sample, condition, treatment, response, response_group) %>% 
+which_annotation <- 'global_supercluster'
+seuratobj$annotation <- seuratobj[[which_annotation]]
+Idents(seuratobj) <- 'annotation'
+
+which_celltype <- ifelse(str_detect(which_annotation, 'global'), 'global_celltype', 'celltype')
+seuratobj$celltype <- seuratobj[[which_celltype]]
+
+output_dir <- here(output_dir, which_annotation)
+dir.create(output_dir)
+```
+
+### Prepare metadata
+```{r}
+metadata <- seuratobj@meta.data %>% rownames_to_column()
+
+patient_meta <- metadata %>% 
+  select(id, patient, sample, condition, treatment, response, group) %>% 
   unique() %>% 
   as_tibble()
 
 patient_meta
 ```
+
 ### Major clusters
 ```{r}
-clusters_all <- seurat_meta$merged_label %>% unique()
-clusters_t <- clusters_all %>% str_subset('T')
-clusters_apc <- clusters_all %>% setdiff(clusters_t)
+clusters_all <- metadata$annotation %>% unique()
+clusters_t <- metadata %>% filter(str_detect(annotation, 'T')) %>% pull(annotation) %>% unique()
+clusters_apc <- metadata %>% filter(celltype == 'APC') %>% pull(annotation) %>% unique()
 ```
 
 ```{r}
-patient_display <- seurat_meta %>% select(id, patient, condition, treatment, response, response_group) %>% unique() %>% 
+patient_display <- metadata %>% select(id, patient, condition, treatment, response, group, patient_label) %>% unique() %>% 
   filter(treatment != 'None') %>% 
   pivot_wider(names_from = treatment,
               values_from = id) %>%
-  mutate(display = paste0(patient, ' (', Pre, ', ', Mid, '): ', response_group))
+  mutate(display = patient_label)
 
 patient_display
   
@@ -94,12 +110,12 @@ patient_display
 ```
 
 ```{r}
-meta <- seurat_meta %>% 
-  select(rowname, id, merged_label) %>% 
-  bind_rows(visium_meta %>% select(rowname, id, merged_label) %>% drop_na()) %>% 
+meta <- metadata %>% 
+  select(rowname, id, annotation) %>% 
+  bind_rows(visium_meta %>% select(rowname, id, annotation) %>% drop_na()) %>% 
   left_join(patient_meta) %>% 
-  select(rowname, id, patient, sample, condition, treatment, response, response_group, merged_label) %>% 
-  mutate(display = paste(patient, response_group),
+  select(rowname, id, patient, sample, condition, treatment, response, group, annotation) %>% 
+  mutate(display = paste(patient, group),
          description = factor(paste(condition, treatment) %>% str_remove(' None'),
                               levels = c('PV Pre',
                                          'PV Mid',
@@ -107,11 +123,11 @@ meta <- seurat_meta %>%
                                          'AD',
                                          'HC')),
          treatment = factor(treatment, levels = c('Pre', 'Mid', 'None')),
-         group = case_when(
-           merged_label == 'Trm_merge' ~ 'Trm',
-           merged_label %in% clusters_apc ~ 'APC',
-           merged_label %in% clusters_t ~ 'Tcell',
-           TRUE ~ merged_label
+         cellgroup = case_when(
+           str_detect(annotation, 'Trm') ~ 'Trm',
+           annotation %in% clusters_apc ~ 'APC',
+           annotation %in% clusters_t ~ 'Tcell',
+           TRUE ~ annotation
          ))
 
 meta
@@ -132,83 +148,85 @@ pv50 <- readxl::read_excel('analysis/input/PV50.xlsx')
 Genes that change in responders but not non-responders
 Group-level
 ```{r}
-de_pre_vs_mid_response <- read_tsv('analysis/output/07_de/de_pre_vs_mid_response.tsv.gz')
+de_pre_vs_mid_response <- bind_rows(read_tsv(here('analysis/output/07_de', which_annotation, 'de_pre_vs_mid_responder.tsv.gz')) %>% mutate(response = 'Responder'),
+                                    read_tsv(here('analysis/output/07_de', which_annotation, 'de_pre_vs_mid_nonresponder.tsv.gz')) %>% mutate(response = 'Non-responder'))
 
 il23_group_response <- de_pre_vs_mid_response %>% 
   filter(p_val_adj < 0.05,
-         avg_log2FC > 0) %>% 
-  group_by(gene) %>% 
-  add_count() %>% 
-  filter(response == 'responders', n == 1) 
+         avg_log2FC > 0,
+         response == 'Responder') 
 
 il23_group_response
 ```
 ```{r}
 il23_nonresponsive <- de_pre_vs_mid_response %>% 
   filter(p_val_adj < 0.05,
-         avg_log2FC > 0) %>% 
-  group_by(gene) %>% 
-  add_count() %>% 
-  filter(response != 'responders') 
+         avg_log2FC > 0,
+         response == 'Non-responder')
 
 il23_nonresponsive
 ```
 Patient-level
 ```{r}
-de_pre_vs_mid_patients <- read_tsv('analysis/output/07_de/de_pre_vs_mid_patients.tsv.gz')
+de_pre_vs_mid_patients <- read_tsv(here('analysis/output/07_de', which_annotation,'de_pre_vs_mid_per_patient.tsv.gz'))
+
 il23_patients_responsive <- de_pre_vs_mid_patients %>% 
   filter(p_val_adj < 0.05,
          avg_log2FC > 0) %>% 
   group_by(gene) %>% 
-  add_count() 
+  add_count() %>% 
+  mutate(patient = str_remove(group1, '_Pre'))
 
 il23_patient_response <- il23_patients_responsive %>% 
   select(patient, gene, avg_log2FC) %>% 
   pivot_wider(names_from = patient,
               values_from = avg_log2FC) %>% 
   rowwise() %>% 
-  mutate(n_responders = sum(!is.na(c(S2, S3, S4, S7))),
-         n_nonresponders = sum(!is.na(c(S1, S5, S6))))
+  mutate(n_responders = sum(!is.na(c(P1, P2, P3, P4, P5, P6))),
+         n_nonresponders = sum(!is.na(c(P7, P8, P9))))
   
 ```
 
 ```{r}
 il23_response <- il23_group_response %>% 
   left_join(il23_patient_response) %>%
-  filter(response == 'responders') %>% 
-  arrange(-n_responders, -pct.diff) %>% 
-  select(gene, avg_log2FC, p_val_adj, pct.1, pct.2, pct.diff, n_responders, n_nonresponders, starts_with('S'))
+  filter(response == 'Responder') %>% 
+  arrange(cluster, -n_responders, -pct.diff) %>% 
+  select(cluster, gene, avg_log2FC, p_val_adj, pct.1, pct.2, pct.diff, n_responders, n_nonresponders, starts_with('P'))
 
-il23_response %>% write_tsv(file.path(output_dir, 'il23_response.tsv'))
+il23_response %>% write_tsv(here(output_dir, 'il23_response.tsv'))
+
+il23_response
 ```
 
 
 ```{r}
-il23_genes <- il23_response %>% filter(p_val_adj < 0.05, !str_detect(gene, 'mm10')) %>% pull(gene)
-il23_genes_strict <- il23_response %>% filter(p_val_adj < 0.05, n_responders > 1, !str_detect(gene, 'mm10')) %>% pull(gene)
+il23_genes <- il23_response %>% filter(str_detect(cluster, 'Trm'), p_val_adj < 0.05) %>% pull(gene)
+il23_genes_strict <- il23_response %>% filter(str_detect(cluster, 'Trm'), p_val_adj < 0.05, n_responders > 2) %>% pull(gene) %>% unique()
+
+il23_genes_strict
 ```
 
 ### Nonresponder signature
 ```{r}
-de_responders_vs_nonresponders <- read_tsv('analysis/output/07_de/de_responders_vs_nonresponders.tsv.gz')
+de_responder_vs_nonresponder <- read_tsv(here('analysis/output/07_de', which_annotation, 'de_responder_vs_nonresponder_mid.tsv.gz'))
 ```
 
 ```{r}
-nonresponder_markers <- de_responders_vs_nonresponders %>% 
-  filter(treatment == 'Mid',
-         avg_log2FC < 0,
+nonresponder_markers <- de_responder_vs_nonresponder %>% 
+  filter(avg_log2FC < 0,
          p_val_adj < 0.05) %>% 
   arrange(avg_log2FC)
 
 nonresponder_markers
 ```
 ```{r}
-nonresponder_genes <- nonresponder_markers$gene
+nonresponder_genes <- nonresponder_markers %>% filter(str_detect(cluster, 'Trm')) %>% pull(gene)
 ```
 
 ### Tildra response in APCs
-```{r}
-de_pre_vs_mid_apc <- read_tsv('analysis/output/07_de/de_pre_vs_mid_response_apc.tsv.gz')
+```{r eval=FALSE}
+de_pre_vs_mid_apc <- read_tsv(here('analysis/output/07_de', which_annotation, 'de_pre_vs_mid.tsv.gz'))
 
 apc_responders <- de_pre_vs_mid_apc %>% 
   filter(response == 'responders',
@@ -217,7 +235,7 @@ apc_responders <- de_pre_vs_mid_apc %>%
 apc_responders
 ```
 
-```{r}
+```{r eval=FALSE}
 apc_nonresponders <- de_pre_vs_mid_apc %>% 
   filter(response == 'non-responders',
          p_val_adj < 0.05)
@@ -286,7 +304,7 @@ genes_of_interest <- c('IL23A', 'IL23R', 'IL17A', 'IL17F', 'ZFP36', 'ZFP36L2', n
 
 ```{r}
 barcodes_visium <- visium_meta %>% 
-  filter(merged_label %in% c('fibroblast', 'keratinocyte')) %>% 
+  filter(annotation %in% c('fibroblast', 'keratinocyte')) %>% 
   pull(rowname)
 
 
@@ -317,10 +335,13 @@ data_matrix <- bind_rows(data_matrix_scrna,
 
 data_matrix %>% head()
 ```
+```{r}
+meta %>% select(rowname, id, sample, patient, condition, treatment, response, group, display, cellgroup)
+```
 
 ```{r}
 data_table <- 
-  meta %>% select(rowname, id, sample, patient, condition, treatment, response, response_group, display, group) %>% 
+  meta %>% select(rowname, id, sample, patient, condition, treatment, response, group, display, cellgroup) %>% 
   inner_join(data_matrix %>% rownames_to_column()) %>% 
   as_tibble()
 
@@ -330,7 +351,7 @@ data_table
 
 ```{r}
 data_table_long <- data_table %>% 
-  pivot_longer(cols = -c(rowname:group),
+  pivot_longer(cols = -c(rowname:cellgroup),
                names_to = 'gene',
                values_to = 'expression') 
 
@@ -341,7 +362,7 @@ data_table_long %>% head()
 data_table_long_tx_summarized <- 
   data_table_long %>% 
   filter(treatment %in% c('Pre', 'Mid')) %>% 
-  group_by(id, sample, patient, condition, group, display, treatment, response, response_group, gene) %>% 
+  group_by(id, sample, patient, condition, display, treatment, response, group, gene, cellgroup) %>% 
   summarize(binary = mean(expression > 0),
             expression = mean(expression)) %>% 
   group_by(gene, group) %>% 
@@ -355,7 +376,7 @@ data_table_long_tx_summarized
 ```{r}
 data_table_long_all_summarized <- 
   data_table_long %>% 
-  group_by(id, sample, patient, condition, group, display, treatment, response, response_group, gene) %>% 
+  group_by(id, sample, patient, condition, group, display, treatment, response, cellgroup, gene) %>% 
   summarize(binary = mean(expression > 0),
             expression = mean(expression)) %>% 
   group_by(gene, group) %>% 
@@ -373,7 +394,7 @@ display_features <- c('APC IL23A',
                       'fibroblast IL23A')
 
 plot_input <- data_table_long_tx_summarized %>% 
-  mutate(feature = paste(group, gene)) %>% 
+  mutate(feature = paste(cellgroup, gene)) %>% 
   filter(feature %in% display_features) %>% 
   mutate(feature = factor(feature, levels = display_features))
 
@@ -405,9 +426,9 @@ plot_input %>%
 ### Full profile
 ```{r}
 tx_patients <- meta %>% filter(treatment != 'None') %>% pull(patient) %>% unique() %>% sort() %>% set_names(.)
-tx_patients_responders <- meta %>% filter(treatment != 'None', response_group == 'Responder') %>% pull(patient) %>% unique() %>% sort() %>% set_names(.) 
+tx_patients_responders <- meta %>% filter(treatment != 'None', group == 'Responder') %>% pull(patient) %>% unique() %>% sort() %>% set_names(.) 
 
-tx_patients_nonresponders <- meta %>% filter(treatment != 'None', response_group == 'Non-responder') %>% pull(patient) %>% unique() %>% sort() %>% set_names(.) 
+tx_patients_nonresponders <- meta %>% filter(treatment != 'None', group == 'Non-responder') %>% pull(patient) %>% unique() %>% sort() %>% set_names(.) 
 
 
 ```
@@ -477,7 +498,7 @@ radar_plots <- map(plot_input$patient %>% unique %>% sort, function(i) {
     mutate(treatment = factor(treatment, levels = c('Pre', 'Mid')))
   
   skin_ids <- plot_input %>% filter(patient == which_patient) %>% pull(id) %>% unique()
-  response <- plot_input %>% filter(patient == which_patient) %>% pull(response_group) %>% unique()
+  response <- plot_input %>% filter(patient == which_patient) %>% pull(group) %>% unique()
   
   p_radar <- radar_input %>% 
     ggradar(legend.text.size = 8,
@@ -558,7 +579,7 @@ radar_plots <- map(plot_input$patient %>% unique %>% sort, function(i) {
     mutate(treatment = factor(treatment, levels = c('Pre', 'Mid')))
   
   skin_ids <- plot_input %>% filter(patient == which_patient) %>% pull(id) %>% unique()
-  response <- plot_input %>% filter(patient == which_patient) %>% pull(response_group) %>% unique()
+  response <- plot_input %>% filter(patient == which_patient) %>% pull(group) %>% unique()
   
   p_radar <- radar_input %>% 
     ggradar(legend.text.size = 8,
@@ -619,7 +640,7 @@ i <- 'S2'
 
 p_waterfall <- map(tx_patients, function(i) {
   
-  display_label <- paste0('Patient ', i, ': ', data_table_long_tx_summarized %>% filter(patient == i) %>% pull(response_group) %>% unique())
+  display_label <- paste0('Patient ', i, ': ', data_table_long_tx_summarized %>% filter(patient == i) %>% pull(group) %>% unique())
   data_table_long_tx_summarized %>% 
   filter(group == 'Trm',
          patient == i,
@@ -747,7 +768,7 @@ radar_plots <- map(plot_input$patient %>% unique %>% sort, function(i) {
     mutate(treatment = factor(treatment, levels = c('Pre', 'Mid')))
   
   
-  response <- plot_input %>% filter(patient == which_patient) %>% pull(response_group) %>% unique()
+  response <- plot_input %>% filter(patient == which_patient) %>% pull(group) %>% unique()
   
   p_radar <- radar_input %>% 
     ggradar(legend.text.size = 8,
@@ -824,11 +845,11 @@ perfect_separators <- data_table_long_tx_summarized %>%
   filter(gene %in% nonresponder_genes,
          treatment == 'Mid',
          group == 'Trm') %>% 
-  select(group, response_group, gene, expression) %>% 
-  group_by(response_group, group, gene) %>% 
+  select(group, group, gene, expression) %>% 
+  group_by(group, group, gene) %>% 
   summarize(min = min(expression),
             max = max(expression)) %>% 
-  pivot_wider(names_from = response_group,
+  pivot_wider(names_from = group,
               values_from = c(min, max)) %>% 
   filter(`min_Non-responder` > max_Responder)
 
@@ -844,7 +865,7 @@ p <- data_table_long_tx_summarized %>%
          group == 'Trm') %>% 
   ggplot(aes(x = reorder(gene, expression),
              y = expression,
-             color = response_group)) +
+             color = group)) +
   #geom_boxplot(outlier.color = NA) +
   geom_bar(stat = 'summary', position = 'dodge', fill = 'grey90') +
   #facet_wrap(~gene, scales = 'free_x') +
@@ -873,7 +894,7 @@ p <- data_table_long_tx_summarized %>%
          group == 'Trm') %>% 
   ggplot(aes(x = reorder(gene, expression),
              y = expression,
-             color = response_group)) +
+             color = group)) +
   #geom_boxplot(outlier.color = NA) +
   geom_bar(stat = 'summary', position = 'dodge', fill = 'grey90') +
   geom_sina(alpha = 0.8, size = 2) +
@@ -899,9 +920,9 @@ p <- data_table_long_tx_summarized %>%
   filter(gene %in% c(il23_genes, 'IL17A', 'IL17F'),
          treatment == 'Mid',
          group == 'Trm') %>% 
-  ggplot(aes(x = response_group,
+  ggplot(aes(x = group,
              y = expression,
-             color = response_group)) +
+             color = group)) +
   #geom_boxplot(outlier.color = NA) +
   geom_bar(stat = 'summary', position = 'dodge', fill = 'grey90') +
   geom_point(alpha = 0.8, size = 2, aes(color = patient)) +
@@ -926,9 +947,9 @@ p <- data_table_long_tx_summarized %>%
   filter(gene %in% c(il23_genes_strict, 'IL17A', 'IL17F'),
          treatment == 'Mid',
          group == 'Trm') %>% 
-  ggplot(aes(x = response_group,
+  ggplot(aes(x = group,
              y = expression,
-             color = response_group)) +
+             color = group)) +
   #geom_boxplot(outlier.color = NA) +
   geom_bar(stat = 'summary', position = 'dodge', fill = 'grey90') +
   geom_point(alpha = 0.8, size = 2, aes(color = patient)) +
@@ -959,7 +980,7 @@ p <- data_table_long_tx_summarized %>%
          group == 'Trm') %>% 
   ggplot(aes(x = reorder(patient, -expression),
              y = expression,
-             fill = response_group)) +
+             fill = group)) +
   #geom_boxplot(outlier.color = NA) +
   geom_bar(stat = 'summary', position = 'dodge', color = 'black') +
   theme_dwu(legend.position = 'top') +
@@ -983,7 +1004,7 @@ p <- data_table_long_tx_summarized %>%
          group == 'Trm') %>% 
   ggplot(aes(x = reorder(patient, -expression),
              y = expression,
-             fill = response_group)) +
+             fill = group)) +
   #geom_boxplot(outlier.color = NA) +
   geom_bar(stat = 'summary', position = 'dodge', color = 'black', fun = sum) +
   theme_dwu(legend.position = 'top') +
@@ -1006,11 +1027,11 @@ p <- data_table_long %>%
   filter(treatment != 'None',
          gene %in% c('IL17A', 'IL17F'),
          group %in% c('APC', 'Trm', 'Tcell')) %>% 
-  group_by(patient, treatment, response_group, group, gene) %>% 
+  group_by(patient, treatment, group, group, gene) %>% 
   summarize(expression = mean(expression)) %>% 
   ggplot(aes(x = patient,
              y = expression,
-             fill = response_group)) +
+             fill = group)) +
   geom_bar(stat = 'identity') +
   facet_wrap(~group + treatment + gene) +
   theme_dwu(legend.position = 'top')
@@ -1054,11 +1075,11 @@ p
 ```{r}
 
 meta %>% 
-  filter(merged_label %in% clusters_apc,
+  filter(annotation %in% clusters_apc,
          treatment != 'None') %>% 
-  group_by(response_group, merged_label, treatment) %>% 
+  group_by(group, annotation, treatment) %>% 
   tally() %>% 
-  pivot_wider(names_from = c(response_group, treatment),
+  pivot_wider(names_from = c(group, treatment),
               values_from = n) %>% 
   View()
 

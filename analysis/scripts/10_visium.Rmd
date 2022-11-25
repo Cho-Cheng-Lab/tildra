@@ -3,10 +3,10 @@ title: "Visium"
 author: "David Wu"
 ---
 
-Set working directory to project directory
-```{r setup}
-require(knitr)
-opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+
+### Use the here package for robust relative paths
+```{r}
+library(here)
 ```
 
 ### Optionally convert this Rmd to R script 
@@ -19,8 +19,8 @@ file.edit(output_file)
 
 ### Directories
 ```{r, message=FALSE}
-output_dir <- 'analysis/output/10_visium' # analysis file output directory
-data_dir <- 'data/derived/seurat' # data file output directory
+output_dir <- here('analysis/output/10_visium') # analysis file output directory
+data_dir <- here('data/derived/tildra') # data file output directory
 
 dir.create(output_dir, showWarnings = FALSE)
 dir.create(data_dir, showWarnings = FALSE)
@@ -38,7 +38,8 @@ library(ggforce)
 ```
 ### Import seurat object
 ```{r}
-seuratobj <- read_rds(file.path(data_dir, 'integrated_samples.rds'))
+seuratobj <- read_rds(here(data_dir, 'integrated_samples.rds'))
+seuratobj$id <- seuratobj$donor %>% str_replace('[Ss]kin', replacement = 'S')
 meta <- seuratobj@meta.data %>% rownames_to_column()
 
 DefaultAssay(seuratobj) <- 'SCT'
@@ -139,14 +140,14 @@ Keratinocytes = cluster 3
 Fibroblasts = cluster 0
 ```{r}
 metadata <- FetchData(seuratobj,
-                      vars = c('donor', 'treatment', 'ident')) %>% 
+                      vars = c('id', 'treatment', 'ident')) %>% 
   rownames_to_column() %>% 
-  mutate(id = str_to_lower(donor),
-         merged_label = case_when(
-           ident == 0 ~ 'fibroblast',
-           ident == 3 ~ 'keratinocyte'
-         )) %>% 
-  select(rowname, id, treatment, merged_label)
+  mutate(annotation = case_when(
+    ident == 0 ~ 'fibroblast',
+    ident == 3 ~ 'keratinocyte'),
+    treatment = str_replace(treatment, 'post', 'mid'),
+    treatment = factor(str_to_sentence(treatment), levels = c('Pre', 'Mid', 'None'))) %>% 
+  select(rowname, id, treatment, annotation)
 
 metadata
 ```
@@ -163,16 +164,13 @@ visium_expression <- seuratobj@assays$SCT@data
 
 ### Export
 ```{r}
-metadata %>% write_tsv(file.path(output_dir, 'visium_meta.tsv.gz'))
-visium_expression %>% write_rds(file.path(output_dir, 'visium_expression.rds'))
+metadata %>% write_tsv(here(output_dir, 'visium_meta.tsv.gz'))
+visium_expression %>% write_rds(here(output_dir, 'visium_expression.rds'))
 
 ```
 
 
-```{r}
-SpatialDimPlot(seuratobj, 
-                    ncol = 4, interactive = TRUE) 
-```
+
 
 ```{r}
 

@@ -51,6 +51,8 @@ which_annotation <- 'global_supercluster'
 seuratobj$annotation <- seuratobj[[which_annotation]]
 Idents(seuratobj) <- 'annotation'
 
+which_celltype <- ifelse(str_detect(which_annotation, 'global'), 'global_celltype', 'celltype')
+
 output_dir <- here(output_dir, which_annotation)
 dir.create(output_dir)
 ```
@@ -308,6 +310,25 @@ ggsave(plot = p,
 p
 ```
 
+### Patient-level umaps
+```{r}
+patient_only <- subset(seuratobj, subset = treatment %in% c('Pre', 'Mid'))
+patient_only
+```
+
+
+```{r}
+p1 <- seurat_feature(patient_only, features = 'patient', label = FALSE, facet_hide = TRUE)
+
+p1
+```
+
+
+```{r}
+p2 <- seurat_feature(patient_only, features = 'patient', facets = 'patient', label = FALSE, facet_hide = TRUE, alpha = 0.5, size = 0.2)
+
+p2
+```
 
 ### Figure 1D
 ```{r}
@@ -332,7 +353,7 @@ tallies
 
 ### Proportion of cells in each cluster
 ```{r}
-which_celltype <- ifelse(str_detect(which_annotation, 'global'), 'global_celltype', 'celltype')
+
 
 analyze <- metadata %>% 
   select(rowname, id, patient, sample, condition, treatment, annotation, group, celltype = all_of(which_celltype)) %>% 
@@ -774,6 +795,7 @@ p
 ```{r}
 p <- plot_input %>% 
   filter(celltype == 'Lymphocyte') %>% 
+  filter(!is.na(group)) %>% 
     ggplot(aes(x = treatment,
              y = n,
              fill = group)) +
@@ -791,6 +813,56 @@ ggsave(plot = p,
        path = output_dir,
        h = 8,
        w = 8)
+
+p
+```
+```{r}
+p <- plot_input %>% 
+  #filter(celltype == 'Lymphocyte') %>% 
+  filter(!is.na(group)) %>% 
+    ggplot(aes(x = group,
+             y = fraction,
+             fill = treatment)) +
+  geom_boxplot() +
+  #rcartocolor::scale_fill_carto_d(palette = 'Bold') +
+  labs(x = '',
+       y = '% of Cells') +
+  
+  facet_wrap(~annotation, scales = 'free_y') +
+  theme_dwu(legend.position = 'top') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ggthemes::scale_fill_few()
+
+ggsave(plot = p,
+       filename = 'F1E_box_patient_centric_f_by_annotation.pdf',
+       path = output_dir,
+       h = 8,
+       w = 8)
+
+p
+```
+```{r}
+p <- plot_input %>% 
+  filter(annotation == 'Trm') %>% 
+  filter(!is.na(group)) %>% 
+    ggplot(aes(x = group,
+             y = 100 * fraction,
+             fill = treatment)) +
+  geom_boxplot() +
+  #rcartocolor::scale_fill_carto_d(palette = 'Bold') +
+  labs(x = '',
+       y = '% of Cells') +
+  
+  facet_wrap(~annotation, scales = 'free_y') +
+  theme_dwu(legend.position = 'top') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ggthemes::scale_fill_few()
+
+ggsave(plot = p,
+       filename = 'F1E_box_patient_centric_f_trm.pdf',
+       path = output_dir,
+       h = 4,
+       w = 4)
 
 p
 ```
