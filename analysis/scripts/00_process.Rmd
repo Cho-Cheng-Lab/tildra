@@ -90,12 +90,14 @@ metadata_subset <-
          f_ab_unrecog = `fraction unrecognized αbody`,
          f_ab_reads_in_cells = `αbody reads in cells`,
          n_ab_reads_usable_per_cell = `αbody reads usable/cell`,
-         mouse = `mouse spike in?`) %>% 
+         mouse = `mouse spike in?`,
+         reorder) %>% 
+  arrange(reorder) %>% 
   mutate(adt = ifelse(is.na(f_ab_reads), 'No', 'Yes'),
          mouse = ifelse(mouse == 'yes', 'Yes', 'No'),
          pipestance = paste0('data/derived/pipestance/', pipestance_path),
-         h5 = paste0(dest_dir, id, '.h5'))
-
+         h5 = paste0(dest_dir, id, '.h5'),
+         sample_order = row_number()) 
 
 metadata_subset
 ```

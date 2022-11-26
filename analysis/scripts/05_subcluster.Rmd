@@ -149,12 +149,38 @@ broad_markers
 broad_markers %>% group_by(cluster) %>% top_n(5, pct.diff) %>% arrange(cluster)
 ```
 
+#### Major cell types
+```{r}
+mast_clusters <- broad_markers %>% filter(gene == 'TPSAB1') %>% slice_max(pct.diff) %>% pull(cluster)
+fibroblast_clusters <- broad_markers %>% filter(gene == 'COL1A1') %>% slice_max(pct.diff) %>% pull(cluster)
+
+```
+
+```{r}
+other_celltype_tally <- seuratobj@meta.data %>% 
+  select(seurat_clusters, id) %>% 
+  mutate(other_celltype = case_when(seurat_clusters %in% mast_clusters ~ 'mast',
+                                    seurat_clusters %in% fibroblast_clusters ~ 'fibroblast')) %>% 
+  as_tibble() %>% 
+  drop_na() %>% 
+  group_by(id, other_celltype) %>% 
+  tally() %>% 
+  pivot_wider(names_from = 'other_celltype',
+              values_from = 'n',
+              values_fill = 0,
+              names_prefix = 'n_')
+
+other_celltype_tally %>% write_tsv(here(output_dir, 'other_celltype_tally.tsv'))
+
+other_celltype_tally
+```
+
 
 ### Iterative subsclustering and re-harmonize
 ```{r}
 batch <- c('treatment', 'patient', 'flow', 'mouse', 'chemistry') # global batch variables
 
-apc_clusters <- 1
+apc_clusters <- broad_markers %>% filter(gene == 'HLA-DRA') %>% slice_max(pct.1) %>% pull(cluster)
 lymphocyte_clusters <- c(0, 2, 3)
 
 apcs <- subset(seuratobj, subset = seurat_clusters %in% apc_clusters) 
@@ -225,7 +251,7 @@ lymphocytes@meta.data %>%
   arrange(n)
 ```
 
-### Identify and remove B cells from clustering
+### Identify B cells 
 ```{r}
 seurat_feature(lymphocytes, features = c('JCHAIN', 'MS4A1'))
 ```

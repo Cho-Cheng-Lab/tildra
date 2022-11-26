@@ -652,7 +652,6 @@ mclapply(merged_annotations$cluster %>% unique() %>% sort(), mc.cores = 40, func
     select(Current = seurat_clusters,
            RashX = cluster) %>% 
     make_long(RashX, Current) %>% 
-    #mutate(node = factor(node, levels = c(top_matches, which_cluster))) %>% 
     arrange(node)
 
 p <- ggplot(sankey_input, 
@@ -752,16 +751,25 @@ new_annotations <- seuratobj@meta.data %>%
 new_annotations 
 ```
 ### Add annotation
-#### Also fix factor levels
+#### Also order factor levels
 ```{r}
 seuratobj <- AddMetaData(seuratobj, new_annotations)
 seuratobj$annotation <- seuratobj$supercluster
 
+seuratobj
+```
+### Factor levels
+```{r}
+sample_order <- seuratobj@meta.data %>% select(patient, sample, sample_order) %>% unique() %>% arrange(sample_order) %>% as_tibble()
+sample_order
+```
+
+```{r}
 seuratobj$condition <- factor(seuratobj$condition, levels = c('HC', 'AD', 'PV'))
 seuratobj$treatment <- factor(seuratobj$treatment, levels = c('None', 'Pre', 'Mid'))
 seuratobj$group <- factor(seuratobj$group, levels = c('Responder', 'Non-responder'))
-
-seuratobj
+seuratobj$patient <- factor(seuratobj$patient, levels = unique(sample_order$patient))
+seuratobj$sample <- factor(seuratobj$sample, levels = sample_order$sample)
 ```
 
 ### Add Metadata

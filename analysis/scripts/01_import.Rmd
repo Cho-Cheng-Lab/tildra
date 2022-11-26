@@ -194,7 +194,9 @@ seurats <-
                  mouse,
                  saturation,
                  chemistry,
-                 contains('ab_'))
+                 contains('ab_'),
+                 published,
+                 sample_order)
         
         # read in data from 10x output
         tenx_matrix <- Read10X_h5(here(sample_subset$h5))
@@ -254,14 +256,6 @@ seurats_merged <- merge(seurats[[1]], seurats[-1])
 seurats_merged
 ```
 ```{r}
-adt <- seurats_merged@meta.data %>% 
-  select(id, nCount_ADT) %>% 
-  group_by(id) %>% 
-  summarize(median = median(nCount_ADT)) %>% 
-  arrange(median) %>% 
-  mutate(ADT = ifelse(median > 0, 'Yes', 'No')) %>% 
-  select(id, ADT)
-
 qc_table <- seurats_merged@meta.data %>% 
   filter(pct_mouse < 5) %>% 
   select('id', ends_with('RNA'), starts_with('pct')) %>% 
@@ -310,7 +304,6 @@ qc_plots_pre
 ```{r}
 seurats_merged %>% write_rds(here(data_dir, 'seurats_merged.rds'))
 ```
-
 
 ## Session Info
 ```{r}
