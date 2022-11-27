@@ -25,6 +25,8 @@ dir.create(output_dir, showWarnings = FALSE)
 dir.create(data_dir, showWarnings = FALSE)
 ```
 
+
+
 ### Load libraries
 ```{r, message=FALSE}
 library(Seurat) 
@@ -36,6 +38,8 @@ library(tictoc)
 library(harmony)
 theme_set(theme_dwu()) # set default theme
 ```
+
+
 
 ### Load Seurat object
 ```{r}
@@ -75,27 +79,34 @@ seuratobj <- seuratobj %>%
 
 ### Run Harmony
 ```{r}
-seuratobj <- seuratobj %>% 
-  RunHarmony(group.by.vars = c('treatment', 'chemistry', 'patient', 'flow', 'mouse'), 
-             plot_convergence = TRUE, 
-             assay.use = 'RNA')
+seuratobj <- seuratobj %>% RunHarmony(group.by.vars = c('treatment', 'chemistry', 'patient', 'flow', 'mouse'), plot_convergence = TRUE, assay = 'RNA')
 ```
 
 ### Make the elbow plot
 ```{r}
 pdf(here(output_dir, "elbow_plot.pdf"))
-ElbowPlot(seuratobj, ndims = 30, reduction = 'harmony')
+ElbowPlot(seuratobj, ndims = 50, reduction = 'harmony')
 dev.off()
+
+ElbowPlot(seuratobj, ndims = 50, reduction = 'harmony')
+```
+### Examine individual harmonized PCs
+```{r}
+map(1:20, function(i) {PCHeatmap(seuratobj, reduction = 'harmony', dims = i)})
+```
+```{r}
+
 ```
 
 ### RunUMAP, FindNeighbors, and FindClusters 
+#### Prefer fewer components and low-resolution clustering for initial pass
 ```{r}
-dims <- 1:20
-
+dims <- 1:15
+neighbors <- 30
 seuratobj <- seuratobj %>% 
-    RunUMAP(reduction = "harmony", dims = dims, assay = "RNA") %>% 
-    FindNeighbors(reduction = "harmony", dims = dims, assay = "RNA") %>% 
-    FindClusters(resolution = c(0.2, 1, 2))
+  FindNeighbors(reduction = 'harmony', dims = dims, k.param = neighbors) %>% 
+  FindClusters(resolution = c(0.1, 1)) %>% 
+  RunUMAP(reduction = 'harmony', dims = dims, n.neighbors = neighbors, graph = 'RNA_snn') 
 ```
 
 ### Set default cluster resolution
@@ -108,41 +119,74 @@ for(i in clusterings) {
   seuratobj[[i]] <- factor(clusters, levels = levels(clusters) %>% as.numeric() %>% sort())
 }
 
-Idents(seuratobj) <- 'RNA_snn_res.0.2'
+default_clustering <- 'RNA_snn_res.0.1' 
+  
+seuratobj$seurat_clusters <- seuratobj[[default_clustering]]
+Idents(seuratobj) <- default_clustering
 ```
 
 
 ### Visualize
 ```{r}
-p <- seurat_feature(seuratobj, features = c('RNA_snn_res.0.2'), facet_hide = TRUE, legend_position = 'none', title = 'Resolution: 0.2')
+p <- seurat_feature(seuratobj, features = 'RNA_snn_res.0.1', facet_hide = TRUE, legend_position = 'none', title = 'Resolution: 0.1', rasterize_dpi = 600)
 ggsave(plot = p,
-       filename = 'umap_res_0.2.png',
+       filename = 'umap_res_0.1.png',
        h = 5,
        w = 5,
-       dpi = 300,
-       path = here(output_dir, 'umap'))
+       dpi = 600,
+       path = output_dir)
 p
 ```
 ```{r}
-p <- seurat_feature(seuratobj, features = c('RNA_snn_res.1'), facet_hide = TRUE, color_package = 'ggplot', legend_position = 'none', title = 'Resolution: 1.0')
+p <- seurat_feature(seuratobj, features = 'RNA_snn_res.0.1', facets = 'RNA_snn_res.0.1', label = FALSE, rasterize_dpi = 600)
+
+ggsave(plot = p,
+       filename = 'umap_res_0.1_facets.png',
+       h = 8,
+       w = 9,
+       dpi = 600,
+       path = output_dir)
+
+p
+```
+#### Broad markers
+```{r}
+p <- seurat_feature(seuratobj, 
+               features = c('CD3D', #lymphocytes
+                            'MS4A1', # b cells
+                            'HLA-DRA', # APC
+                            'LYZ', # APC
+                            'TPSAB1', # mast cells
+                            'COL6A2', # fibroblasts
+                            'PECAM1', # endothelial cells
+                            'MKI67'), # cycling
+               nrow = 2, 
+               rasterize_dpi = 600) 
+
+ggsave(plot = p,
+       filename = 'broad_markers.png',
+       h = 4,
+       w = 8,
+       dpi = 600,
+       path = output_dir)
+
+p
+```
+
+
+```{r}
+p <- seurat_feature(seuratobj, features = 'RNA_snn_res.1', facet_hide = TRUE, color_package = 'ggplot', legend_position = 'none', title = 'Resolution: 1.0', rasterize_dpi = 600)
 
 ggsave(plot = p,
        filename = 'umap_res_1.0.png',
        h = 5,
        w = 5,
-       dpi = 300,
-       path = here(output_dir, 'umap'))
+       dpi = 600,
+       path = output_dir)
 p
 ```
 ```{r}
-p <- seurat_feature(seuratobj, features = c('RNA_snn_res.1'), 
-                    facet_hide = TRUE, 
-                    color_package = 'generate', 
-                    color_palette = 'custom1', 
-                    legend_position = 'right', 
-                    title = 'Resolution: 1.0')
 
-p
 ```
 
 ## Export

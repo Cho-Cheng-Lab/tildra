@@ -44,7 +44,7 @@ rclone sync -P box:/Files pipestance
 ## Analysis
 ### Metadata table
 ```{r}
-metadata <- read_tsv('analysis/input/metadata.tsv')
+metadata <- read_tsv(here('analysis/input/metadata.tsv'))
 ```
 
 ### Examine metadata
@@ -52,8 +52,9 @@ metadata <- read_tsv('analysis/input/metadata.tsv')
 metadata
 ```
 ```{r}
-metadata %>% filter(`Skin id #` !=  `Skin #`)
+metadata %>% filter(`Skin id #` !=  `Skin #`) %>% select(contains('id'))
 ```
+
 ### Prepare metadata subset
 ```{r}
 dest_dir <- 'analysis/input/samples/'
@@ -73,8 +74,9 @@ metadata_subset <-
          group,
          sample_label,
          patient_label,
-         pipestance_path,
-         adt_path,
+         fastq,
+         pipestance,
+         adt,
          assay,
          published,
          citeseq = `Awaiting Cite Seq?`,
@@ -95,7 +97,7 @@ metadata_subset <-
   arrange(reorder) %>% 
   mutate(adt = ifelse(is.na(f_ab_reads), 'No', 'Yes'),
          mouse = ifelse(mouse == 'yes', 'Yes', 'No'),
-         pipestance = paste0('data/derived/pipestance/', pipestance_path),
+         pipestance = paste0('data/derived/pipestance/', pipestance),
          h5 = paste0(dest_dir, id, '.h5'),
          sample_order = row_number()) 
 
@@ -109,7 +111,7 @@ paths
 ```
 ### Check for missing paths
 ```{r}
-metadata_subset[!(metadata_subset$pipestance_path %in% paths),]
+metadata_subset[!(basename(metadata_subset$pipestance) %in% paths),]
 ```
 
 ```{r}
@@ -122,7 +124,7 @@ metadata_subset
 ### Transfer .h5 files to input directory
 ```{r}
 transfer <- metadata_subset %>% 
-  filter(pipestance_path %in% paths) %>% 
+  filter(basename(pipestance) %in% paths) %>% 
   select(sample, id, pipestance, h5)
 
 transfer
@@ -136,7 +138,7 @@ file.copy(from = here(transfer$pipestance, '/filtered_feature_bc_matrix.h5'),
 
 ## Export
 ```{r}
-metadata_subset %>% filter(pipestance_path %in% paths) %>% write_tsv(here(analysis_dir, 'metadata_subset.tsv'))
+metadata_subset %>% filter(basename(pipestance) %in% paths) %>% write_tsv(here(analysis_dir, 'metadata_subset.tsv'))
 ```
 
 ## Session info

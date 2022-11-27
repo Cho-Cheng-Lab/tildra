@@ -285,16 +285,6 @@ qc_plots_pre
 
 
 ## ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-seurats_merged$condition <- factor(seurats_merged$condition, levels = c('HC', 'AD', 'PV'))
-seurats_merged$treatment <- factor(seurats_merged$treatment, levels = c('None', 'Pre', 'Mid'))
-seurats_merged$group <- factor(seurats_merged$group, levels = c('Responder', 'Non-responder'))
-
-patient_order <- seurats_merged@meta.data %>% select(patient, treatment, condition) %>% unique() %>% arrange(treatment, condition, patient) %>% as_tibble()
-
-seurats_merged$sample <- factor(seurats_merged$sample, levels = sample_order$sample)
-
-
-## ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 seurats_merged %>% write_rds(here(data_dir, 'seurats_merged.rds'))
 
 

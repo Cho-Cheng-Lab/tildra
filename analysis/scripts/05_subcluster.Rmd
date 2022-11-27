@@ -41,15 +41,32 @@ library(harmony)
 recluster <- function(seuratobj, 
                       assay = 'RNA',
                       dims = 1:20,
-                      resolution = c(0.2, 1.0, 2.0),
+                      seed = 42,
+                      n.neighbors = 30,
+                      n.epochs = 200,
+                      min.dist = 0.3,
+                      k.param = 20,
+                      algorithm = 1,
+                      resolution = c(0.1, 1.0, 2.0),
                       default_ident = 'RNA_snn_res.1') {
   
     ### RunUMAP, FindNeighbors, and FindClusters 
   
   seuratobj <- seuratobj %>% 
-    RunUMAP(reduction = "harmony", dims = dims, assay = assay) %>% 
-    FindNeighbors(reduction = "harmony", dims = dims, assay = assay) %>% 
-    FindClusters(resolution = resolution)
+    RunUMAP(reduction = 'harmony', 
+            dims = dims, 
+            assay = assay, 
+            seed.use = seed,
+            n.neighbors = n.neighbors,
+            n.epochs = n.epochs,
+            min.dist = min.dist) %>% 
+    FindNeighbors(reduction = 'harmony', 
+                  dims = dims, 
+                  assay = assay,
+                  k.param = k.param) %>% 
+    FindClusters(random.seed = seed,
+                 algorithm = algorithm,
+                 resolution = resolution)
   
   ### Fix cluster factor levels
   clusterings <- colnames(seuratobj@meta.data) %>% str_subset('_res')
@@ -74,13 +91,89 @@ seuratobj
 
 ### Visualize
 ```{r}
-p <- seurat_feature(seuratobj, features = c('RNA_snn_res.0.2'), facet_hide = TRUE, legend_position = 'none', title = 'Resolution: 0.2')
+p <- seurat_feature(seuratobj, facet_hide = TRUE)
 
 p
 ```
 
+
 ```{r}
-seurat_feature(seuratobj, feature = 'RNA_snn_res.0.2', facets = 'RNA_snn_res.0.2', label = FALSE)
+p <- seurat_feature(seuratobj, features = 'seurat_clusters', facets = 'seurat_clusters', label = FALSE)
+
+p
+```
+
+
+### Major cell types
+```{r}
+p <- seurat_feature(seuratobj, 
+               features = c('CD3D', #lymphocytes
+                            'MS4A1', # b cells
+                            'HLA-DRA', # APC
+                            'LYZ', # APC
+                            'TPSAB1', # mast cells
+                            'COL6A2', # fibroblasts
+                            'PECAM1', # endothelial cells
+                            'MKI67'), # cycling
+               nrow = 2, 
+               rasterize_dpi = 600) 
+
+ggsave(plot = p,
+       filename = 'broad_markers.png',
+       h = 4,
+       w = 8,
+       dpi = 600,
+       path = output_dir)
+
+p
+```
+
+
+```{r}
+library(ape)
+seuratobj <- BuildClusterTree(seuratobj, reduction = 'harmony', dims = 1:30, assay = 'RNA')
+tree <- as.hclust(Tool(seuratobj, slot = 'BuildClusterTree'))
+```
+```{r}
+tree_height <- 100
+plot(tree)
+abline(h = tree_height, col = 'red')
+```
+### Merged clusters from phylogenetic tree
+```{r}
+cuts <- cutree(tree, k = 6)
+
+tree_mapping <- tibble('seurat_clusters' = names(cuts),
+                       'broad_clusters' = factor(cuts))
+
+broad_clusters <- seuratobj@meta.data %>% rownames_to_column() %>% select(seurat_clusters) %>% left_join(tree_mapping)
+
+seuratobj$broad_clusters <- broad_clusters$broad_clusters
+
+p <- seurat_feature(seuratobj, feature = 'broad_clusters', facet_hide = TRUE, rasterize_dpi = 600, title = 'Broad Clusters')
+
+ggsave(plot = p,
+       filename = 'broad_clusters.png',
+       h = 5,
+       w = 5,
+       dpi = 600,
+       path = output_dir)
+
+p
+```
+#### Calculate markers from broad clusters
+```{r}
+Idents(seuratobj) <- 'broad_clusters'
+broad_markers <- RunPrestoAll(seuratobj, min.pct = 0.25, only.pos = TRUE, min.diff.pct = 0.25, features = VariableGenes(seuratobj)) %>% mutate(pct.diff = pct.1 - pct.2) %>% arrange(-pct.diff) %>% select(cluster, gene, everything()) %>% as_tibble()
+
+broad_markers %>% group_by(cluster) %>% slice_max(pct.diff, n = 5)
+```
+
+```{r}
+broad_markers %>% group_by(cluster) %>% slice_max(pct.diff, n = 5)
+```
+```{r}
+broad_markers %>% filter(gene %in% 'COL1A1')
 ```
 ### Reynolds et al markers
 
@@ -98,81 +191,56 @@ markers_reynolds <- c('KRT14', 'KRT5',
                       'CD8A', 'CD8B', 'IL7R', 'FOXP3', 'TIGIT', 'TPSB2', 'TPSAB1', 'CD79A', 'JCHAIN', 'CD163',
                       'C1QB', 'FCGR2A', 'MS4A6A', 'IL23A', 'CLEC9A', 'CLEC10A', 'CD1C', 'CD207', 'CD1A', 
                       'CD14', 'IL1B', 'CCR7', 'IDO1')
-
-
-```
-
-```{r fig.height=10, fig.width=10}
-Idents(seuratobj) <- 'RNA_snn_res.0.2'
-p <- DotPlot(seuratobj, features = rev(markers_reynolds), cluster.idents = FALSE) + coord_flip()
-p
-```
-
-
-
-
-### Keratinocytes
-```{r fig.height = 3, fig.width = 12}
-markers_keratinocytes <- c('KRT5', 'KRT14', 'GATA3', 'KRTDAP')
-seurat_feature(seuratobj, features = markers_keratinocytes, nrow = 1)
-```
-
-
-### Major cell types
-```{r}
-seurat_feature(seuratobj, 
-               features = c('CD3D', #lymphocytes
-                            'MS4A1', # b cells
-                            'TPSAB1', # mast cells
-                            'COL6A2'),
-               nrow = 1) # endothelial cells
-```
-```{r}
-seurat_feature(seuratobj, features = 'RNA_snn_res.0.2')
 ```
 
 ### Subclusters
 Use UMAP as input to clustering for cleanly selecting clusters
-```{r}
-seuratobj <- seuratobj %>% 
-  FindNeighbors(reduction = 'umap', 
-                dims = 1:2) %>% 
-  FindClusters(resolution = 0.01)
 
-seuratobj %>% seurat_feature(features = 'seurat_clusters', facet_hide = TRUE)
-```
-```{r}
-broad_markers <- RunPrestoAll(seuratobj) %>% mutate(pct.diff = pct.1 - pct.2) %>% arrange(-pct.diff) %>% as_tibble() %>% select(cluster, gene, pct.1, pct.2, pct.diff, everything())
-broad_markers
-```
-```{r}
-broad_markers %>% group_by(cluster) %>% top_n(5, pct.diff) %>% arrange(cluster)
-```
 
 #### Major cell types
 ```{r}
-mast_clusters <- broad_markers %>% filter(gene == 'TPSAB1') %>% slice_max(pct.diff) %>% pull(cluster)
-fibroblast_clusters <- broad_markers %>% filter(gene == 'COL1A1') %>% slice_max(pct.diff) %>% pull(cluster)
-
+mast_clusters <- broad_markers %>% filter(gene == 'TPSAB1', avg_log2FC > 0) %>% pull(cluster)
+stromal_clusters <- broad_markers %>% filter(gene == 'COL1A1', avg_log2FC > 0) %>% pull(cluster)
+apc_clusters <- broad_markers %>% filter(gene == 'HLA-DRA', avg_log2FC > 0) %>% pull(cluster)
+lymphocyte_clusters <- broad_markers %>% filter(gene == 'CD3D', avg_log2FC > 0) %>% pull(cluster)
+cycling_clusters <- broad_markers %>% filter(gene == 'MKI67') %>% slice_max(pct.1) %>% pull(cluster)
 ```
 
 ```{r}
-other_celltype_tally <- seuratobj@meta.data %>% 
-  select(seurat_clusters, id) %>% 
-  mutate(other_celltype = case_when(seurat_clusters %in% mast_clusters ~ 'mast',
-                                    seurat_clusters %in% fibroblast_clusters ~ 'fibroblast')) %>% 
-  as_tibble() %>% 
-  drop_na() %>% 
-  group_by(id, other_celltype) %>% 
+celltypes <- seuratobj@meta.data %>% 
+  select(id, broad_clusters) %>% 
+  mutate(celltype = case_when(broad_clusters %in% cycling_clusters ~ 'Cycling',
+                              broad_clusters %in% stromal_clusters ~ 'Stromal',
+                              broad_clusters %in% mast_clusters ~ 'Mast',
+                              broad_clusters %in% apc_clusters ~ 'APC',
+                              broad_clusters %in% lymphocyte_clusters ~ 'Lymphocyte'))
+
+
+seuratobj$celltype <- celltypes$celltype
+p <- seurat_feature(seuratobj, features = 'celltype', facet_hide = TRUE, legend_position = 'none', rasterize_dpi = 600)
+
+ggsave(plot = p,
+       filename = 'broad_celltypes.png',
+       h = 5,
+       w = 5,
+       dpi = 600,
+       path = output_dir)
+p
+```
+
+
+```{r}
+celltype_tally <- celltypes %>% 
+  group_by(id, celltype) %>% 
   tally() %>% 
-  pivot_wider(names_from = 'other_celltype',
+  pivot_wider(names_from = 'celltype',
               values_from = 'n',
               values_fill = 0,
               names_prefix = 'n_')
 
-other_celltype_tally %>% write_tsv(here(output_dir, 'other_celltype_tally.tsv'))
+celltype_tally %>% write_tsv(here(output_dir, 'celltype_tally.tsv'))
 
-other_celltype_tally
+celltype_tally
 ```
 
 
@@ -180,11 +248,8 @@ other_celltype_tally
 ```{r}
 batch <- c('treatment', 'patient', 'flow', 'mouse', 'chemistry') # global batch variables
 
-apc_clusters <- broad_markers %>% filter(gene == 'HLA-DRA') %>% slice_max(pct.1) %>% pull(cluster)
-lymphocyte_clusters <- c(0, 2, 3)
-
-apcs <- subset(seuratobj, subset = seurat_clusters %in% apc_clusters) 
-lymphocytes <- subset(seuratobj, subset = seurat_clusters %in% lymphocyte_clusters)
+apcs <- subset(seuratobj, subset = celltype == 'APC') 
+lymphocytes <- subset(seuratobj, subset = celltype == 'Lymphocyte')
 
 p1 <- seurat_feature(apcs, facet_hide = TRUE, title = 'APCs')
 p2 <- seurat_feature(lymphocytes, facet_hide = TRUE, title = 'Lymphocytes')
@@ -211,8 +276,13 @@ ElbowPlot(lymphocytes, ndims = 50, reduction = 'harmony')
 ```
 
 ### Cluster subgroups separately, then recombine objects for grouped analysis
+#### Reclustering parameters
 ```{r}
-dims <- 1:20
+dims <- 1:25
+```
+
+
+```{r}
 apcs <- apcs %>% recluster(dims = dims)
 ```
 ```{r}

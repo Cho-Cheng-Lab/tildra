@@ -250,14 +250,14 @@ toc()
 
 
 
-#### merge all
+#### Merge all
 ```{r}
 seurats_merged <- merge(seurats[[1]], seurats[-1])
 seurats_merged
 ```
 ```{r}
 qc_table <- seurats_merged@meta.data %>% 
-  filter(pct_mouse < 5) %>% 
+  filter(species == 'Human') %>% 
   select('id', ends_with('RNA'), starts_with('pct')) %>% 
   pivot_longer(cols = -1,
                names_to = 'metric',
