@@ -45,7 +45,8 @@ recluster <- function(seuratobj,
                       n.neighbors = 30,
                       n.epochs = 200,
                       min.dist = 0.3,
-                      k.param = 20,
+                      k.param = n.neighbors,
+                      metric = 'cosine',
                       algorithm = 1,
                       resolution = c(0.1, 1.0, 2.0),
                       default_ident = 'RNA_snn_res.1') {
@@ -63,6 +64,7 @@ recluster <- function(seuratobj,
     FindNeighbors(reduction = 'harmony', 
                   dims = dims, 
                   assay = assay,
+                  annoy.metric = metric,
                   k.param = k.param) %>% 
     FindClusters(random.seed = seed,
                  algorithm = algorithm,
@@ -129,42 +131,14 @@ p
 ```
 
 
-```{r}
-library(ape)
-seuratobj <- BuildClusterTree(seuratobj, reduction = 'harmony', dims = 1:30, assay = 'RNA')
-tree <- as.hclust(Tool(seuratobj, slot = 'BuildClusterTree'))
-```
-```{r}
-tree_height <- 100
-plot(tree)
-abline(h = tree_height, col = 'red')
-```
-### Merged clusters from phylogenetic tree
-```{r}
-cuts <- cutree(tree, k = 6)
 
-tree_mapping <- tibble('seurat_clusters' = names(cuts),
-                       'broad_clusters' = factor(cuts))
-
-broad_clusters <- seuratobj@meta.data %>% rownames_to_column() %>% select(seurat_clusters) %>% left_join(tree_mapping)
-
-seuratobj$broad_clusters <- broad_clusters$broad_clusters
-
-p <- seurat_feature(seuratobj, feature = 'broad_clusters', facet_hide = TRUE, rasterize_dpi = 600, title = 'Broad Clusters')
-
-ggsave(plot = p,
-       filename = 'broad_clusters.png',
-       h = 5,
-       w = 5,
-       dpi = 600,
-       path = output_dir)
-
-p
-```
 #### Calculate markers from broad clusters
 ```{r}
-Idents(seuratobj) <- 'broad_clusters'
-broad_markers <- RunPrestoAll(seuratobj, min.pct = 0.25, only.pos = TRUE, min.diff.pct = 0.25, features = VariableGenes(seuratobj)) %>% mutate(pct.diff = pct.1 - pct.2) %>% arrange(-pct.diff) %>% select(cluster, gene, everything()) %>% as_tibble()
+broad_markers <- RunPrestoAll(seuratobj, min.pct = 0.25, only.pos = TRUE, min.diff.pct = 0.25) %>% 
+  mutate(pct.diff = pct.1 - pct.2) %>% 
+  arrange(-pct.diff) %>% 
+  select(cluster, gene, everything()) %>% 
+  as_tibble()
 
 broad_markers %>% group_by(cluster) %>% slice_max(pct.diff, n = 5)
 ```
@@ -199,21 +173,24 @@ Use UMAP as input to clustering for cleanly selecting clusters
 
 #### Major cell types
 ```{r}
-mast_clusters <- broad_markers %>% filter(gene == 'TPSAB1', avg_log2FC > 0) %>% pull(cluster)
-stromal_clusters <- broad_markers %>% filter(gene == 'COL1A1', avg_log2FC > 0) %>% pull(cluster)
-apc_clusters <- broad_markers %>% filter(gene == 'HLA-DRA', avg_log2FC > 0) %>% pull(cluster)
-lymphocyte_clusters <- broad_markers %>% filter(gene == 'CD3D', avg_log2FC > 0) %>% pull(cluster)
-cycling_clusters <- broad_markers %>% filter(gene == 'MKI67') %>% slice_max(pct.1) %>% pull(cluster)
+mast_clusters <- broad_markers %>% filter(gene == 'TPSAB1') %>% pull(cluster)
+stromal_clusters <- broad_markers %>% filter(gene == 'COL1A1') %>% pull(cluster)
+bcell_clusters <- broad_markers %>% filter(gene == 'MS4A1') %>% pull(cluster)
+cycling_clusters <- broad_markers %>% filter(gene == 'MKI67') %>% pull(cluster)
+apc_clusters <- broad_markers %>% filter(gene == 'HLA-DRA') %>% pull(cluster)
+lymphocyte_clusters <- broad_markers %>% filter(gene %in% c('CD3D', 'CD4', 'CD8A')) %>% pull(cluster)
+
 ```
 
 ```{r}
 celltypes <- seuratobj@meta.data %>% 
-  select(id, broad_clusters) %>% 
-  mutate(celltype = case_when(broad_clusters %in% cycling_clusters ~ 'Cycling',
-                              broad_clusters %in% stromal_clusters ~ 'Stromal',
-                              broad_clusters %in% mast_clusters ~ 'Mast',
-                              broad_clusters %in% apc_clusters ~ 'APC',
-                              broad_clusters %in% lymphocyte_clusters ~ 'Lymphocyte'))
+  select(id, seurat_clusters) %>% 
+  mutate(celltype = case_when(seurat_clusters %in% cycling_clusters ~ 'Cycling',
+                              seurat_clusters %in% bcell_clusters ~ 'B',
+                              seurat_clusters %in% stromal_clusters ~ 'Stromal',
+                              seurat_clusters %in% mast_clusters ~ 'Mast',
+                              seurat_clusters %in% apc_clusters ~ 'APC',
+                              seurat_clusters %in% lymphocyte_clusters ~ 'Lymphocyte'))
 
 
 seuratobj$celltype <- celltypes$celltype
@@ -278,7 +255,7 @@ ElbowPlot(lymphocytes, ndims = 50, reduction = 'harmony')
 ### Cluster subgroups separately, then recombine objects for grouped analysis
 #### Reclustering parameters
 ```{r}
-dims <- 1:25
+dims <- 1:20
 ```
 
 
@@ -321,17 +298,11 @@ lymphocytes@meta.data %>%
   arrange(n)
 ```
 
-### Identify B cells 
-```{r}
-seurat_feature(lymphocytes, features = c('JCHAIN', 'MS4A1'))
-```
-```{r}
-VlnPlot(lymphocytes, 'MS4A1')
-```
-
 ### Recombine and recluster
 ```{r}
-subcluster <- subset(seuratobj, cells = c(colnames(apcs), colnames(lymphocytes))) %>% DietSeurat()
+recombined_cells <- celltypes %>% filter(celltype %in% c('APC', 'B', 'Lymphocyte', 'Mast')) %>% rownames()
+
+subcluster <- subset(seuratobj, cells = recombined_cells) %>% DietSeurat()
 
 combined_features <- union(apcs@assays$RNA@var.features, lymphocytes@assays$RNA@var.features)
 VariableFeatures(subcluster) <- combined_features
@@ -349,24 +320,27 @@ ElbowPlot(subcluster, ndims = 50, reduction = 'harmony')
 ### RunUMAP, FindNeighbors, and FindClusters 
 ```{r}
 subcluster <- subcluster %>% recluster(dims = 1:20,
-                                       resolution = c(0.2, 1, 2),
+                                       resolution = c(0.1, 1, 2),
+                                       n.epochs = 500,
                                        default_ident = 'RNA_snn_res.2')
 
 subcluster$global <- Idents(subcluster)
 ```
 
 ```{r}
-subcluster %>% seurat_feature()
+subcluster %>% seurat_feature(feature = 'global')
 ```
 
 
-### Any clusters with only 1 patient?
+### Any clusters dominated by specific patients?
 ```{r}
-subcluster@meta.data %>% 
-  select(cluster = RNA_snn_res.2, id, patient, sample) %>% 
+sample_cluster_tally <- subcluster@meta.data %>% 
+  select(global, id, patient, sample) %>% 
   unique() %>% 
-  add_count(cluster) %>% 
+  add_count(global) %>% 
   arrange(n)
+
+sample_cluster_tally
 ```
 
 ### Add cluster information from iterative subclustering 
@@ -381,11 +355,18 @@ lymphocyte_clustering <- lymphocytes@meta.data %>%
   select(rowname, seurat_clusters) %>% 
   mutate(subcluster = factor(paste0('L', seurat_clusters), levels = paste0('L', levels(seurat_clusters))))
 
+other_clustering <- celltypes %>% 
+  rownames_to_column() %>% 
+  select(rowname, seurat_clusters, subcluster = celltype) %>% 
+  filter(subcluster %in% c('B', 'Mast')) %>% 
+  mutate(subcluster = factor(subcluster))
+
 merged_clustering <- subcluster@meta.data %>% 
   rownames_to_column() %>% 
   select(rowname) %>% left_join(
     bind_rows(lymphocyte_clustering,
-              apc_clustering) %>% 
+              apc_clustering,
+              other_clustering) %>% 
       select(-seurat_clusters)) %>% 
   column_to_rownames()
 
@@ -393,67 +374,22 @@ merged_clustering
 ```
 ```{r}
 subcluster <- AddMetaData(subcluster, merged_clustering)
-subcluster$seurat_clusters <- subcluster$subcluster
-Idents(subcluster) <- 'seurat_clusters'
-
 ```
 
-
-```{r}
-sample_cluster_tally <- subcluster@meta.data %>% 
-  select(cluster = RNA_snn_res.2, id, patient, sample) %>% 
-  unique() %>% 
-  add_count(cluster) %>% 
-  arrange(n)
-
-sample_cluster_tally
-```
-
-```{r}
-clusters_to_remove <- sample_cluster_tally %>% filter(n < 3) %>% pull(cluster) %>% as.character()
-clusters_to_remove
-```
-```{r}
-sample_subcluster_tally <- subcluster@meta.data %>% 
-  filter(!(RNA_snn_res.2 %in% clusters_to_remove)) %>% 
-  select(cluster = seurat_clusters, id, patient, sample) %>% 
-  unique() %>% 
-  add_count(cluster) %>% 
-  arrange(n)
-
-sample_subcluster_tally
-```
-```{r}
-subclusters_to_remove <- sample_subcluster_tally %>% filter(n < 3) %>% pull(cluster) %>% as.character()
-subclusters_to_remove
-```
-
-
-```{r}
-cells_to_keep <- subcluster@meta.data %>% 
-  filter(!(RNA_snn_res.2 %in% clusters_to_remove),
-         !(subcluster %in% subclusters_to_remove)) %>% 
-  rownames()
-```
-
-```{r}
-subcluster
-```
-
-```{r}
-subcluster <- subset(subcluster, cells = cells_to_keep)
-subcluster
-```
 
 ```{r}
 subcluster %>% seurat_feature(feature = 'subcluster', facet_hide = TRUE, title = 'Lymphocyte and APC Clusters', legend_position = 'none')
 ```
 
 ```{r}
-p3 <- subcluster %>% seurat_feature(facet_hide = TRUE, title = 'Lymphocyte and APC clusters', legend_position = 'none', color_package = 'carto', color_palette = 'Bold', alpha = 0.2, label_size = 4)
+p3 <- subcluster %>% seurat_feature(facet_hide = TRUE, 
+                                    feature = 'global',
+                                    title = 'Global Clusters', legend_position = 'none', color_package = 'carto', color_palette = 'Bold', alpha = 0.2, label_size = 4,
+                                    rasterize_dpi = 600)
 
 ggsave(plot = p3,
-       filename = 'umap_unified_labeled.png',
+       filename = 'umap_global_labeled.png',
+       dpi = 600,
        h = 5,
        w = 5,
        path = output_dir)
@@ -461,10 +397,15 @@ ggsave(plot = p3,
 p3
 ```
 ```{r}
-p4 <- subcluster %>% seurat_feature(facet_hide = TRUE, title = 'Lymphocyte and APC clusters', legend_position = 'none', color_package = 'carto', color_palette = 'Bold', alpha = 0.2, label = FALSE)
+p4 <- subcluster %>% 
+  seurat_feature(facet_hide = TRUE, 
+                 feature = 'global',
+                 title = 'Global Clusters', 
+                 legend_position = 'none', color_package = 'carto', color_palette = 'Bold', alpha = 0.2, label = FALSE, rasterize_dpi = 600)
 
 ggsave(plot = p4,
-       filename = 'umap_unified.png',
+       filename = 'umap_global.png',
+       dpi = 600,
        h = 5,
        w = 5,
        path = output_dir)
@@ -473,21 +414,60 @@ p4
 ```
 
 ```{r}
-p5 <- subcluster %>% seurat_feature(title = 'Lymphocyte and APC clusters', facets = 'seurat_clusters', 
-                                    legend_position = 'none', color_package = 'carto', color_palette = 'Bold', alpha = 0.2, label = FALSE)
+p5 <- subcluster %>% 
+  seurat_feature(facet_hide = TRUE, 
+                 feature = 'subcluster',
+                 title = 'Subclusters', 
+                 legend_position = 'none', color_package = 'carto', color_palette = 'Bold', alpha = 0.2, label = FALSE, rasterize_dpi = 600)
 
 ggsave(plot = p5,
-       filename = 'umap_unified_facet_subclusters.png',
+       filename = 'umap_subcluster.png',
+       dpi = 600,
+       h = 5,
+       w = 5,
+       path = output_dir)
+
+p5
+```
+
+```{r}
+p6 <- subcluster %>% seurat_feature(title = 'Subclusters', 
+                                    feat = 'subcluster', 
+                                    legend_position = 'none', 
+                                    color_package = 'carto', 
+                                    color_palette = 'Bold', 
+                                    alpha = 0.2, 
+                                    label = TRUE)
+
+ggsave(plot = p6,
+       filename = 'umap_subcluster_labeled.png',
+       h = 12,
+       w = 12,
+       path = output_dir)
+
+p6
+```
+```{r}
+p7 <- subcluster %>% seurat_feature(title = 'Global Clusters', 
+                                    feature = 'global',
+                                    facets = 'global', 
+                                    legend_position = 'none', color_package = 'carto', color_palette = 'Pastel', alpha = 0.2, label = FALSE)
+
+ggsave(plot = p7,
+       filename = 'umap_global_facets.png',
        h = 12,
        w = 12,
        path = output_dir)
 ```
+
 ```{r}
-p6 <- subcluster %>% seurat_feature(title = 'Lymphocyte and APC clusters', facets = 'RNA_snn_res.2', 
+p8 <- subcluster %>% seurat_feature(title = 'Subclusters', 
+                                    feature = 'subcluster',
+                                    facets = 'subcluster', 
                                     legend_position = 'none', color_package = 'carto', color_palette = 'Pastel', alpha = 0.2, label = FALSE)
 
-ggsave(plot = p6,
-       filename = 'umap_unified_facet_clusters.png',
+ggsave(plot = p8,
+       filename = 'umap_subcluster_facets.png',
        h = 12,
        w = 12,
        path = output_dir)
@@ -503,7 +483,4 @@ subcluster %>% write_rds(here(data_dir, 'seuratobj_subcluster.rds'))
 sessionInfo()
 ```
 
-```{r}
-subcluster %>% seurat_feature(facet_hide = TRUE, title = 'Lymphocyte and APC clusters', legend_position = 'none', color_package = 'carto', color_palette = 'Bold', alpha = 0.2, label_size = 4)
-```
 

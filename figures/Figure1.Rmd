@@ -483,7 +483,8 @@ plots <- map(1:3, function(i) {
 
 p2 <- tallies %>% 
   filter(treatment %in% c('Pre', 'Mid')) %>% 
-  filter(annotation %in% 'Trm') %>% 
+  filter(str_detect(annotation, 'Trm')) %>% 
+  mutate(annotation = 'Trm') %>% 
   ggplot(aes(x = treatment,
              y = n,
              fill = annotation)) +
@@ -492,18 +493,6 @@ p2 <- tallies %>%
        y = '# of Cells') +
   facet_wrap(~group, nrow = 2) +
   scale_fill_manual(values = four_colors[4]) +
-  theme_dwu(legend.position = 'top')
-
-p3 <- tallies %>% 
-  filter(annotation %in% 'Trm') %>% 
-  ggplot(aes(x = treatment,
-             y = n,
-             fill = annotation)) +
-  geom_boxplot() +
-  labs(x = '',
-       y = '# of Cells') +
-  facet_wrap(~group, nrow = 1) +
-  scale_fill_manual(values = four_colors[5]) +
   theme_dwu(legend.position = 'top')
 
 p <- list(plots[[1]],
@@ -521,18 +510,6 @@ p
 ```
 #### Percent
 ```{r}
-four_colors <- carto_pal(n = 5, name = 'Bold')
-  
-conditions <- c('APC', 'Innate', 'Lymphocyte')
-
-celltype_input <- tallies %>% 
-    filter(treatment %in% c('Pre', 'Mid')) %>% 
-    group_by(patient, sample, treatment, total, celltype, group) %>% 
-    summarize(n = sum(n)) %>% 
-  rowwise() %>% 
-  mutate(f = n/total, 
-         pct = 100 * f)
-  
 plots <- map(1:3, function(i) {
   
   celltype_input %>% 
@@ -551,7 +528,8 @@ plots <- map(1:3, function(i) {
 
 p2 <- tallies %>% 
   filter(treatment %in% c('Pre', 'Mid')) %>% 
-  filter(annotation %in% 'Trm') %>% 
+  filter(str_detect(annotation, 'Trm')) %>% 
+  mutate(annotation = 'Trm') %>% 
   ggplot(aes(x = treatment,
              y = pct,
              fill = annotation)) +
@@ -560,18 +538,6 @@ p2 <- tallies %>%
        y = '% of Cells') +
   facet_wrap(~group, nrow = 2) +
   scale_fill_manual(values = four_colors[4]) +
-  theme_dwu(legend.position = 'top')
-
-p3 <- tallies %>% 
-  filter(annotation %in% 'Trm') %>% 
-  ggplot(aes(x = treatment,
-             y = pct,
-             fill = annotation)) +
-  geom_boxplot() +
-  labs(x = '',
-       y = '% of Cells') +
-  facet_wrap(~group, nrow = 1) +
-  scale_fill_manual(values = four_colors[5]) +
   theme_dwu(legend.position = 'top')
 
 p <- list(plots[[1]],
@@ -608,7 +574,8 @@ plots <- map(1:3, function(i) {
 
 p2 <- tallies %>% 
   filter(treatment %in% c('Pre', 'Mid')) %>% 
-  filter(annotation %in% 'Trm') %>% 
+  filter(str_detect(annotation, 'Trm')) %>% 
+  mutate(annotation = 'Trm') %>% 
   ggplot(aes(x = treatment,
              y = n,
              fill = annotation)) +
@@ -653,7 +620,8 @@ plots <- map(1:3, function(i) {
 
 p2 <- tallies %>% 
   filter(treatment %in% c('Pre', 'Mid')) %>% 
-  filter(annotation %in% 'Trm') %>% 
+  filter(str_detect(annotation, 'Trm')) %>% 
+  mutate(annotation = 'Trm') %>% 
   ggplot(aes(x = treatment,
              y = pct,
              fill = annotation)) +
@@ -899,435 +867,7 @@ ggsave(plot = p,
 
 p
 ```
-```{r}
-p <- plot_input %>% 
-  filter(description != 'HC') %>% 
-    ggplot(aes(x = sample,
-             y = n,
-             fill = annotation)) +
-  geom_bar(stat = 'identity',
-           position = 'stack') +
-  #rcartocolor::scale_fill_carto_d(palette = 'Bold') +
-  labs(x = '',
-       y = '# of Cells') +
-  theme_dwu(legend.position = 'top') +
-  #theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
-  coord_flip() +
-  theme(axis.text.y = element_text(angle = 0, hjust = 1, color = rev(text_color)))
 
-ggsave(plot = p,
-       device = cairo_pdf,
-       filename = 'F1D_bar_patient_centric_n.pdf',
-       path = output_dir,
-       h = 4,
-       w = 8)
-
-p
-```
-### All facets
-```{r}
-p <- plot_input %>% 
-  filter(description != 'HC') %>% 
-  ggplot(aes(x = sample,
-             y = f * 100,
-             fill = annotation)) +
-  geom_bar(stat = 'identity') +
-  labs(x = '',
-       y = '% of Cells') +
-  theme_dwu(legend.position = 'top') +
-  coord_flip() +
-  theme(axis.text.y = element_text(angle = 0, hjust = 1, color = rev(text_color))) +
-  facet_wrap(~annotation, scales = 'free_x')
-
-ggsave(plot = p,
-       device = cairo_pdf,
-       filename = 'S1X_bar_patient_centric_f_facet.pdf',
-       path = output_dir,
-       h = 12,
-       w = 12)
-
-p
-```
-
-
-
-```{r}
-p <- plot_input %>% 
-  filter(description != 'HC') %>% 
-    ggplot(aes(x = sample,
-             y = n,
-             fill = annotation)) +
-  geom_bar(stat = 'identity') +
-  #rcartocolor::scale_fill_carto_d(palette = 'Bold') +
-  labs(x = '',
-       y = '# of Cells') +
-  theme_dwu(legend.position = 'top') +
-  #theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
-  coord_flip() +
-  theme(axis.text.y = element_text(angle = 0, hjust = 1, color = rev(text_color))) +
-  facet_wrap(~annotation, scales = 'free_x')
-
-ggsave(plot = p,
-       device = cairo_pdf,
-       filename = 'S1X_bar_patient_centric_n_facet.pdf',
-       path = output_dir,
-       h = 12,
-       w = 12)
-
-p
-```
-### Trm focused
-```{r}
-which_clusters <- str_subset(plot_input$annotation, 'Trm') %>% unique()
-```
-
-```{r}
-p <- plot_input %>% 
-  filter(description != 'HC') %>% 
-  filter(annotation %in% which_clusters) %>% 
-  ggplot(aes(x = sample,
-             y = f * 100,
-             fill = annotation)) +
-  geom_bar(stat = 'identity') +
-  labs(x = '',
-       y = '% of Cells') +
-  theme_dwu(legend.position = 'top') +
-  coord_flip() +
-  theme(axis.text.y = element_text(angle = 0, hjust = 1, color = rev(text_color))) + 
-  facet_wrap(~annotation, scales = 'free_x')
-
-ggsave(plot = p,
-       device = cairo_pdf,
-       filename = 'F1D_bar_patient_centric_f_trm.pdf',
-       path = output_dir,
-       h = 4,
-       w = 4)
-
-p
-```
-
-```{r}
-p <- plot_input %>% 
-  filter(description != 'HC') %>% 
-  filter(annotation %in% which_clusters) %>% 
-    ggplot(aes(x = sample,
-             y = n,
-             fill = annotation)) +
-  geom_bar(stat = 'identity') +
-  #rcartocolor::scale_fill_carto_d(palette = 'Bold') +
-  labs(x = '',
-       y = '# of Cells') +
-  theme_dwu(legend.position = 'top') +
-  #theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
-  coord_flip() +
-  theme(axis.text.y = element_text(angle = 0, hjust = 1, color = rev(text_color))) +
-  facet_wrap(~annotation, scales = 'free_x')
-
-ggsave(plot = p,
-       device = cairo_pdf,
-       filename = 'F1D_bar_patient_centric_n_trm.pdf',
-       path = output_dir,
-       h = 4,
-       w = 4)
-
-p
-```
-```{r}
-p <- plot_input %>% 
-  filter(annotation %in% which_clusters) %>% 
-    ggplot(aes(x = sample,
-             y = n,
-             fill = annotation)) +
-  geom_bar(stat = 'identity') +
-  #rcartocolor::scale_fill_carto_d(palette = 'Bold') +
-  labs(x = '',
-       y = '# of Cells') +
-  theme_dwu(legend.position = 'top') +
-  #theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
-  coord_flip() +
-  theme(axis.text.y = element_text(angle = 0, hjust = 1, color = rev(text_color))) +
-  facet_wrap(~annotation, scales = 'free_x')
-
-ggsave(plot = p,
-       device = cairo_pdf,
-       filename = 'F1D_bar_patient_centric_n_trm_hc.pdf',
-       path = output_dir,
-       h = 4,
-       w = 4)
-
-p
-```
-
-
-```{r}
-p <- plot_input %>% 
-  group_by(patient, treatment, annotation, group) %>% 
-  summarize(n = sum(n)) %>% 
-  filter(annotation == 'Trm') %>% 
-    ggplot(aes(x = treatment,
-             y = n,
-             fill = annotation)) +
-  geom_boxplot() +
-  #rcartocolor::scale_fill_carto_d(palette = 'Bold') +
-  labs(x = '',
-       y = '# of Cells') +
-  facet_wrap(~group + annotation, nrow = 2) +
-  #scale_y_log10() +
-  theme_dwu(legend.position = 'top') +
-  scale_fill_manual(values = c('red4'))
-
-ggsave(plot = p,
-       device = cairo_pdf,
-       filename = 'F1E_box_patient_centric_n_trm.pdf',
-       path = output_dir,
-       h = 4,
-       w = 2)
-
-p
-```
-
-```{r}
-p <- plot_input %>% 
-  filter(!is.na(group)) %>% 
-    ggplot(aes(x = group,
-               y = n,
-               fill = treatment)) +
-  geom_boxplot() +
-  #rcartocolor::scale_fill_carto_d(palette = 'Bold') +
-  labs(x = '',
-       y = '# of Cells') +
-  facet_wrap(~annotation, scales = 'free_y') +
-  theme_dwu(legend.position = 'top') +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-  ggthemes::scale_fill_few()
-
-ggsave(plot = p,
-       device = cairo_pdf,
-       filename = 'F1E_box_patient_centric_n_by_annotation.pdf',
-       path = output_dir,
-       h = 8,
-       w = 8)
-
-p
-```
-```{r}
-p <- plot_input %>% 
-  filter(!is.na(group)) %>% 
-    ggplot(aes(x = group,
-             y = 100 * f,
-             fill = treatment)) +
-  geom_boxplot() +
-  #rcartocolor::scale_fill_carto_d(palette = 'Bold') +
-  labs(x = '',
-       y = '% of Cells') +
-  
-  facet_wrap(~annotation, scales = 'free_y') +
-  theme_dwu(legend.position = 'top') +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-  ggthemes::scale_fill_few()
-
-ggsave(plot = p,
-       device = cairo_pdf,
-       filename = 'F1E_box_patient_centric_f_by_annotation.pdf',
-       path = output_dir,
-       h = 8,
-       w = 8)
-
-p
-```
-#### Without outliers
-```{r}
-
-plot_input %>% 
-  group_by(annotation) %>% 
-  summarize(cutoff = quantile, f, probs = 0.1)
-
-p <- plot_input %>% 
-  filter(!is.na(group)) %>% 
-  ggplot(aes(x = group,
-             y = 100 * f,
-             fill = treatment)) +
-  geom_boxplot() +
-  #rcartocolor::scale_fill_carto_d(palette = 'Bold') +
-  labs(x = '',
-       y = '% of Cells') +
-  facet_wrap(~annotation, scales = 'free_y') +
-  theme_dwu(legend.position = 'top') +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
-
-  ggthemes::scale_fill_few()
-
-ggsave(plot = p,
-       device = cairo_pdf,
-       filename = 'F1E_box_patient_centric_f_by_annotation_no_outliers.pdf',
-       path = output_dir,
-       h = 8,
-       w = 8)
-
-p
-```
-
-```{r}
-p <- plot_input %>% 
-  filter(annotation == 'Trm') %>% 
-  filter(!is.na(group)) %>% 
-    ggplot(aes(x = group,
-             y = 100 * f,
-             fill = treatment)) +
-  geom_boxplot() +
-  #rcartocolor::scale_fill_carto_d(palette = 'Bold') +
-  labs(x = '',
-       y = '% of Cells') +
-  
-  facet_wrap(~annotation, scales = 'free_y') +
-  theme_dwu(legend.position = 'top') +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-  ggthemes::scale_fill_few()
-
-ggsave(plot = p,
-       device = cairo_pdf,
-       filename = 'F1E_box_patient_centric_f_trm.pdf',
-       path = output_dir,
-       h = 4,
-       w = 4)
-
-p
-```
-
-#### Patient-centric versions
-```{r}
-plot_input <- analyze %>% 
-  filter(description %in% c('PV Pre', 'PV Mid')) %>% 
-  group_by(sample, patient, description, annotation, treatment, group) %>% 
-  tally() %>% 
-  group_by(sample) %>% 
-  mutate(total = sum(n),
-         f = n/total,
-         pct = 100 * f) %>% 
-  ungroup() %>% 
-  select(-sample, -n, -description, -total) %>% 
-  pivot_wider(names_from = treatment,
-              values_from = pct) %>% 
-  mutate(ratio = Mid/Pre,
-         log2ratio = log2(ratio))
-
-plot_input
-
-```
-### Boxplots
-```{r}
-p <- plot_input %>% 
-  ggplot(aes(x = group,
-             y = ratio,
-             fill = annotation)) +
-  geom_boxplot() +
-  facet_wrap(~annotation, scales = 'free_y') +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-# 
-# ggsave(plot = p,
-#        path = output_dir,
-#        filename = 'box_f_ratios.pdf',
-#        h = 8,
-#        w = 8)
-
-p
-```
-```{r}
-plot_input <- analyze %>% 
-  filter(description %in% c('PV Pre', 'PV Mid')) %>% 
-  group_by(sample, patient, description, annotation, treatment, group) %>% 
-  tally() %>% 
-  group_by(sample) %>% 
-  mutate(total = sum(n),
-         f = n/total,
-         pct = 100 * f) %>% 
-  ungroup() %>% 
-  select(-sample, -f, -description, -total) %>% 
-  pivot_wider(names_from = treatment,
-              values_from = n) %>% 
-  mutate(ratio = Mid/Pre,
-         log2ratio = log2(ratio))
-
-plot_input
-
-```
-### Boxplots
-```{r}
-p <- plot_input %>% 
-  ggplot(aes(x = group,
-             y = ratio,
-             fill = annotation)) +
-  geom_boxplot() +
-  facet_wrap(~annotation, scales = 'free_y') +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-# ggsave(plot = p,
-#        path = output_dir,
-#        filename = 'box_n_ratios.pdf',
-#        h = 8,
-#        w = 8)
-
-p
-```
-
-#### By celltype
-```{r}
-plot_input <- analyze %>% 
-  group_by(description, annotation) %>% 
-  tally() %>% 
-  group_by(annotation) %>% 
-  mutate(total = sum(n),
-         f = n/total,
-         pct = 100 * f)
-
-plot_input
-```
-
-```{r}
-p <- plot_input %>% 
-  ggplot(aes(x = annotation,
-             y = pct,
-             fill = description)) +
-  geom_bar(stat = 'identity',
-           position = 'stack') +
-  coord_flip() +
-  rcartocolor::scale_fill_carto_d(palette = 'Bold') +
-  labs(x = '',
-       y = 'Proportion') +
-  theme_dwu(legend.position = 'top')
-
-ggsave(plot = p,
-       device = cairo_pdf,
-       filename = 'F1D_bar_percentages.pdf',
-       path = output_dir,
-       h = 6,
-       w = 8)
-
-p
-```
-### Wide
-```{r}
-p <- plot_input %>% 
-  ggplot(aes(x = annotation,
-             y = pct * 100,
-             fill = description)) +
-  geom_bar(stat = 'identity',
-           position = 'stack') +
-  rcartocolor::scale_fill_carto_d(palette = 'Bold') +
-  labs(x = '',
-       y = '% of Cluster') +
-  theme_dwu(legend.position = 'top') +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1))
-
-ggsave(plot = p,
-       device = cairo_pdf,
-       filename = 'F1D_bar_percentages_wide.pdf',
-       path = output_dir,
-       h = 4,
-       w = 8)
-
-p
-```
 
 
 ## Session Info

@@ -362,9 +362,7 @@ metadata <- seuratobj@meta.data %>% rownames_to_column()
 rashx_clusters <- read_tsv(here('analysis/output/rashx/rashx_clusters.tsv.gz'))
 rashx_clusters %>% head()
 ```
-```{r}
-seuratobj %>% seurat_feature(features = c('MKI67', 'PCNA', 'TOP2A'))
-```
+
 
 ### Analysis
 #### Combine tables
@@ -539,6 +537,8 @@ map(merged_annotations$supercluster %>% unique() %>% sort(),
 ```{r}
 map(merged_annotations$seurat_clusters %>% unique() %>% sort(),
     function(i) {
+      
+      print2(i)
       
       p <- plot_sankey2(merged_annotations %>% filter(seurat_clusters == i),
                         nodes = c('supercluster', 'seurat_clusters', 'cluster'),
@@ -781,10 +781,11 @@ Idents(seuratobj) %>% head()
 ### Save plots
 #### Subclustering-based
 ```{r}
-p <- seuratobj %>% seurat_feature(features = 'cluster', facet_hide = TRUE, legend_position = 'none', size = 0.1, alpha = 0.1, color_package = 'carto', color_palette = 'Bold')
+p <- seuratobj %>% seurat_feature(features = 'cluster', facet_hide = TRUE, legend_position = 'none', size = 0.1, alpha = 0.1, color_package = 'carto', color_palette = 'Bold', rasterize_dpi = 600)
 
 ggsave(plot = p,
        filename = 'umap_annotated_cluster.png',
+       dpi = 600,
        path = output_dir,
        w = 4, 
        h = 4)
@@ -794,38 +795,12 @@ p
 
 
 ```{r}
-p <- seuratobj %>% seurat_feature(features = 'supercluster', facet_hide = TRUE, legend_position = 'none', size = 0.1, alpha = 0.1, color_package = 'carto', color_palette = 'Bold')
+p <- seuratobj %>% seurat_feature(features = 'supercluster', facet_hide = TRUE, legend_position = 'none', size = 0.1, alpha = 0.1, color_package = 'carto', color_palette = 'Bold', rasterize_dpi = 600)
 
 ggsave(plot = p,
        filename = 'umap_annotated_supercluster.png',
        path = output_dir,
-       w = 4, 
-       h = 4)
-
-p
-
-```
-
-#### Global-based
-```{r}
-p <- seuratobj %>% seurat_feature(features = 'global_cluster', facet_hide = TRUE, legend_position = 'none', size = 0.1, alpha = 0.1, color_package = 'carto', color_palette = 'Bold')
-
-ggsave(plot = p,
-       filename = 'umap_annotated_global_cluster.png',
-       path = output_dir,
-       w = 4, 
-       h = 4)
-
-p
-```
-
-
-```{r}
-p <- seuratobj %>% seurat_feature(features = 'global_supercluster', facet_hide = TRUE, legend_position = 'none', size = 0.1, alpha = 0.1, color_package = 'carto', color_palette = 'Bold')
-
-ggsave(plot = p,
-       filename = 'umap_annotated_global_supercluster.png',
-       path = output_dir,
+       dpi = 600,
        w = 4, 
        h = 4)
 
