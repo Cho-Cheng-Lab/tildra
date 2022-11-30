@@ -1,3 +1,6 @@
+library(tictoc)
+
+tic()
 library(here)
 
 data_dir <- here('data/derived/tildra') # data file output directory
@@ -14,7 +17,7 @@ seuratobj <- read_rds(file.path(data_dir, 'seuratobj_clustered.rds'))
 seuratobj
 toc()
 
-sampling <- colnames(seuratobj) %>% sample(size = 10000)
+sampling <- colnames(seuratobj) %>% sample(size = 150000)
 test <- subset(seuratobj, cells = sampling)
 
 tic()
@@ -22,9 +25,16 @@ test <- test %>%
   NormalizeData() %>%
   ScaleData() %>% 
   FindVariableFeatures(nfeatures = 1000) %>% 
-  RunPCA() %>% 
+  RunPCA() 
+
+toc()
+
+tic()
+test <- test %>% 
   FindNeighbors(dims = 1:10) %>% 
   FindClusters() %>% 
   RunUMAP(reduction = 'pca',
           dims = 1:10)
+toc()
+
 toc()
