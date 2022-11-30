@@ -19,19 +19,22 @@ library(tictoc)
 library(harmony)
 theme_set(theme_dwu()) # set default theme
 
+tic()
 seuratobj <- read_rds(file.path(data_dir, 'seuratobj_qc.rds'))
 seuratobj
+toc()
 
-sampling <- colnames(seuratobj) %>% sample(size = 1000)
+sampling <- colnames(seuratobj) %>% sample(size = 10000)
 test <- subset(seuratobj, cells = sampling)
 
+tic()
 test <- test %>% 
   NormalizeData() %>%
   ScaleData() %>% 
   FindVariableFeatures(nfeatures = 500) %>% 
   RunPCA() %>% 
   FindNeighbors(dims = 1:10, return.neighbor = TRUE)
-
+toc()
 
 reduction <- test@reductions$pca@cell.embeddings[,1:10]
 
