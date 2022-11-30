@@ -41,148 +41,148 @@ theme_set(wutilities::theme_dwu())
 
 ### Functions
 ```{r}
-tabulate_frequency <- function(df,
-                               group1 = NULL,
-                               group2 = NULL,
-                               rename = FALSE) {
-  frequency_table <- 
-    df %>% 
-    mutate_all(as.factor) %>% 
-    mutate_all(droplevels) %>% 
-    dplyr::select({{group1}}, 
-                  {{group2}}) 
-  
-  if(rename) {
-    colnames(frequency_table) <- c('group1', 'group2')
-  }
-  
-  frequency_table %>% table()
-  
-}
-
-calculate_proportions <- function(frequency_table, 
-                                  group1 = 'group1',
-                                  group2 = 'group2') {
-  
-  # totals
-  group1_totals <- rowSums(frequency_table) %>% 
-    as.data.frame() %>% 
-    rownames_to_column()
-  colnames(group1_totals) <- c('group1', 'n_group1')
-  
-  group2_totals <- colSums(frequency_table) %>% 
-    as.data.frame() %>% 
-    rownames_to_column()
-  
-  overlap_totals <- frequency_table %>% 
-    as.data.frame() %>% 
-    dplyr::rename(n_overlap = Freq)
-  
-  # proportions
-  group1_proportion <- prop.table(frequency_table, margin = 1) %>% 
-    as.data.frame() %>% 
-    mutate(f_group1 = round(Freq, 3)) %>% 
-    dplyr::select(-Freq)
-  
-  group2_proportion <- prop.table(frequency_table, margin = 2) %>% 
-    as.data.frame() %>%
-    mutate(f_group2 = round(Freq, 3)) %>% 
-    dplyr::select(-Freq)
-  
-
-  
-  colnames(group2_totals) <- c('group2', 'n_group2')
-  
-  
-  proportion_table <- group1_totals %>% 
-    inner_join(group2_totals) %>% 
-    inner_join(overlap_totals) %>% 
-    inner_join(group1_proportion) %>% 
-    inner_join(group2_proportion) %>% 
-    mutate(max_proportion = ifelse(f_group2 > f_group1, f_group2, f_group1),
-           score = round(f_group1 * f_group2, 3)) %>% 
-    arrange(-max_proportion)
-  
-  proportion_table
-  
-}
-
-proportion_pipeline <- function(df,
-                                group1,
-                                group2,
-                                rename = TRUE) {
-  
-  
-  df %>% 
-    tabulate_frequency(group1 = 'seurat_clusters',
-                       group2 = 'label',
-                       rename = TRUE) %>% 
-    calculate_proportions()
-  
-}
-
-cluster_enrichment <- function(metadata_table,
-                               group1 = 'guide_target',
-                               group2 = 'seurat_clusters',
-                               rename = TRUE,
-                               print = FALSE,
-                               method = 'fisher',
-                               parallel = FALSE) {
-  
-  frequency_table <- metadata_table %>% 
-    dplyr::select(barcode,
-                  {{group1}}, 
-                  {{group2}})
-  
-  if(rename) {
-    colnames(frequency_table) <- c('barcode', 'target', 'cluster')
-  }
-  
-  targets <- frequency_table$target %>% unique() %>% sort()
-  clusters <- frequency_table$cluster %>% as.character() %>% unique() %>% sort()
-  all_barcodes <- frequency_table$barcode
-  
-  enrich <- map(targets, function(i) {
-    print2(paste('Running', i, '\n'))
-    
-    map(clusters, function(j) {
-      
-      target_subset <- frequency_table %>% filter(target == i) %>% pull(barcode) 
-      cluster_subset <- frequency_table %>% filter(cluster == j) %>% pull(barcode)
-      overlap_subset <- intersect(target_subset, cluster_subset)
-      
-      # run enrichment test
-      enrichment_res <- enrichment_test(target_subset,
-                                        cluster_subset,
-                                        background = all_barcodes,
-                                        print = print,
-                                        method = method)
-      
-      odds <- enrichment_res$estimate
-      pval <- enrichment_res$p.value
-      
-      output <- tibble('group1_id' = group1,
-                       'group2_id' = group2,
-                       'group1' = i,
-                       'group2' = j,
-                       'n_group1' = length(target_subset),
-                       'n_group2' = length(cluster_subset),
-                       'n_overlap' = length(overlap_subset),
-                       'f_group1' = round(n_overlap/n_group1, 3),
-                       'f_group2' = round(n_overlap/n_group2, 3),
-                       'f_max' = ifelse(f_group2 > f_group1, f_group2, f_group1),
-                       'score' = round(f_group1 * f_group2, 3),
-                       'odds' = round(enrichment_res$fisher$estimate, 3),
-                       'log2odds' = round(log2(odds), 3),
-                       'pval' = enrichment_res$fisher$p.value)
-      
-      output
-    }) %>% bind_rows()
-  }) %>% bind_rows()
-  
-  enrich %>% 
-    arrange(pval)
-}
+# tabulate_frequency <- function(df,
+#                                group1 = NULL,
+#                                group2 = NULL,
+#                                rename = FALSE) {
+#   frequency_table <- 
+#     df %>% 
+#     mutate_all(as.factor) %>% 
+#     mutate_all(droplevels) %>% 
+#     dplyr::select({{group1}}, 
+#                   {{group2}}) 
+#   
+#   if(rename) {
+#     colnames(frequency_table) <- c('group1', 'group2')
+#   }
+#   
+#   frequency_table %>% table()
+#   
+# }
+# 
+# calculate_proportions <- function(frequency_table, 
+#                                   group1 = 'group1',
+#                                   group2 = 'group2') {
+#   
+#   # totals
+#   group1_totals <- rowSums(frequency_table) %>% 
+#     as.data.frame() %>% 
+#     rownames_to_column()
+#   colnames(group1_totals) <- c('group1', 'n_group1')
+#   
+#   group2_totals <- colSums(frequency_table) %>% 
+#     as.data.frame() %>% 
+#     rownames_to_column()
+#   
+#   overlap_totals <- frequency_table %>% 
+#     as.data.frame() %>% 
+#     dplyr::rename(n_overlap = Freq)
+#   
+#   # proportions
+#   group1_proportion <- prop.table(frequency_table, margin = 1) %>% 
+#     as.data.frame() %>% 
+#     mutate(f_group1 = round(Freq, 3)) %>% 
+#     dplyr::select(-Freq)
+#   
+#   group2_proportion <- prop.table(frequency_table, margin = 2) %>% 
+#     as.data.frame() %>%
+#     mutate(f_group2 = round(Freq, 3)) %>% 
+#     dplyr::select(-Freq)
+#   
+# 
+#   
+#   colnames(group2_totals) <- c('group2', 'n_group2')
+#   
+#   
+#   proportion_table <- group1_totals %>% 
+#     inner_join(group2_totals) %>% 
+#     inner_join(overlap_totals) %>% 
+#     inner_join(group1_proportion) %>% 
+#     inner_join(group2_proportion) %>% 
+#     mutate(max_proportion = ifelse(f_group2 > f_group1, f_group2, f_group1),
+#            score = round(f_group1 * f_group2, 3)) %>% 
+#     arrange(-max_proportion)
+#   
+#   proportion_table
+#   
+# }
+# 
+# proportion_pipeline <- function(df,
+#                                 group1,
+#                                 group2,
+#                                 rename = TRUE) {
+#   
+#   
+#   df %>% 
+#     tabulate_frequency(group1 = 'seurat_clusters',
+#                        group2 = 'label',
+#                        rename = TRUE) %>% 
+#     calculate_proportions()
+#   
+# }
+# 
+# cluster_enrichment <- function(metadata_table,
+#                                group1 = 'guide_target',
+#                                group2 = 'seurat_clusters',
+#                                rename = TRUE,
+#                                print = FALSE,
+#                                method = 'fisher',
+#                                parallel = FALSE) {
+#   
+#   frequency_table <- metadata_table %>% 
+#     dplyr::select(barcode,
+#                   {{group1}}, 
+#                   {{group2}})
+#   
+#   if(rename) {
+#     colnames(frequency_table) <- c('barcode', 'target', 'cluster')
+#   }
+#   
+#   targets <- frequency_table$target %>% unique() %>% sort()
+#   clusters <- frequency_table$cluster %>% as.character() %>% unique() %>% sort()
+#   all_barcodes <- frequency_table$barcode
+#   
+#   enrich <- map(targets, function(i) {
+#     print2(paste('Running', i, '\n'))
+#     
+#     map(clusters, function(j) {
+#       
+#       target_subset <- frequency_table %>% filter(target == i) %>% pull(barcode) 
+#       cluster_subset <- frequency_table %>% filter(cluster == j) %>% pull(barcode)
+#       overlap_subset <- intersect(target_subset, cluster_subset)
+#       
+#       # run enrichment test
+#       enrichment_res <- enrichment_test(target_subset,
+#                                         cluster_subset,
+#                                         background = all_barcodes,
+#                                         print = print,
+#                                         method = method)
+#       
+#       odds <- enrichment_res$estimate
+#       pval <- enrichment_res$p.value
+#       
+#       output <- tibble('group1_id' = group1,
+#                        'group2_id' = group2,
+#                        'group1' = i,
+#                        'group2' = j,
+#                        'n_group1' = length(target_subset),
+#                        'n_group2' = length(cluster_subset),
+#                        'n_overlap' = length(overlap_subset),
+#                        'f_group1' = round(n_overlap/n_group1, 3),
+#                        'f_group2' = round(n_overlap/n_group2, 3),
+#                        'f_max' = ifelse(f_group2 > f_group1, f_group2, f_group1),
+#                        'score' = round(f_group1 * f_group2, 3),
+#                        'odds' = round(enrichment_res$fisher$estimate, 3),
+#                        'log2odds' = round(log2(odds), 3),
+#                        'pval' = enrichment_res$fisher$p.value)
+#       
+#       output
+#     }) %>% bind_rows()
+#   }) %>% bind_rows()
+#   
+#   enrich %>% 
+#     arrange(pval)
+# }
 
 
 calculate_agreement <- function(group1,
@@ -197,17 +197,22 @@ calculate_agreement <- function(group1,
 
 
 ### Sankey
-```{r}
+```{r eval=FALSE}
 plot_sankey1 <- function(df,
                          nodes,
-                         names = nodes,
-                         top_n = NULL, # only applicable for single category breakdown
+                         names = NULL,
+                         reverse = TRUE,
+                         top_n = 3, # only applicable for single category breakdown
                          percentages = TRUE,
+                         total = TRUE,
+                         prefix = 'Interactions:',
                          title = NULL) {
   
-  sankey_input <- df %>% select(all_of(nodes))
+  sankey_input <- df %>% select(all_of(nodes)) %>% mutate(across(.fns = as.character))
   
-  if(names != nodes) {
+  if(is.null(names)) {
+    names <- nodes
+  } else {
     colnames(sankey_input) <- names
   }
   
@@ -220,47 +225,81 @@ plot_sankey1 <- function(df,
   }
   
   if(!is.null(top_n)) {
-    top_categories <- sankey_input %>% unique() %>% slice_max(pct, n = top_n)
-    sankey_input <- sankey_input %>% filter(pct %in% top_categories$pct)
+    top_categories <- sankey_input %>% unique() %>% arrange(-pct) %>% mutate(row = row_number())
+    
+    bottom_pct <- top_categories %>% 
+      filter(row > top_n) %>% 
+      pull(pct) %>% 
+      sum()
+    
+    sankey_input <- sankey_input %>% 
+      left_join(top_categories %>% select(-n)) %>% 
+      mutate(pct = ifelse(row > top_n, bottom_pct, pct),
+             '{names[2]}' := ifelse(row > top_n, 'Other', .[[names[2]]])) %>% 
+      arrange(pct)
+    
   }
   
   if(percentages) {
-    sankey_input[[names[2]]] <- paste(sankey_input[[names[2]]], sankey_input[['pct']])
+    sankey_input <- sankey_input %>% mutate('{names[2]}' := paste0(.[[names[2]]], ', ', pct, '%')) 
   }
   
-  sankey_input <- sankey_input %>% make_long(1:2)
+  plot_order <- map(names, function(i) {
+    unique(sankey_input[[i]])
+  }) %>% unlist() %>% unique()
   
-  ggplot(sankey_input, 
-                aes(x = x, 
-                    next_x = next_x, 
-                    node = node, 
-                    next_node = next_node,
-                    fill = node,
-                    label = node)) +
-  geom_sankey(flow.alpha = 0.6,
-              node.color = 'black') +
-  theme_sankey(base_size = 12) +
+  if(total) {
+    total <- paste(prefix, nrow(df))
+  } else {
+    total <- NULL
+  }
+  
+  if(reverse) {
+    sankey_input <- sankey_input %>% make_long(2:1)
+  } else {
+    sankey_input <- sankey_input %>% make_long(1:2)
+  }
+
+  
+  # Construct plot
+  p <- ggplot(sankey_input %>% mutate(node = factor(node, levels = plot_order)), 
+              aes(x = x, 
+                  next_x = next_x, 
+                  node = node, 
+                  next_node = next_node,
+                  fill = node,
+                  label = node)) +
+    geom_sankey(flow.alpha = 0.6,
+                flow.color = 'black',
+                node.color = 'black') +
+    theme_sankey(base_size = 10, base_family = 'Arial') +
     theme(legend.position = 'none',
-          text = element_text(family = 'Arial'),
           plot.title = element_text(hjust = 0.5),
-          axis.text.x = element_text(size = 12, color = 'black')) +
-  geom_sankey_label(size = 4, color = "black", fill = "white") + 
-  scale_fill_viridis_d() + 
-  labs(x = '',
-       title = title)
+          plot.subtitle = element_text(hjust = 0.5),
+          axis.text.x = element_text(size = 10, color = 'black'))+
+    geom_sankey_label(size = 3, color = "black", fill = "white", family = 'Arial') + 
+    scale_fill_viridis_d() + 
+    labs(x = '',
+         title = title,
+         subtitle = total)
   
 }
 
 plot_sankey2 <- function(df,
                          nodes,
-                         names = nodes,
-                         top_n = 3,
+                         names = NULL,
+                         top_n = 3, # only applicable for single category breakdown
+                         percentages = TRUE,
+                         total = TRUE,
+                         prefix = 'Interactions:',
                          title = NULL)
 {
-
-  sankey_input <- df %>% select(all_of(nodes))
   
-  if(names != nodes) {
+  sankey_input <- df %>% select(all_of(nodes)) %>% mutate(across(.fns = as.character))
+  
+  if(is.null(names)) {
+    names <- nodes
+  } else {
     colnames(sankey_input) <- names
   }
   
@@ -279,7 +318,7 @@ plot_sankey2 <- function(df,
       tally() %>% 
       ungroup() %>% 
       mutate(pct = round(100 * n/nrow(sankey_input), 1)) 
-      
+    
   }
   
   if(!is.null(top_n)) {
@@ -290,7 +329,7 @@ plot_sankey2 <- function(df,
       filter(row > top_n) %>% 
       pull(pct) %>% 
       sum()
-
+    
     top_categories_right <- sankey_input_right %>% unique() %>% arrange(-pct) %>% mutate(row = row_number())
     
     bottom_pct_right <- top_categories_right %>% 
@@ -303,74 +342,73 @@ plot_sankey2 <- function(df,
       mutate(pct = ifelse(row > top_n, bottom_pct_left, pct),
              '{names[1]}' := ifelse(row > top_n, 'Other', .[[names[1]]])) %>% 
       mutate('{names[1]}' := paste0(.[[names[1]]], ', ', pct, '%')) %>% 
+      arrange(pct) %>% 
       select(-row, -pct) %>% 
       left_join(top_categories_right %>% select(-n)) %>% 
       mutate(pct = ifelse(row > top_n, bottom_pct_right, pct),
              '{names[3]}' := ifelse(row > top_n, 'Other', .[[names[3]]])) %>% 
       mutate('{names[3]}' := paste0(.[[names[3]]], ', ', pct, '%')) %>% 
-      select(-row, -pct)
-      
+      select(-row, -pct) 
     
+    # plot_order <- map(1:ncol(sankey_input), function(i) {
+    #   unique(sankey_input[[i]])
+    # }) %>% unlist()
+    
+      
   }
   
+  if(total) {
+    total <- paste(prefix, nrow(df))
+  } else {
+    total <- NULL
+  }
+  
+  # Construct plot
   ggplot(sankey_input %>% make_long(1:3), 
-                aes(x = x, 
-                    next_x = next_x, 
-                    node = node, 
-                    next_node = next_node,
-                    fill = node,
-                    label = node)) +
-  geom_sankey(flow.alpha = 0.6,
-              node.color = 'black') +
-    theme_sankey(base_size = 12) +
+         aes(x = x, 
+             next_x = next_x, 
+             node = node, 
+             next_node = next_node,
+             fill = node,
+             label = node)) +
+    geom_sankey(flow.alpha = 0.6,
+                flow.color = 'black',
+                node.color = 'black') +
+    theme_sankey(base_size = 10, base_family = 'Arial') +
     theme(legend.position = 'none',
-          text = element_text(family = 'Arial'),
           plot.title = element_text(hjust = 0.5),
-          axis.text.x = element_text(size = 12, color = 'black')) +
-    geom_sankey_label(size = 4, color = "black", fill = "white") + 
+          plot.subtitle = element_text(hjust = 0.5),
+          axis.text.x = element_text(size = 10, color = 'black'))+
+    geom_sankey_label(size = 3, color = "black", fill = "white", family = 'Arial') + 
     scale_fill_viridis_d() + 
     labs(x = '',
-         title = title)
+         title = title,
+         subtitle = total)
 }
 
 ```
+
 
 ### Import
 #### Clustered object
 ```{r}
 seuratobj <- read_rds(file.path(data_dir, 'seuratobj_subcluster.rds'))
+metadata <- seuratobj@meta.data %>% rownames_to_column()
+
 seuratobj
 ```
 
-### Select identity
-```{r}
-which_annotation <- 'global'
-Idents(seuratobj) <- which_annotation
-
-seuratobj$seurat_clusters <- seuratobj[[which_annotation]]
-
-output_dir <- here(output_dir, which_annotation)
-```
-
-```{r}
-metadata <- seuratobj@meta.data %>% rownames_to_column()
-```
-
-### Prior manual annotations
-#### Import rashx clusters
+#### Import annotations from RashX paper
 ```{r}
 rashx_clusters <- read_tsv(here('analysis/output/rashx/rashx_clusters.tsv.gz'))
 rashx_clusters %>% head()
 ```
 
-
-### Analysis
-#### Combine tables
-
-
+## Analysis
+### Combine all annotations
 ```{r}
 merged_annotations <- metadata %>% 
-  select(rowname, seurat_clusters, id, global) %>% 
+  select(rowname, id, local, global) %>% 
   separate(rowname, sep = '_', into = c('barcode', NA), remove = FALSE) %>% 
   left_join(rashx_clusters) %>% 
   drop_na() %>% 
@@ -380,52 +418,54 @@ merged_annotations
 ```
 ### Agreement metrics
 ```{r}
-calculate_agreement(merged_annotations$seurat_clusters, 
-                    merged_annotations$cluster)
-```
-```{r}
-calculate_agreement(merged_annotations$seurat_clusters, 
-                    merged_annotations$supercluster)
-```
-```{r}
-calculate_agreement(merged_annotations$global, 
-                    merged_annotations$seurat_clusters)
-```
+all_clusterings <- c('local', 'global', 'cluster', 'supercluster')
 
-```{r}
-calculate_agreement(merged_annotations$global, 
-                    merged_annotations$cluster)
+pairwise_table <- crossing('cluster1' = all_clusterings,
+                           'cluster2' = all_clusterings) %>% 
+  filter(cluster1 != cluster2) %>% 
+  rowwise() %>% 
+  mutate(combination = paste(sort(c(cluster1, cluster2)), collapse = ':')) %>% 
+  group_by(combination) %>% 
+  slice_max(cluster1)
+  
+pairwise_table
 ```
 
 ```{r}
-calculate_agreement(merged_annotations$global, 
-                    merged_annotations$supercluster)
+agreement_metrics <- map(1:nrow(pairwise_table), function(i) {
+  row_input <- pairwise_table[i, ]
+  
+  
+  tibble('combination' = row_input$combination,
+         calculate_agreement(merged_annotations[[row_input$cluster1]], merged_annotations[[row_input$cluster2]]) %>% 
+    mutate(across(everything(), round, 3)))
+  
+}) %>% bind_rows() %>% 
+  arrange(-AMI)
+
+agreement_metrics
 ```
 
+### Calculate odds and overlap
 ```{r}
-odds_cluster <- odds_table(merged_annotations, 
-                           'seurat_clusters',
-                           'cluster')
+clusters <- c('local', 'global') %>% set_names(.)
+annotations <- c('cluster', 'supercluster') %>% set_names(.)
 
-odds_supercluster <- odds_table(merged_annotations,
-                                'seurat_clusters',
-                                'supercluster') 
+annotation_odds <- map(clusters, function(i) {
+  map(annotations, function(j) {
+    
+    odds_table(merged_annotations, 
+               group1 = i,
+               group2 = j)
+  })
+})
 
-odds_global <- odds_table(merged_annotations, 
-                          'global',
-                          'cluster')
-
-odds_globalsuper <- odds_table(merged_annotations, 
-                               'global',
-                               'supercluster')
-
-
-odds_supercluster
+annotation_odds$local$supercluster
 ```
 
 
 ```{r}
-odds_supercluster %>% 
+annotation_odds$local$supercluster %>% 
   mutate(combination = paste(group1, group2)) %>% 
   filter(odds > 1,
          pval < 0.05) %>% 
@@ -440,7 +480,7 @@ odds_supercluster %>%
 ```
 
 ```{r}
-input_odds <- odds_cluster
+input_odds <- annotation_odds$local$cluster
 
 top_jaccard <- input_odds %>% 
   group_by(group1) %>% 
@@ -469,95 +509,161 @@ top_comparison <- top_f %>% select(group1, f_group1, f = group2) %>%
   left_join(top_odds %>% select(group1, odds = group2)) %>% 
   mutate(match = ifelse(f == jaccard, 'Yes', 'No')) 
 
-top_comparison %>% add_count(group1) %>% filter(match == 'No', group1 != 'A9')
+top_comparison %>% add_count(group1) %>% filter(match == 'No')
 ```
 ```{r}
-odds_supercluster %>% filter(group1 == 'A17') %>% arrange(-f_score) %>% select(-n_total)
-```
-```{r}
-odds_supercluster %>% mutate(jaccard = round(n_overlap/(n_group1 + n_group2 - n_overlap),3)) %>% 
+annotation_odds$local$supercluster %>% mutate(jaccard = round(n_overlap/(n_group1 + n_group2 - n_overlap),3)) %>% 
   select(group1, group2, f_group1, f_group2, f_max, f_score, jaccard) %>% 
   arrange(-f_score) 
 ```
 
 
-#### Sankey 1 loop
+### Sankey plots
+#### Local centric
 ```{r}
-map(merged_annotations$seurat_clusters %>% unique() %>% sort(),
-    function(i) {
-      
-      p <- plot_sankey1(merged_annotations %>% filter(seurat_clusters == i),
-                        nodes = c('seurat_clusters', 'cluster'),
-                        names = c('Current Cluster', 'RashX Cluster'))
-      
-      ggsave(plot = p,
-             filename = paste0(i, '.png'),
-             path = here(output_dir, 'sankey1_current'),
-             h = 4,
-             w = 6)
-      
-    }) %>% invisible()
+dpi <- 600
 
-
-map(merged_annotations$cluster %>% unique() %>% sort(),
-    function(i) {
+map(merged_annotations$local %>% unique() %>% sort(), function(i) {
+  
+  # Local vs Global
+  p <- plot_sankey1(merged_annotations %>% filter(local == i),
+                    nodes = c('local', 'global'),
+                    names = c('Local Cluster', 'Global Cluster'))
+  
+  ggsave(plot = p,
+         filename = paste0(i, '.png'),
+         path = here(output_dir, 'local', 'sankey1_local_vs_global'),
+         dpi = dpi,
+         h = 4,
+         w = 6)   
+  
+  # Local vs RashX
+  p <- plot_sankey1(merged_annotations %>% filter(local == i),
+                    nodes = c('local', 'cluster'),
+                    names = c('Local Cluster', 'RashX Cluster'))
+  
+  ggsave(plot = p,
+         filename = paste0(i, '.png'),
+         path = here(output_dir, 'local', 'sankey1_local_vs_rashx'),
+         dpi = dpi,
+         h = 4,
+         w = 6)   
+  
+  # Local vs RashX (supercluster)
+  p <- plot_sankey1(merged_annotations %>% filter(local == i),
+                    nodes = c('local', 'supercluster'),
+                    names = c('Local Cluster', 'RashX Supercluster'))
+  
+  ggsave(plot = p,
+         filename = paste0(i, '.png'),
+         path = here(output_dir, 'local', 'sankey1_local_vs_supercluster'),
+         dpi = dpi,
+         h = 4,
+         w = 6)   
+  
+  # 2-way: local vs global and rashx
+  p <- plot_sankey2(merged_annotations %>% filter(local == i),
+                    nodes = c('cluster', 'local', 'global'),
+                    names = c('RashX Cluster', 'Local Cluster', 'Global Cluster'))
+  
+  ggsave(plot = p,
+         filename = paste0(i, '.png'),
+         path = here(output_dir, 'local', 'sankey2_local_vs_rashx_global'),
+         dpi = dpi,
+         h = 4,
+         w = 8)
+  
+  # 2-way: local vs rashx and rashx supercluster
+  p <- plot_sankey2(merged_annotations %>% filter(local == i),
+                    nodes = c('cluster', 'local', 'supercluster'),
+                    names = c('Rashx Cluster', 'Local Cluster', 'RashX Supercluster'))
+  
+  ggsave(plot = p,
+         filename = paste0(i, '.png'),
+         path = here(output_dir, 'local', 'sankey2_local_vs_rashx_supercluster'),
+         dpi = dpi,
+         h = 4,
+         w = 8)
       
-      p <- plot_sankey1(merged_annotations %>% filter(cluster == i),
-                        nodes = c('cluster', 'seurat_clusters'),
-                        names = c('RashX Cluster', 'Current Cluster'))
-      
-      ggsave(plot = p,
-             filename = paste0(i, '.png'),
-             path = here(output_dir, 'sankey1_rashx'),
-             h = 4,
-             w = 6)
-      
-    }) %>% invisible()
-
-map(merged_annotations$supercluster %>% unique() %>% sort(),
-    function(i) {
-      
-      p <- plot_sankey1(merged_annotations %>% filter(cluster == i),
-                        nodes = c('supercluster', 'seurat_clusters'),
-                        names = c('RashX Supercluster', 'Current Cluster'))
-      
-      ggsave(plot = p,
-             filename = paste0(i, '.png'),
-             path = here(output_dir, 'sankey1_supercluster'),
-             h = 4,
-             w = 6)
-      
-    }) %>% invisible()
-
+}) %>% invisible()
 
 
 ```
 
-#### Sankey 2 loop
+#### Global centric
 ```{r}
-map(merged_annotations$seurat_clusters %>% unique() %>% sort(),
-    function(i) {
+map(merged_annotations$global %>% unique() %>% sort(), function(i) {
+  
+  # Global vs local
+  p <- plot_sankey1(merged_annotations %>% filter(global == i),
+                    nodes = c('global', 'local'),
+                    names = c('Global Cluster', 'Local Cluster'))
+  
+  ggsave(plot = p,
+         filename = paste0(i, '.png'),
+         path = here(output_dir, 'global', 'sankey1_global_vs_local'),
+         dpi = dpi,
+         h = 4,
+         w = 6)   
+  
+  # Global vs RashX
+  p <- plot_sankey1(merged_annotations %>% filter(global == i),
+                    nodes = c('global', 'cluster'),
+                    names = c('Global Cluster', 'RashX Cluster'))
+  
+  ggsave(plot = p,
+         filename = paste0(i, '.png'),
+         path = here(output_dir, 'global', 'sankey1_global_vs_rashx'),
+         dpi = dpi,
+         h = 4,
+         w = 6)   
+  
+  # Global vs RashX (supercluster)
+  p <- plot_sankey1(merged_annotations %>% filter(global == i),
+                    nodes = c('global', 'supercluster'),
+                    names = c('Global Cluster', 'RashX Supercluster'))
+  
+  ggsave(plot = p,
+         filename = paste0(i, '.png'),
+         path = here(output_dir, 'global', 'sankey1_global_vs_supercluster'),
+         dpi = dpi,
+         h = 4,
+         w = 6)   
+  
+  # 2-way: global vs local and rashx
+  p <- plot_sankey2(merged_annotations %>% filter(global == i),
+                    nodes = c('cluster', 'global', 'local'),
+                    names = c('RashX Cluster', 'Global Cluster', 'Local Cluster'))
+  
+  ggsave(plot = p,
+         filename = paste0(i, '.png'),
+         path = here(output_dir, 'global', 'sankey2_global_vs_rashx_local'),
+         dpi = dpi,
+         h = 4,
+         w = 8)
+  
+  # 2-way: global vs rashx and rashx supercluster
+  p <- plot_sankey2(merged_annotations %>% filter(global == i),
+                    nodes = c('cluster', 'global', 'supercluster'),
+                    names = c('Rashx Cluster', 'Global Cluster', 'RashX Supercluster'))
+  
+  ggsave(plot = p,
+         filename = paste0(i, '.png'),
+         path = here(output_dir, 'global', 'sankey2_global_vs_rashx_supercluster'),
+         dpi = dpi,
+         h = 4,
+         w = 8)
       
-      print2(i)
-      
-      p <- plot_sankey2(merged_annotations %>% filter(seurat_clusters == i),
-                        nodes = c('supercluster', 'seurat_clusters', 'cluster'),
-                        names = c('RashX Supercluster', 'Current Cluster', 'RashX Cluster'))
-      
-      ggsave(plot = p,
-             filename = paste0(i, '.png'),
-             path = here(output_dir, 'sankey2'),
-             h = 4,
-             w = 6)
-      
-    }) %>% invisible()
+}) %>% invisible()
+
+
 ```
 
 
 ```{r}
 library(pheatmap)
 
-pheatmap_input <- odds_cluster %>% 
+pheatmap_input <- annotation_odds$local$cluster %>% 
   select(group1,
          group2,
          f_group1) %>% 
@@ -583,184 +689,128 @@ p
 ```
 
 
-```{r}
-library(parallel)
-
-which_cluster <- 0
-
-#map(merged_annotations$seurat_clusters %>% unique() %>% sort(), function(which_cluster) {
-mclapply(merged_annotations$seurat_clusters %>% unique() %>% sort(), mc.cores = 40, function(which_cluster) {
-  
-  cluster_subset <- merged_annotations %>% 
-    filter(seurat_clusters == which_cluster) %>% 
-    group_by(cluster) %>% 
-    add_count() %>%
-    ungroup() %>% 
-    mutate(pct = round(100 * n / n(), 1),
-           cluster = paste0(cluster, ' ', pct, '%'))
-  
-  top_matches <- cluster_subset %>% select(cluster, n) %>% unique() %>% top_n(5, n)
-  
-  sankey_input <-  cluster_subset %>% 
-    filter(cluster %in% top_matches$cluster) %>% 
-  select(Current = seurat_clusters,
-         RashX = cluster) %>% 
-  make_long(Current, RashX)
-
-p <- ggplot(sankey_input, 
-                aes(x = x, 
-                    next_x = next_x, 
-                    node = node, 
-                    next_node = next_node,
-                    fill = factor(node),
-                    label = node)) +
-  geom_sankey(flow.alpha = 0.6,
-              node.color = "black") +
-  gg_sankey_components +
-  geom_sankey_label(size = 4, color = "black", fill = "white") + 
-  scale_fill_viridis_d() + 
-  labs(x = '',
-       title = paste0('Top 5 matches for cluster ', which_cluster))
-
-ggsave(plot = p,
-       filename = paste0(which_cluster, '.png'),
-       path = here(output_dir, 'new_clusters'),
-       h = 4,
-       w = 4)
-  
-}) %>% invisible
-```
-
-### Old cluster centric
-```{r}
-
-#map(merged_annotations$cluster %>% unique() %>% sort(), function(which_cluster) {
-mclapply(merged_annotations$cluster %>% unique() %>% sort(), mc.cores = 40, function(which_cluster) {
-  
-  cluster_subset <- merged_annotations %>% 
-    filter(cluster == which_cluster) %>% 
-    group_by(seurat_clusters) %>% 
-    add_count() %>%
-    ungroup() %>% 
-    mutate(pct = round(100 * n / n(), 1),
-           seurat_clusters = paste0(seurat_clusters, ', ', pct, '%'))
-  
-  top_matches <- cluster_subset %>% select(seurat_clusters, n) %>% unique() %>% top_n(5, n) %>% arrange(-n) %>% pull(seurat_clusters)
-  
-  sankey_input <-  cluster_subset %>% 
-    filter(seurat_clusters %in% top_matches) %>% 
-    select(Current = seurat_clusters,
-           RashX = cluster) %>% 
-    make_long(RashX, Current) %>% 
-    arrange(node)
-
-p <- ggplot(sankey_input, 
-                aes(x = x, 
-                    next_x = next_x, 
-                    node = node, 
-                    next_node = next_node,
-                    fill = node,
-                    label = node)) +
-  geom_sankey(flow.alpha = 0.6,
-              node.color = "black") +
-  gg_sankey_components +
-  geom_sankey_label(size = 4, color = "black", fill = "white") + 
-  scale_fill_viridis_d() + 
-  labs(x = '',
-       title = paste0('Top 5 matches for ', which_cluster))
-
-ggsave(plot = p,
-       filename = paste0(str_replace(which_cluster, '/', '-'), '.png'),
-       path = here(output_dir, 'old_clusters'),
-       h = 4,
-       w = 4)
-
-
-  
-}) %>% invisible()
-```
-
-
 ### Annotate
+#### Factor level ordering
 ```{r}
-annotation_subcluster <- odds_supercluster %>% 
-  group_by(group1) %>% 
-  slice_max(f_group1) %>% 
-  select(group1,
-         supercluster = group2,
-         f_in_supercluster = f_group1) %>% 
-  left_join(rashx_clusters %>% select(order, cluster, supercluster) %>% unique()) %>% 
-  left_join(odds_cluster %>% select(group1, cluster = group2, f_in_cluster = f_group1)) %>% 
-  group_by(group1, supercluster) %>% 
-  slice_max(f_in_cluster) %>% 
-  ungroup() %>% 
-  select(seurat_clusters = group1, cluster, supercluster, f_in_cluster, f_in_supercluster, order)
-
-annotation_global <- odds_globalsuper %>% 
-  group_by(group1) %>% 
-  slice_max(f_group1) %>% 
-  select(group1,
-         supercluster = group2,
-         f_in_supercluster = f_group1) %>% 
-  left_join(rashx_clusters %>% select(order, cluster, supercluster) %>% unique()) %>% 
-  left_join(odds_global %>% select(group1, cluster = group2, f_in_cluster = f_group1)) %>% 
-  group_by(group1, supercluster) %>% 
-  slice_max(f_in_cluster) %>% 
-  ungroup() %>% 
-  select(global = group1, global_cluster = cluster, global_supercluster = supercluster, f_in_global_cluster = f_in_cluster, f_in_global_supercluster = f_in_cluster, global_order = order)
+rashx_clusters$supercluster %>% unique() %>% sort()
 ```
 
 ```{r}
-annotation_subcluster_levels <- annotation_subcluster %>% 
-  select(order, cluster, supercluster) %>% 
+supercluster_order <- c('Tcm', 
+                        'Trm', 
+                        'Tmm', 
+                        'CTL',
+                        'CTLem',
+                        'CTLex',
+                        'Tet',
+                        'Tn',
+                        'Treg',
+                        'cmTreg',
+                        'eTreg',
+                        'ILC',
+                        'NK',
+                        'ILC/NK',
+                        'B',
+                        'Plasma',
+                        'Mac',
+                        'Mono',
+                        'InfMono',
+                        'DC',
+                        'migDC',
+                        'moDC',
+                        'LC',
+                        'Mast')
+
+annotation_order <- rashx_clusters %>% select(cluster, supercluster) %>% 
   unique() %>% 
-  arrange(order)
+  mutate(supercluster = factor(supercluster, levels = supercluster_order)) %>% 
+  arrange(supercluster, cluster) %>% 
+  mutate(order = 1:n(),
+         supercluster = as.character(supercluster))
+
+annotation_order
+```
+
+```{r}
+annotation_local <- annotation_odds$local$supercluster %>% 
+  group_by(group1) %>% 
+  slice_max(f_group1) %>% 
+  select(group1,
+         supercluster = group2,
+         f_in_supercluster = f_group1) %>% 
+  left_join(annotation_order) %>% 
+  left_join(annotation_odds$local$cluster %>% select(group1, cluster = group2, f_in_cluster = f_group1)) %>% 
+  group_by(group1, supercluster) %>% 
+  slice_max(f_in_cluster) %>% 
+  ungroup() %>% 
+  select(local = group1, 
+         local_cluster = cluster, 
+         local_supercluster = supercluster, 
+         local_order = order,
+         f_in_local_cluster = f_in_cluster, 
+         f_in_local_supercluster = f_in_supercluster)
+
+annotation_global <- annotation_odds$global$supercluster %>% 
+  group_by(group1) %>% 
+  slice_max(f_group1) %>% 
+  select(group1,
+         supercluster = group2,
+         f_in_supercluster = f_group1) %>% 
+  left_join(annotation_order) %>% 
+  left_join(annotation_odds$global$cluster %>% select(group1, cluster = group2, f_in_cluster = f_group1)) %>% 
+  group_by(group1, supercluster) %>% 
+  slice_max(f_in_cluster) %>% 
+  ungroup() %>% 
+  select(global = group1, 
+         global_cluster = cluster, 
+         global_supercluster = supercluster, 
+         global_order = order,
+         f_in_global_cluster = f_in_cluster, 
+         f_in_global_supercluster = f_in_cluster)
+```
+
+```{r}
+annotation_local_levels <- annotation_local %>% 
+  select(local_order, local_cluster, local_supercluster) %>% 
+  unique() %>% 
+  arrange(local_order)
 
 annotation_global_levels <- annotation_global %>% 
   select(global_order, global_cluster, global_supercluster) %>% 
   unique() %>% 
   arrange(global_order)
 
-annotation_subcluster_levels
+annotation_local_levels
 ```
 
-```{r}
-lymphocyte_clusters <- str_subset(rashx_clusters$cluster, 'T|B|P') %>% unique()
-innate_clusters <- str_subset(rashx_clusters$cluster, 'NK|ILC') %>% unique()
-apc_clusters <- str_subset(rashx_clusters$cluster, 'M|DC|^LC') %>% unique()
 
+```{r}
 new_annotations <- seuratobj@meta.data %>% 
   rownames_to_column() %>% 
-  select(rowname, seurat_clusters, global = global) %>% 
-  left_join(annotation_subcluster) %>% 
+  select(rowname, local, global) %>% 
+  left_join(annotation_local) %>% 
   left_join(annotation_global) %>% 
-  mutate(cluster = factor(cluster, levels = annotation_subcluster_levels$cluster),
-         supercluster = factor(supercluster, levels = unique(annotation_subcluster_levels$supercluster)),
+  mutate(local_cluster = factor(local_cluster, levels = annotation_local_levels$local_cluster),
+         local_supercluster = factor(local_supercluster, levels = unique(annotation_local_levels$local_supercluster)),
          global_cluster = factor(global_cluster, levels = annotation_global_levels$global_cluster),
-         global_supercluster = factor(global_supercluster, levels = unique(annotation_global_levels$global_supercluster)),
-         celltype = case_when(
-           cluster %in% lymphocyte_clusters ~ 'Lymphocyte',
-           cluster %in% innate_clusters ~ 'Innate',
-           cluster %in% apc_clusters ~ 'APC'),
-         global_celltype = case_when(
-           cluster %in% lymphocyte_clusters ~ 'Lymphocyte',
-           cluster %in% innate_clusters ~ 'Innate',
-           cluster %in% apc_clusters ~ 'APC')) %>% 
+         global_supercluster = factor(global_supercluster, levels = unique(annotation_global_levels$global_supercluster))) %>% 
   column_to_rownames()
 
 new_annotations 
 ```
 ### Add annotation
-#### Also order factor levels
 ```{r}
 seuratobj <- AddMetaData(seuratobj, new_annotations)
-seuratobj$annotation <- seuratobj$supercluster
-
-seuratobj
+seuratobj$annotation <- seuratobj$global_cluster
+Idents(seuratobj) <- 'annotation'
+Idents(seuratobj) %>% head()
 ```
-### Factor levels
+#### Ensure correct sample factor levels
 ```{r}
-sample_order <- seuratobj@meta.data %>% select(patient, sample, sample_order) %>% unique() %>% arrange(sample_order) %>% as_tibble()
+sample_order <- seuratobj@meta.data %>% 
+  select(patient, sample, sample_order) %>% 
+  unique() %>% 
+  arrange(sample_order)
 sample_order
 ```
 
@@ -772,20 +822,22 @@ seuratobj$patient <- factor(seuratobj$patient, levels = unique(sample_order$pati
 seuratobj$sample <- factor(seuratobj$sample, levels = sample_order$sample)
 ```
 
-### Add Metadata
-```{r}
-Idents(seuratobj) <- 'annotation'
-Idents(seuratobj) %>% head()
-```
-
 ### Save plots
-#### Subclustering-based
+#### Local
 ```{r}
-p <- seuratobj %>% seurat_feature(features = 'cluster', facet_hide = TRUE, legend_position = 'none', size = 0.1, alpha = 0.1, color_package = 'carto', color_palette = 'Bold', rasterize_dpi = 600)
+p <- seuratobj %>% 
+  seurat_feature(features = 'local_cluster', 
+                 facet_hide = TRUE, 
+                 legend_position = 'none',
+                 size = 0.1, 
+                 alpha = 0.1, 
+                 color_package = 'carto', 
+                 color_palette = 'Bold', 
+                 rasterize_dpi = dpi)
 
 ggsave(plot = p,
-       filename = 'umap_annotated_cluster.png',
-       dpi = 600,
+       filename = 'umap_annotated_local_cluster.png',
+       dpi = dpi,
        path = output_dir,
        w = 4, 
        h = 4)
@@ -795,12 +847,62 @@ p
 
 
 ```{r}
-p <- seuratobj %>% seurat_feature(features = 'supercluster', facet_hide = TRUE, legend_position = 'none', size = 0.1, alpha = 0.1, color_package = 'carto', color_palette = 'Bold', rasterize_dpi = 600)
+p <- seuratobj %>% 
+  seurat_feature(features = 'local_supercluster', 
+                 facet_hide = TRUE, 
+                 legend_position = 'none', 
+                 size = 0.1, alpha = 0.1, 
+                 color_package = 'carto', 
+                 color_palette = 'Bold', 
+                 rasterize_dpi = dpi)
 
 ggsave(plot = p,
-       filename = 'umap_annotated_supercluster.png',
+       filename = 'umap_annotated_local_supercluster.png',
        path = output_dir,
-       dpi = 600,
+       dpi = dpi,
+       w = 4, 
+       h = 4)
+
+p
+
+```
+#### Global
+```{r}
+p <- seuratobj %>% 
+  seurat_feature(features = 'global_cluster', 
+                 facet_hide = TRUE, 
+                 legend_position = 'none',
+                 size = 0.1, 
+                 alpha = 0.1, 
+                 color_package = 'carto', 
+                 color_palette = 'Bold', 
+                 rasterize_dpi = dpi)
+
+ggsave(plot = p,
+       filename = 'umap_annotated_global_cluster.png',
+       dpi = dpi,
+       path = output_dir,
+       w = 4, 
+       h = 4)
+
+p
+```
+
+
+```{r}
+p <- seuratobj %>% 
+  seurat_feature(features = 'global_supercluster', 
+                 facet_hide = TRUE, 
+                 legend_position = 'none', 
+                 size = 0.1, alpha = 0.1, 
+                 color_package = 'carto', 
+                 color_palette = 'Bold', 
+                 rasterize_dpi = dpi)
+
+ggsave(plot = p,
+       filename = 'umap_annotated_global_supercluster.png',
+       path = output_dir,
+       dpi = dpi,
        w = 4, 
        h = 4)
 

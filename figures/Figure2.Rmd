@@ -39,6 +39,7 @@ library(ggrepel)
 library(extrafont)
 loadfonts()
 theme_set(theme_dwu()) # set default theme
+source(here('figures/colors.R')) # consistent color palettes
 
 ```
 
@@ -47,13 +48,17 @@ theme_set(theme_dwu()) # set default theme
 seuratobj <- read_rds(here(data_dir, 'seuratobj_annotated.rds'))
 seuratobj
 ```
-### Select identity
+### Use global or local identities and set as cluster/supercluster in the object
 ```{r}
-which_annotation <- 'global_supercluster'
-seuratobj$annotation <- seuratobj[[which_annotation]]
-Idents(seuratobj) <- 'annotation'
+which_identity <- 'global'
+which_cluster <- paste0(which_identity, '_cluster')
+which_supercluster <- paste0(which_identity, '_supercluster')
 
-output_dir <- here(output_dir, which_annotation)
+seuratobj$cluster <- seuratobj[[which_cluster]] # set cluster as main annotation
+seuratobj$supercluster <- seuratobj[[which_supercluster]] # set cluster as main annotation
+Idents(seuratobj) <- 'cluster'
+
+output_dir <- here(output_dir, which_identity)
 dir.create(output_dir)
 ```
 
@@ -62,7 +67,8 @@ dir.create(output_dir)
 ### Analysis
 ```{r}
 metadata <- seuratobj@meta.data %>% rownames_to_column() 
-de_combined <- read_tsv(here('analysis/output/07_de/', which_annotation, 'de_combined.tsv.gz'))
+de_combined_cluster <- read_tsv(here('analysis/output/07_de/', which_cluster, 'de_combined.tsv.gz'))
+de_combined_supercluster <- read_tsv(here('analysis/output/07_de/', which_supercluster, 'de_combined.tsv.gz'))
 ```
 
 ```{r}
@@ -77,14 +83,13 @@ patient_meta
 ```
 ```{r}
 analyze <- metadata %>% 
-  select(rowname, id, sample, patient, condition, treatment, cluster, sample_label, annotation, group) %>% 
+  select(rowname, id, sample, patient, condition, treatment, cluster, supercluster, sample_label, group) %>% 
   mutate(description = factor(paste(condition, treatment) %>% str_remove(' None'),
                               levels = c('PV Pre',
                                          'PV Mid',
                                          'PV',
                                          'AD',
-                                         'HC')),
-         sample_label = paste0(sample, ' (', id, '), ', group)) %>% 
+                                         'HC'))) %>% 
   left_join(patient_meta %>% select(patient, patient_label))
 
 analyze
@@ -94,7 +99,7 @@ analyze
 
 ```{r}
 tallies <- analyze %>% 
-  group_by(patient, condition, treatment, annotation) %>% 
+  group_by(patient, condition, treatment, cluster, supercluster) %>% 
   tally()
 
 tallies %>%
@@ -120,13 +125,13 @@ which_comparison <- c('PV vs HC',
 
 p_adj_cutoff <- 0.05
 
-cluster_levels <- seuratobj$annotation
+cluster_levels <- seuratobj$cluster
 
-de_subset <- de_combined %>% 
+de_subset <- de_combined_cluster %>% 
   filter(comparison %in% which_comparison) %>% 
   mutate(comparison = factor(comparison, levels = which_comparison),
          sig = ifelse(p_val_adj < p_adj_cutoff, TRUE, FALSE),
-         cluster = factor(cluster, levels = levels(seuratobj$annotation)))
+         cluster = factor(cluster, levels = levels(seuratobj$cluster)))
 ```
 
 ### Figure 2A
@@ -157,6 +162,33 @@ ggsave(plot = p,
 p
 ```
 
+```{r}
+p <- de_subset %>% 
+  filter(p_val_adj < p_adj_cutoff) %>% 
+  mutate(comparison = factor(comparison, levels = which_comparison)) %>% 
+  filter(comparison %in% c('Pre vs Mid',
+                           'Responder Mid vs Non-responder Mid')) %>% 
+  group_by(cluster, comparison) %>% 
+  tally() %>% 
+  ggplot(aes(x = cluster,
+             y = n,
+             fill = comparison)) +
+  geom_col(color = 'black') +
+  facet_wrap(~comparison, scales = 'free_y', nrow = 1) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  #coord_flip() +
+  ggthemes::scale_fill_few() +
+  labs(x = '',
+       y = '# of DEGs') 
+  
+
+ggsave(plot = p,
+       filename = 'F2A_de_tally_subset.pdf',
+       path = output_dir, 
+       h = 3,
+       w = 7)
+p
+```
 
 ### Figure 2B
 #### Volcano PV vs HC
@@ -186,7 +218,7 @@ genesets <- read_tsv('analysis/output/msigdb/il23_il17_gene_sets.tsv')
 ```
 
 ```{r}
-response_genes <- de_combined %>% 
+response_genes <- de_combined_cluster %>% 
   filter(comparison == 'Responder Pre vs Responder Mid') %>% 
   filter(p_val_adj < p_adj_cutoff,
          avg_log2FC > 0) %>% 
@@ -203,7 +235,7 @@ genes_to_extract <- genesets$gene_symbol %>% unique()
 
 metadata_subset <- metadata %>% 
   filter(group == 'Responder' | condition == 'HC',
-         annotation == which_cluster) %>% 
+         cluster == which_cluster) %>% 
   mutate(treatment = ifelse(treatment == 'None', 'Healthy', as.character(treatment)),
          treatment = factor(treatment, levels = c('Pre', 'Mid', 'Healthy')))
 
@@ -220,7 +252,7 @@ exprs
 
 ```{r}
 merged_table <- exprs %>% 
-  inner_join(metadata_subset %>% select(rowname, patient, id, condition, treatment, response, group, annotation)) %>% 
+  inner_join(metadata_subset %>% select(rowname, patient, id, condition, treatment, response, group, cluster)) %>% 
   pivot_longer(cols = genes_to_extract,
                names_to = 'gene',
                values_to = 'expression')
@@ -243,7 +275,7 @@ p
 
 ```{r}
 summarized_table <- merged_table %>% 
-  group_by(treatment, group, annotation, gene) %>% 
+  group_by(treatment, group, cluster, gene) %>% 
   summarize(mean = mean(expression),
             sd = sd(expression))
 ```
@@ -371,7 +403,7 @@ genes_to_extract <- ray_genes
 
 metadata_subset <- analyze %>% 
   filter(group %in% c('Responder', 'Non-responder') | condition == 'HC',
-         annotation == which_cluster) %>% 
+         cluster == which_cluster) %>% 
   mutate(treatment = ifelse(treatment == 'None', 'Healthy', as.character(treatment)),
          treatment = factor(treatment, levels = c('Pre', 'Mid', 'Healthy')))
 
@@ -393,7 +425,7 @@ exprs
 
 ```{r}
 merged_table <- exprs %>% 
-  inner_join(metadata_subset %>% select(rowname, patient, id, condition, treatment, group, annotation, patient_label)) %>% 
+  inner_join(metadata_subset %>% select(rowname, patient, id, condition, treatment, group, cluster, patient_label)) %>% 
   pivot_longer(cols = genes_to_extract,
                names_to = 'gene',
                values_to = 'expression')
@@ -422,7 +454,7 @@ p
 ```{r}
 summarized_table <- merged_table %>% 
   filter(group != 'Non-responder') %>% 
-  group_by(treatment, group, annotation, gene) %>% 
+  group_by(treatment, group, cluster, gene) %>% 
   summarize(mean = mean(expression),
             median = median(expression),
             sd = sd(expression))
@@ -430,7 +462,7 @@ summarized_table <- merged_table %>%
 
 ```{r}
 plot_input <- merged_table %>% 
-  group_by(patient, treatment, group, annotation, gene, patient_label) %>% 
+  group_by(patient, treatment, group, cluster, gene, patient_label) %>% 
   summarize(mean = mean(expression)) 
 
 p <- plot_input %>% 
@@ -509,7 +541,7 @@ p
 ### Figure
 Top genes from PV vs HC
 ```{r}
-pv_vs_hc <- de_combined %>% 
+pv_vs_hc <- de_combined_cluster %>% 
   filter(comparison == 'PV vs HC')
 
 pv_vs_hc
@@ -528,7 +560,7 @@ top_pv_vs_hc
 
 #### Which genes normalize?
 ```{r}
-de_normalize <- de_combined %>% 
+de_normalize <- de_combined_cluster %>% 
   filter(comparison %in% c('PV vs HC', 'Pre vs Mid'),
          cluster == which_cluster) %>% 
   select(comparison, gene, avg_log2FC, pct.1, pct.2, pct.diff, p_val_adj) %>% 
@@ -552,7 +584,7 @@ genes_to_extract <- de_normalize$gene
 
 metadata_subset <- metadata %>% 
   filter(group == 'Responder' | condition == 'HC',
-         annotation == which_cluster) %>% 
+         cluster == which_cluster) %>% 
   mutate(treatment = ifelse(treatment == 'None', 'Healthy', as.character(treatment)),
          treatment = factor(treatment, levels = c('Pre', 'Mid', 'Healthy')))
 
@@ -569,7 +601,7 @@ exprs
 
 ```{r}
 merged_table <- exprs %>% 
-  inner_join(metadata_subset %>% select(rowname, patient, id, condition, treatment, response, group, annotation)) %>% 
+  inner_join(metadata_subset %>% select(rowname, patient, id, condition, treatment, response, group, cluster)) %>% 
   pivot_longer(cols = genes_to_extract,
                names_to = 'gene',
                values_to = 'expression')
@@ -578,7 +610,7 @@ merged_table
 ```
 ```{r}
 summarized_table <- merged_table %>% 
-  group_by(patient, treatment, group, annotation, gene) %>% 
+  group_by(patient, treatment, group, cluster, gene) %>% 
   summarize(median = median(expression),
             mean = mean(expression),
             sd = sd(expression))

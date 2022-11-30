@@ -110,8 +110,8 @@ seuratobj <- seuratobj %>%
   RunUMAP(reduction = 'harmony', dims = dims, n.neighbors = neighbors, metric = metric) 
 ```
 
-
-```{r}
+#### Use same neighborhood network for UMAP
+```{r eval=FALSE}
 method2 <- seuratobj %>% FindNeighbors(dims = dims, k.param = neighbors, annoy.metric = metric, return.neighbor = TRUE, force.recalc = TRUE)
 
 nn_object <- method2@neighbors$RNA.nn
@@ -139,7 +139,7 @@ p2 <- seurat_feature(seuratobj, reduction = 'uwot')
 
 p2
 ```
-```{r}
+```{r eval=FALSE}
 seurat_feature(seuratobj, reduction = 'uwot', facets = 'seurat_clusters', label = FALSE)
 ```
 

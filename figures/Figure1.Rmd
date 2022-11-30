@@ -48,18 +48,21 @@ seuratobj <- read_rds(file.path(data_dir, 'seuratobj_annotated.rds'))
 seuratobj
 ```
 
-### Select identity
+### Use global or local identities and set as cluster/supercluster in the object
 ```{r}
-which_annotation <- 'global_supercluster'
-seuratobj$annotation <- seuratobj[[which_annotation]]
-Idents(seuratobj) <- 'annotation'
+which_identity <- 'global'
+which_cluster <- paste0(which_identity, '_cluster')
+which_supercluster <- paste0(which_identity, '_supercluster')
 
-which_celltype <- ifelse(str_detect(which_annotation, 'global'), 'global_celltype', 'celltype')
+seuratobj$cluster <- seuratobj[[which_cluster]] # set cluster as main annotation
+seuratobj$supercluster <- seuratobj[[which_supercluster]] # set cluster as main annotation
+Idents(seuratobj) <- 'cluster'
 
-output_dir <- here(output_dir, which_annotation)
+output_dir <- here(output_dir, which_identity)
 dir.create(output_dir)
 ```
 
+### Metadata
 ```{r}
 metadata <- seuratobj@meta.data %>% rownames_to_column() %>% as_tibble()
 
@@ -67,7 +70,7 @@ patient_only <- subset(seuratobj, subset = treatment %in% c('Pre', 'Mid'))
 patient_only
 ```
 
-#### Global
+#### Plotting parameters
 ```{r}
 h <- 3
 w <- 3
@@ -79,22 +82,49 @@ dpi <- 600
 
 ### Figure 1B
 #### UMAP of points only (PNG)
-```{r fig.height=4, fig.width=4, dpi=300}
-p <- seurat_feature(seuratobj, features = 'annotation', facet_hide = TRUE, legend_position = 'none', label = FALSE, color_package = 'carto', color_palette = 'Bold', rasterize_dpi = dpi) 
+```{r fig.height=4, fig.width=4}
+p <- seurat_feature(seuratobj, 
+                    features = 'cluster', 
+                    facet_hide = TRUE, 
+                    legend_position = 'none', 
+                    label = FALSE, 
+                    color_package = 'carto', 
+                    color_palette = 'Bold', 
+                    rasterize_dpi = dpi) 
 
 ggsave(plot = p,
        path = output_dir,
        height = h,
        width = w,
        dpi = dpi,
-       filename = 'F1B.png') 
+       filename = 'F1B_cluster.png') 
+p
+```
+
+
+```{r fig.height=4, fig.width=4}
+p <- seurat_feature(seuratobj, 
+                    features = 'supercluster', 
+                    facet_hide = TRUE, 
+                    legend_position = 'none', 
+                    label = FALSE, 
+                    color_package = 'carto', 
+                    color_palette = 'Bold', 
+                    rasterize_dpi = dpi) 
+
+ggsave(plot = p,
+       path = output_dir,
+       height = h,
+       width = w,
+       dpi = dpi,
+       filename = 'F1B_supercluster.png') 
 
 p
 ```
-#### With labels
-```{r}
+#### Labels and PDF
+```{r fig.height=4, fig.width=4}
 p <- seurat_feature(seuratobj, 
-                    features = 'annotation', 
+                    features = 'cluster', 
                     facet_hide = TRUE, 
                     legend_position = 'none', 
                     label = TRUE, 
@@ -109,22 +139,21 @@ ggsave(plot = p,
        height = h,
        width = w,
        dpi = dpi,
-       filename = 'F1B.pdf') 
+       filename = 'F1B_cluster.pdf') 
 
 p
 ```
 
-#### Legend
-```{r fig.height = 4, fig.width=4}
+```{r fig.height=4, fig.width=4}
 p <- seurat_feature(seuratobj, 
-                    features = 'annotation', 
+                    features = 'supercluster', 
                     facet_hide = TRUE, 
-                    legend_position = 'right', 
-                    label = FALSE, 
+                    legend_position = 'none', 
+                    label = TRUE, 
                     color_package = 'carto', 
                     color_palette = 'Bold', 
-                    rasterize_dpi = dpi) +
-  theme(text = element_text(family = 'Arial'))
+                    label_size = 3, 
+                    rasterize_dpi = dpi) 
 
 ggsave(plot = p,
        device = cairo_pdf,
@@ -132,12 +161,54 @@ ggsave(plot = p,
        height = h,
        width = w,
        dpi = dpi,
-       filename = 'F1B_legend.pdf') 
+       filename = 'F1B_supercluster.pdf') 
 
 p
 ```
 
-### Figure 1B, Dot Plot
+#### Legend
+```{r fig.height=4, fig.width=6}
+p <- seurat_feature(seuratobj, 
+                    features = 'cluster', 
+                    facet_hide = TRUE, 
+                    legend_position = 'right', 
+                    label = FALSE, 
+                    color_package = 'carto', 
+                    color_palette = 'Bold', 
+                    rasterize_dpi = dpi) 
+
+ggsave(plot = p,
+       device = cairo_pdf,
+       path = output_dir,
+       height = h,
+       width = w * 1.5,
+       dpi = dpi,
+       filename = 'F1B_cluster_legend.pdf') 
+
+p
+```
+
+```{r fig.height=4, fig.width=6}
+p <- seurat_feature(seuratobj, 
+                    features = 'supercluster', 
+                    facet_hide = TRUE, 
+                    legend_position = 'right', 
+                    label = FALSE, 
+                    color_package = 'carto', 
+                    color_palette = 'Bold', 
+                    rasterize_dpi = dpi) 
+
+ggsave(plot = p,
+       device = cairo_pdf,
+       path = output_dir,
+       height = h,
+       width = w * 1.5,
+       dpi = dpi,
+       filename = 'F1B_supercluster_legend.pdf') 
+
+p
+```
+### Figure 1C, Marker Dot Plot
 #### Reynolds et al markers
 
 ```{r}
@@ -227,18 +298,15 @@ main_markers <- c("CD3D",
                   #"TPSB2",
                   #"TPSAB1",
                   #"ITGA4"
-                  "IL23A"
-                  )
+                  "IL23A")
 ```
 
 
-#### F1B dot plot horizontal
+#### F1C dot plot horizontal
 ```{r}
 p <- DotPlot(seuratobj, 
              features = main_markers,
              cluster.idents = TRUE,
-             #cols = c('dodgerblue3', 'orangered'), 
-             #cols = viridis::viridis(n = 2, option = 'C'),
              cols = RColorBrewer::brewer.pal(n = 7, 'BuPu')[c(1,7)],
              dot.min = 0.1,
              dot.scale = 4, 
@@ -276,7 +344,7 @@ ggsave(plot = p,
 p
 ```
 
-### Figure 1D
+### Figure 1D; UMAP facets
 ```{r}
 unit_height <- 2
 unit_width <- 2
@@ -287,7 +355,7 @@ view_colors(color_palette5)
 
 ```
 
-
+#### By condition
 ```{r}
 p <- seurat_feature(subset(seuratobj, subset = condition != 'AD'), 
                     features = 'condition', 
@@ -308,6 +376,7 @@ ggsave(plot = p,
 
 p
 ```
+
 ```{r}
 p <- seurat_feature(subset(seuratobj, subset = condition != 'AD'), 
                     features = 'condition', 
@@ -331,6 +400,7 @@ ggsave(plot = p,
 p
 ```
 
+#### Treatment time-point
 ```{r}
 p <- seurat_feature(patient_only, 
                     features = 'treatment', 
@@ -353,12 +423,23 @@ ggsave(plot = p,
 p
 ```
 
-#### Patient-level umaps
-
-
-#### Mix
+#### By patient, mixed colors
 ```{r}
-p1 <- seurat_feature(patient_only, features = 'patient', label = FALSE, legend_position = 'none', facet_hide = TRUE, axis_title_position = 'none', rasterize_dpi = dpi)
+patient_colors <- carto_pal(n = 9, name = 'Prism')
+view_colors(patient_colors)
+```
+
+
+```{r}
+p1 <- seurat_feature(patient_only, 
+                     features = 'patient', 
+                     label = FALSE, 
+                     legend_position = 'none', 
+                     facet_hide = TRUE, 
+                     axis_title_position = 'none', 
+                     color_package = 'custom',
+                     color_palette = patient_colors,
+                     rasterize_dpi = dpi)
 
 ggsave(plot = p1,
        path = output_dir,
@@ -369,8 +450,17 @@ ggsave(plot = p1,
 
 p1
 ```
+
 ```{r}
-p1 <- seurat_feature(patient_only, features = 'patient', label = FALSE, facet_hide = TRUE, legend_position = 'right',  axis_title_position = 'none', rasterize_dpi = dpi)
+p1 <- seurat_feature(patient_only, 
+                     features = 'patient', 
+                     label = FALSE, 
+                     facet_hide = TRUE, 
+                     legend_position = 'right',  
+                     axis_title_position = 'none', 
+                     color_package = 'custom',
+                     color_palette = patient_colors,
+                     rasterize_dpi = dpi)
 
 ggsave(plot = p1,
        device = cairo_pdf,
@@ -383,9 +473,15 @@ ggsave(plot = p1,
 p1
 ```
 
-
+#### Patients faceted
 ```{r}
-p2 <- seurat_feature(patient_only, features = 'patient', facets = 'patient', label = FALSE, facet_hide = TRUE, alpha = 0.5, size = 0.2, rasterize_dpi = dpi)
+p2 <- seurat_feature(patient_only, 
+                     features = 'patient', 
+                     facets = 'patient', 
+                     label = FALSE, facet_hide = TRUE, alpha = 0.5, size = 0.2, 
+                     color_package = 'custom',
+                     color_palette = patient_colors,
+                     rasterize_dpi = dpi)
 
 ggsave(plot = p2,
        path = output_dir,
@@ -399,65 +495,61 @@ p2
 ### Figure 1E
 #### Plotting order
 ```{r}
-patient_order <- metadata %>% select(patient, sample, condition, treatment, response, group, ends_with('label')) %>% unique()
-
-
-tildra_order <- patient_order %>% 
-  #filter(treatment != 'None') %>% 
-  arrange(patient, treatment)
-
-tildra_order
+# patient_order <- metadata %>% select(patient, sample, condition, treatment, response, group, ends_with('label')) %>% unique()
+# 
+# 
+# tildra_order <- patient_order %>% 
+#   #filter(treatment != 'None') %>% 
+#   arrange(patient, treatment)
+# 
+# tildra_order
 ```
 
-#### How many patients are represented in each cell annotation?
+#### How many patients are represented in each cell cluster?
 ```{r}
-metadata %>% filter(treatment %in% c('Pre', 'Mid')) %>% select(annotation, patient) %>% unique() %>% group_by(annotation) %>% tally() 
+metadata %>% filter(treatment %in% c('Pre', 'Mid')) %>% select(cluster, patient) %>% unique() %>% group_by(cluster) %>% tally() 
 ```
 ```{r}
-metadata %>% filter(treatment %in% c('Pre', 'Mid')) %>% select(annotation, patient, treatment) %>% unique() %>% group_by(annotation, treatment) %>% tally() %>% 
+metadata %>% filter(treatment %in% c('Pre', 'Mid')) %>% select(cluster, patient, treatment) %>% unique() %>% group_by(cluster, treatment) %>% tally() %>% 
   pivot_wider(names_from = treatment, values_from = n)
 ```
 
 
 ### Cluster size and % 
 ```{r}
-tallies <- metadata %>% 
-  group_by(annotation) %>% 
-  tally() %>% 
-  mutate(total = sum(n),
-         f = n/total,
-         pct = round(100 * f, 2))
-  
-tallies
-```
-
-### Proportion of cells in each cluster
-```{r}
 analyze <- metadata %>% 
-  select(rowname, id, patient, sample, condition, treatment, annotation, group, celltype = all_of(which_celltype)) 
+  select(rowname, id, patient, sample, condition, treatment, cluster, supercluster, group, celltype) 
 
 analyze %>% head()
 ```
 ```{r}
-tallies <- analyze %>% 
-  group_by(sample, patient, condition, annotation, celltype, treatment, group) %>% 
+cluster_tallies <- analyze %>% 
+  group_by(sample, patient, condition, cluster, celltype, treatment, group) %>% 
   tally() %>% 
   group_by(sample) %>% 
   mutate(total = sum(n),
          f = n/total,
          pct = round(100 * f, 2))
 
-tallies
+supercluster_tallies <- analyze %>% 
+  group_by(sample, patient, condition, supercluster, celltype, treatment, group) %>% 
+  tally() %>% 
+  group_by(sample) %>% 
+  mutate(total = sum(n),
+         f = n/total,
+         pct = round(100 * f, 2))
+
+cluster_tallies
 ```
 
-#### Major celltype
+#### Major celltypes
 
 ```{r}
 four_colors <- carto_pal(n = 5, name = 'Bold')
   
-conditions <- c('APC', 'Innate', 'Lymphocyte')
+conditions <- c('APC', 'Lymphocyte')
 
-celltype_input <- tallies %>% 
+celltype_input <- cluster_tallies %>% 
     filter(treatment %in% c('Pre', 'Mid')) %>% 
     group_by(patient, sample, treatment, total, celltype, group) %>% 
     summarize(n = sum(n)) %>% 
@@ -465,7 +557,7 @@ celltype_input <- tallies %>%
   mutate(f = n/total, 
          pct = 100 * f)
   
-plots <- map(1:3, function(i) {
+p_celltypes <- map(1:length(conditions), function(i) {
   
   celltype_input %>% 
     filter(celltype == conditions[i]) %>% 
@@ -479,84 +571,42 @@ plots <- map(1:3, function(i) {
     scale_fill_manual(values = four_colors[i]) +
     theme_dwu(legend.position = 'top')
   
-}) 
-
-p2 <- tallies %>% 
-  filter(treatment %in% c('Pre', 'Mid')) %>% 
-  filter(str_detect(annotation, 'Trm')) %>% 
-  mutate(annotation = 'Trm') %>% 
-  ggplot(aes(x = treatment,
-             y = n,
-             fill = annotation)) +
-  geom_boxplot() +
-  labs(x = '',
-       y = '# of Cells') +
-  facet_wrap(~group, nrow = 2) +
-  scale_fill_manual(values = four_colors[4]) +
-  theme_dwu(legend.position = 'top')
-
-p <- list(plots[[1]],
-          plots[[2]],
-          plots[[3]],
-          p2) %>% wrap_plots(nrow = 1)
+}) %>% wrap_plots()
 
 ggsave(plot = p,
        filename = 'F1E_box_celltype_n.pdf',
        path = output_dir,
        h = 4,
-       w = 6)
+       w = 4)
 
 p
 ```
-#### Percent
 ```{r}
-plots <- map(1:3, function(i) {
+
+trm_clusters <- str_subset(cluster_tallies$cluster, 'Trm') %>% unique() %>% sort()
+
+p_trm <- map(1:length(trm_clusters), function(i) {
   
-  celltype_input %>% 
-    filter(celltype == conditions[i]) %>% 
+  p <- cluster_tallies %>% 
+    filter(treatment %in% c('Pre', 'Mid')) %>% 
+    filter(cluster == trm_clusters[i]) %>% 
     ggplot(aes(x = treatment,
-               y = pct,
-               fill = celltype)) +
+               y = n,
+               fill = cluster)) +
     geom_boxplot() +
     labs(x = '',
-         y = '% of Cells') +
+         y = '# of Cells') +
     facet_wrap(~group, nrow = 2) +
     scale_fill_manual(values = four_colors[i]) +
-    theme_dwu(legend.position = 'top')
-  
-}) 
-
-p2 <- tallies %>% 
-  filter(treatment %in% c('Pre', 'Mid')) %>% 
-  filter(str_detect(annotation, 'Trm')) %>% 
-  mutate(annotation = 'Trm') %>% 
-  ggplot(aes(x = treatment,
-             y = pct,
-             fill = annotation)) +
-  geom_boxplot() +
-  labs(x = '',
-       y = '% of Cells') +
-  facet_wrap(~group, nrow = 2) +
-  scale_fill_manual(values = four_colors[4]) +
   theme_dwu(legend.position = 'top')
+}) %>% wrap_plots()
 
-p <- list(plots[[1]],
-          plots[[2]],
-          plots[[3]],
-          p2) %>% wrap_plots(nrow = 1)
-
-ggsave(plot = p,
-       device = cairo_pdf,
-       filename = 'F1E_box_celltype_f.pdf',
-       path = output_dir,
-       h = 4,
-       w = 6)
-
-p
+p_trm
 ```
+
 #### Display responders and nonresponders side-by-side
 ```{r}
-plots <- map(1:3, function(i) {
+p_celltype <- map(1:length(conditions), function(i) {
   
   celltype_input %>% 
     filter(celltype == conditions[i]) %>% 
@@ -570,26 +620,26 @@ plots <- map(1:3, function(i) {
     scale_fill_manual(values = four_colors[i]) +
     theme_dwu(legend.position = 'top')
   
-}) 
+}) %>% wrap_plots(nrow = 1)
 
-p2 <- tallies %>% 
+p_trm <- map(1:length(trm_clusters), function(i) {
+  
+p_trm <- cluster_tallies %>% 
   filter(treatment %in% c('Pre', 'Mid')) %>% 
-  filter(str_detect(annotation, 'Trm')) %>% 
-  mutate(annotation = 'Trm') %>% 
+  filter(cluster == trm_clusters[i]) %>% 
   ggplot(aes(x = treatment,
              y = n,
-             fill = annotation)) +
+             fill = cluster)) +
   geom_boxplot() +
   labs(x = '',
        y = '# of Cells') +
   facet_wrap(~group, nrow = 1) +
-  scale_fill_manual(values = four_colors[4]) +
+  scale_fill_manual(values = four_colors[i]) +
   theme_dwu(legend.position = 'top')
 
-p_n <- list(plots[[1]],
-            plots[[2]],
-            plots[[3]],
-            p2) %>% wrap_plots(nrow = 1)
+}) %>% wrap_plots(nrow = 1)
+
+p_n <- p_celltype + p_trm
 
 ggsave(plot = p_n,
        device = cairo_pdf,
@@ -618,13 +668,13 @@ plots <- map(1:3, function(i) {
   
 }) 
 
-p2 <- tallies %>% 
+p2 <- cluster_tallies %>% 
   filter(treatment %in% c('Pre', 'Mid')) %>% 
-  filter(str_detect(annotation, 'Trm')) %>% 
-  mutate(annotation = 'Trm') %>% 
+  filter(str_detect(cluster, 'Trm')) %>% 
+  mutate(cluster = 'Trm') %>% 
   ggplot(aes(x = treatment,
              y = pct,
-             fill = annotation)) +
+             fill = cluster)) +
   geom_boxplot() +
   labs(x = '',
        y = '% of Cells') +
@@ -648,9 +698,9 @@ p_f
 ```
 #### Trm only
 ```{r}
-p1 <- tallies %>% 
+p1 <- cluster_tallies %>% 
   filter(treatment %in% c('Pre', 'Mid')) %>% 
-  filter(annotation %in% 'Trm') %>% 
+  filter(cluster %in% 'Trm') %>% 
   ggplot(aes(x = treatment,
              y = n,
              fill = group)) +
@@ -661,9 +711,9 @@ p1 <- tallies %>%
   scale_fill_manual(values = colors_response2) +
   theme_dwu(legend.position = 'top')
 
-p2 <- tallies %>% 
+p2 <- cluster_tallies %>% 
   filter(treatment %in% c('Pre', 'Mid')) %>% 
-  filter(annotation %in% 'Trm') %>% 
+  filter(cluster %in% 'Trm') %>% 
   ggplot(aes(x = treatment,
              y = pct,
              fill = group)) +
@@ -703,10 +753,15 @@ treatment_groups
 
 ```{r}
 p <- celltype_input %>% 
-  bind_rows(tallies %>% 
+  filter(celltype %in% c('APC', 'Lymphocyte')) %>% 
+  bind_rows(cluster_tallies %>% 
               filter(treatment %in% c('Pre', 'Mid')) %>% 
-              filter(annotation %in% 'Trm') %>% 
-              mutate(celltype = 'Trm')) %>% 
+              filter(str_detect(cluster, 'Trm')) %>% 
+              mutate(celltype = cluster)) %>% 
+  bind_rows(supercluster_tallies %>% 
+              filter(treatment %in% c('Pre', 'Mid')) %>% 
+              filter(str_detect(supercluster, 'Trm')) %>% 
+              mutate(celltype = 'Trm all')) %>%
   select(sample, treatment, group, celltype, n, pct) %>% 
   pivot_longer(cols = c(n, pct),
                names_to = 'metric',
@@ -728,7 +783,67 @@ ggsave(plot = p,
        filename = 'F1E_box_combined.pdf',
        path = output_dir,
        h = 5,
-       w = 6)
+       w = 10)
+
+p
+```
+#### All clusters, n
+```{r}
+p <- cluster_tallies %>% 
+  filter(treatment %in% c('Pre', 'Mid')) %>% 
+  select(sample, treatment, group, cluster, n, pct) %>% 
+  pivot_longer(cols = c(n, pct),
+               names_to = 'metric',
+               values_to = 'value') %>% 
+  left_join(treatment_groups) %>% 
+  filter(metric == 'n') %>% 
+ggplot(aes(x = treatment_group,
+             y = value,
+             fill = group)) +
+  geom_boxplot() +
+  labs(x = '',
+       y = '# of Cells') +
+  facet_wrap(~cluster, scales = 'free_y') +
+  scale_fill_manual(values = colors_response2) +
+  theme_dwu(legend.position = 'top') +
+  scale_x_discrete(labels = c('Pre', 'Mid', 'Pre', 'Mid'))
+
+ggsave(plot = p,
+       device = cairo_pdf,
+       filename = 'F1E_box_all_clusters_n.pdf',
+       path = output_dir,
+       h = 8,
+       w = 8)
+
+p
+```
+All clusters, f
+```{r}
+p <- cluster_tallies %>% 
+  filter(treatment %in% c('Pre', 'Mid')) %>% 
+  select(sample, treatment, group, cluster, n, pct) %>% 
+  pivot_longer(cols = c(n, pct),
+               names_to = 'metric',
+               values_to = 'value') %>% 
+  left_join(treatment_groups) %>% 
+  filter(metric == 'pct') %>% 
+ggplot(aes(x = treatment_group,
+             y = value,
+             fill = group)) +
+  geom_boxplot() +
+  labs(x = '',
+       y = '% of Cells') +
+  facet_wrap(~cluster, scales = 'free_y') +
+  scale_fill_manual(values = colors_response2) +
+  theme_dwu(legend.position = 'top') +
+  scale_x_discrete(labels = c('Pre', 'Mid', 'Pre', 'Mid'))
+
+ggsave(plot = p,
+       device = cairo_pdf,
+       filename = 'F1E_box_all_clusters_f.pdf',
+       path = output_dir,
+       h = 8,
+       w = 8)
 
 p
 ```
@@ -736,7 +851,7 @@ p
 
 #### Each celltype by n and f
 ```{r}
-p <- tallies %>% 
+p <- cluster_tallies %>% 
   filter(treatment %in% c('Pre', 'Mid')) %>% 
     ggplot(aes(x = group,
              y = n,
@@ -745,14 +860,14 @@ p <- tallies %>%
   #rcartocolor::scale_fill_carto_d(palette = 'Bold') +
   labs(x = '',
        y = '# of Cells') +
-  facet_wrap(~annotation, scales = 'free_y') +
+  facet_wrap(~cluster, scales = 'free_y') +
   theme_dwu(legend.position = 'top') +
   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
   ggthemes::scale_fill_few()
 
 ggsave(plot = p,
        device = cairo_pdf,
-       filename = 'F1E_box_annotation_n.pdf',
+       filename = 'F1E_box_cluster_n.pdf',
        path = output_dir,
        h = 8,
        w = 8)
@@ -761,7 +876,7 @@ p
 ```
 
 ```{r}
-p <- tallies %>% 
+p <- cluster_tallies %>% 
   filter(treatment %in% c('Pre', 'Mid')) %>% 
     ggplot(aes(x = group,
              y = pct,
@@ -770,14 +885,14 @@ p <- tallies %>%
   #rcartocolor::scale_fill_carto_d(palette = 'Bold') +
   labs(x = '',
        y = '% of Cells') +
-  facet_wrap(~annotation, scales = 'free_y') +
+  facet_wrap(~cluster, scales = 'free_y') +
   theme_dwu(legend.position = 'top') +
   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
   ggthemes::scale_fill_few()
 
 ggsave(plot = p,
        device = cairo_pdf,
-       filename = 'F1E_box_annotation_f.pdf',
+       filename = 'F1E_box_cluster_f.pdf',
        path = output_dir,
        h = 8,
        w = 8)
@@ -790,8 +905,8 @@ p
 ### Figure 1F
 #### n
 ```{r}
-p <- tallies %>% 
-  filter(str_detect(annotation, 'Trm')) %>% 
+p <- cluster_tallies %>% 
+  filter(str_detect(cluster, 'Trm')) %>% 
   filter(!is.na(group)) %>% 
   select(sample, treatment, group, celltype, n, pct) %>% 
   pivot_longer(cols = c(n, pct),
@@ -820,8 +935,8 @@ p
 ```
 
 ```{r}
-p <- tallies %>% 
-  filter(str_detect(annotation, 'Trm')) %>% 
+p <- cluster_tallies %>% 
+  filter(str_detect(cluster, 'Trm')) %>% 
   filter(!is.na(group)) %>% 
   ggplot(aes(x = sample,
              y = f * 100,
@@ -845,10 +960,10 @@ p
 ```
 
 ```{r}
-p <- tallies %>% 
+p <- cluster_tallies %>% 
   ggplot(aes(x = sample,
              y = f * 100,
-             fill = annotation)) +
+             fill = cluster)) +
   geom_bar(stat = 'identity',
            position = 'stack') +
   #rcartocolor::scale_fill_carto_d(palette = 'Bold') +

@@ -348,18 +348,18 @@ sample_cluster_tally
 apc_clustering <- apcs@meta.data %>% 
   rownames_to_column() %>% 
   select(rowname, seurat_clusters) %>% 
-  mutate(subcluster = factor(paste0('A', seurat_clusters), levels = paste0('A', levels(seurat_clusters))))
+  mutate(local = factor(paste0('A', seurat_clusters), levels = paste0('A', levels(seurat_clusters))))
 
 lymphocyte_clustering <- lymphocytes@meta.data %>% 
   rownames_to_column() %>% 
   select(rowname, seurat_clusters) %>% 
-  mutate(subcluster = factor(paste0('L', seurat_clusters), levels = paste0('L', levels(seurat_clusters))))
+  mutate(local = factor(paste0('L', seurat_clusters), levels = paste0('L', levels(seurat_clusters))))
 
 other_clustering <- celltypes %>% 
   rownames_to_column() %>% 
-  select(rowname, seurat_clusters, subcluster = celltype) %>% 
-  filter(subcluster %in% c('B', 'Mast')) %>% 
-  mutate(subcluster = factor(subcluster))
+  select(rowname, seurat_clusters, local = celltype) %>% 
+  filter(local %in% c('B', 'Mast')) %>% 
+  mutate(local = factor(local))
 
 merged_clustering <- subcluster@meta.data %>% 
   rownames_to_column() %>% 
@@ -378,7 +378,7 @@ subcluster <- AddMetaData(subcluster, merged_clustering)
 
 
 ```{r}
-subcluster %>% seurat_feature(feature = 'subcluster', facet_hide = TRUE, title = 'Lymphocyte and APC Clusters', legend_position = 'none')
+subcluster %>% seurat_feature(feature = 'local', facet_hide = TRUE, title = 'Lymphocyte and APC Clusters', legend_position = 'none')
 ```
 
 ```{r}
@@ -416,12 +416,12 @@ p4
 ```{r}
 p5 <- subcluster %>% 
   seurat_feature(facet_hide = TRUE, 
-                 feature = 'subcluster',
-                 title = 'Subclusters', 
+                 feature = 'local',
+                 title = 'Local Clusters', 
                  legend_position = 'none', color_package = 'carto', color_palette = 'Bold', alpha = 0.2, label = FALSE, rasterize_dpi = 600)
 
 ggsave(plot = p5,
-       filename = 'umap_subcluster.png',
+       filename = 'umap_local.png',
        dpi = 600,
        h = 5,
        w = 5,
@@ -431,8 +431,8 @@ p5
 ```
 
 ```{r}
-p6 <- subcluster %>% seurat_feature(title = 'Subclusters', 
-                                    feat = 'subcluster', 
+p6 <- subcluster %>% seurat_feature(title = 'Local Clusters', 
+                                    feature = 'local', 
                                     legend_position = 'none', 
                                     color_package = 'carto', 
                                     color_palette = 'Bold', 
@@ -440,7 +440,7 @@ p6 <- subcluster %>% seurat_feature(title = 'Subclusters',
                                     label = TRUE)
 
 ggsave(plot = p6,
-       filename = 'umap_subcluster_labeled.png',
+       filename = 'umap_local_labeled.png',
        h = 12,
        w = 12,
        path = output_dir)
@@ -461,13 +461,13 @@ ggsave(plot = p7,
 ```
 
 ```{r}
-p8 <- subcluster %>% seurat_feature(title = 'Subclusters', 
-                                    feature = 'subcluster',
-                                    facets = 'subcluster', 
+p8 <- subcluster %>% seurat_feature(title = 'Local Clusters', 
+                                    feature = 'local',
+                                    facets = 'local', 
                                     legend_position = 'none', color_package = 'carto', color_palette = 'Pastel', alpha = 0.2, label = FALSE)
 
 ggsave(plot = p8,
-       filename = 'umap_subcluster_facets.png',
+       filename = 'umap_local_facets.png',
        h = 12,
        w = 12,
        path = output_dir)

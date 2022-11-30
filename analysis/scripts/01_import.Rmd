@@ -160,9 +160,9 @@ qc_plots <- function(seuratobj,
 
 ### Load metadata
 ```{r}
-samples_dir <- "analysis/input/samples/"
-metadata <- read_tsv('analysis/output/00_process/metadata_subset.tsv')
-stress_genes <- read_csv('analysis/input/coregene_df-FALSE-v3.csv')
+samples_dir <- here('analysis/input/samples/')
+metadata <- read_tsv(here('analysis/output/00_process/metadata_subset.tsv'))
+stress_genes <- read_csv(here('analysis/input/coregene_df-FALSE-v3.csv'))
 ```
 
 ### Import cellranger data and add metadata, QC metrics
