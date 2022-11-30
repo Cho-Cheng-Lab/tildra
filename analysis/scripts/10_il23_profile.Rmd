@@ -61,20 +61,21 @@ visiumobj <- read_rds(here(data_dir, 'integrated_samples.rds'))
 DefaultAssay(visiumobj) <- 'SCT'
 
 visium_meta <- read_tsv(here('analysis/output/10_visium/visium_meta.tsv.gz')) %>% 
-  mutate(id = ifelse(id == 'S234', 'S277', id))
+  mutate(id = ifelse(id == 'S234', 'S277', id), cluster = annotation)
 
 seuratobj
 ```
-### Select identity
+### Use global or local identities and set as cluster/supercluster in the object
 ```{r}
-which_annotation <- 'global_supercluster'
-seuratobj$annotation <- seuratobj[[which_annotation]]
-Idents(seuratobj) <- 'annotation'
+which_identity <- 'global'
+which_cluster <- paste0(which_identity, '_cluster')
+which_supercluster <- paste0(which_identity, '_supercluster')
 
-which_celltype <- ifelse(str_detect(which_annotation, 'global'), 'global_celltype', 'celltype')
-seuratobj$celltype <- seuratobj[[which_celltype]]
+seuratobj$cluster <- seuratobj[[which_cluster]] # set cluster as main annotation
+seuratobj$supercluster <- seuratobj[[which_supercluster]] # set cluster as main annotation
+Idents(seuratobj) <- 'cluster'
 
-output_dir <- here(output_dir, which_annotation)
+output_dir <- here(output_dir, which_identity)
 dir.create(output_dir)
 ```
 
@@ -92,9 +93,9 @@ patient_meta
 
 ### Major clusters
 ```{r}
-clusters_all <- metadata$annotation %>% unique()
-clusters_t <- metadata %>% filter(str_detect(annotation, 'T')) %>% pull(annotation) %>% unique()
-clusters_apc <- metadata %>% filter(celltype == 'APC') %>% pull(annotation) %>% unique()
+clusters_all <- metadata$cluster %>% unique()
+clusters_t <- metadata %>% filter(str_detect(cluster, 'T')) %>% pull(cluster) %>% unique()
+clusters_apc <- metadata %>% filter(celltype == 'APC') %>% pull(cluster) %>% unique()
 ```
 
 ```{r}
@@ -111,10 +112,10 @@ patient_display
 
 ```{r}
 meta <- metadata %>% 
-  select(rowname, id, annotation) %>% 
-  bind_rows(visium_meta %>% select(rowname, id, annotation) %>% drop_na()) %>% 
+  select(rowname, id, cluster) %>% 
+  bind_rows(visium_meta %>% select(rowname, id, cluster) %>% drop_na()) %>% 
   left_join(patient_meta) %>% 
-  select(rowname, id, patient, sample, condition, treatment, response, group, annotation) %>% 
+  select(rowname, id, patient, sample, condition, treatment, response, group, cluster) %>% 
   mutate(display = paste(patient, group),
          description = factor(paste(condition, treatment) %>% str_remove(' None'),
                               levels = c('PV Pre',
@@ -124,10 +125,10 @@ meta <- metadata %>%
                                          'HC')),
          treatment = factor(treatment, levels = c('Pre', 'Mid', 'None')),
          cellgroup = case_when(
-           str_detect(annotation, 'Trm') ~ 'Trm',
-           annotation %in% clusters_apc ~ 'APC',
-           annotation %in% clusters_t ~ 'Tcell',
-           TRUE ~ annotation
+           str_detect(cluster, 'Trm1') ~ 'Trm1',
+           cluster %in% clusters_apc ~ 'APC',
+           cluster %in% clusters_t ~ 'Tcell',
+           TRUE ~ cluster
          ))
 
 meta
@@ -148,13 +149,14 @@ pv50_genes <- pv50$...1 %>% intersect(rownames(seuratobj))
 Genes that change in responders but not non-responders
 Group-level
 ```{r}
-de_pre_vs_mid_response <- bind_rows(read_tsv(here('analysis/output/07_de', which_annotation, 'de_pre_vs_mid_responder.tsv.gz')) %>% mutate(response = 'Responder'),
-                                    read_tsv(here('analysis/output/07_de', which_annotation, 'de_pre_vs_mid_nonresponder.tsv.gz')) %>% mutate(response = 'Non-responder'))
+de_pre_vs_mid_response <- bind_rows(read_tsv(here('analysis/output/07_de', which_cluster, 'de_pre_vs_mid_responder.tsv.gz')) %>% mutate(response = 'Responder'),
+                                    read_tsv(here('analysis/output/07_de', which_cluster, 'de_pre_vs_mid_nonresponder.tsv.gz')) %>% mutate(response = 'Non-responder'))
 
 il23_group_response <- de_pre_vs_mid_response %>% 
   filter(p_val_adj < 0.05,
          avg_log2FC > 0,
-         response == 'Responder') 
+         response == 'Responder', 
+         cluster == 'Trm1') 
 
 il23_group_response
 ```
@@ -162,13 +164,14 @@ il23_group_response
 il23_nonresponsive <- de_pre_vs_mid_response %>% 
   filter(p_val_adj < 0.05,
          avg_log2FC > 0,
-         response == 'Non-responder')
+         response == 'Non-responder',
+         cluster == 'Trm1')
 
 il23_nonresponsive
 ```
 Patient-level
 ```{r}
-de_pre_vs_mid_patients <- read_tsv(here('analysis/output/07_de', which_annotation,'de_pre_vs_mid_per_patient.tsv.gz'))
+de_pre_vs_mid_patients <- read_tsv(here('analysis/output/07_de', which_cluster,'de_pre_vs_mid_per_patient.tsv.gz'))
 
 il23_patients_responsive <- de_pre_vs_mid_patients %>% 
   filter(p_val_adj < 0.05,
@@ -202,15 +205,15 @@ il23_response
 
 
 ```{r}
-il23_genes <- il23_response %>% filter(str_detect(cluster, 'Trm'), p_val_adj < 0.05, n_responders > n_nonresponders) %>% pull(gene)
-il23_genes_strict <- il23_response %>% filter(str_detect(cluster, 'Trm'), p_val_adj < 0.05, n_responders > 2, n_responders > n_nonresponders, n_nonresponders < 2) %>% pull(gene) %>% unique()
+il23_genes <- il23_response %>% filter(str_detect(cluster, 'Trm1'), p_val_adj < 0.05, n_responders > n_nonresponders) %>% pull(gene)
+il23_genes_strict <- il23_response %>% filter(str_detect(cluster, 'Trm1'), p_val_adj < 0.05, n_responders > 2, n_responders > n_nonresponders, n_nonresponders < 2) %>% pull(gene) %>% unique()
 
 il23_genes_strict
 ```
 
 ### Nonresponder signature
 ```{r}
-de_responder_vs_nonresponder <- read_tsv(here('analysis/output/07_de', which_annotation, 'de_responder_vs_nonresponder_mid.tsv.gz'))
+de_responder_vs_nonresponder <- read_tsv(here('analysis/output/07_de', which_cluster, 'de_responder_vs_nonresponder_mid.tsv.gz'))
 ```
 
 ```{r}
@@ -222,15 +225,15 @@ nonresponder_markers <- de_responder_vs_nonresponder %>%
 nonresponder_markers
 ```
 ```{r}
-nonresponder_genes <- nonresponder_markers %>% filter(str_detect(cluster, 'Trm')) %>% pull(gene)
+nonresponder_genes <- nonresponder_markers %>% filter(str_detect(cluster, 'Trm1')) %>% pull(gene)
 ```
 
 ### Tildra response in APCs
 ```{r eval=FALSE}
-de_pre_vs_mid_apc <- read_tsv(here('analysis/output/07_de', which_annotation, 'de_pre_vs_mid.tsv.gz'))
+de_pre_vs_mid_apc <- read_tsv(here('analysis/output/07_de', which_cluster, 'de_pre_vs_mid.tsv.gz'))
 
 apc_responders <- de_pre_vs_mid_apc %>% 
-  filter(response == 'responders',
+  filter(response == 'Responder',
          p_val_adj < 0.05)
 
 apc_responders
@@ -305,7 +308,7 @@ genes_of_interest <- c('IL23A', 'IL23R', 'IL17A', 'IL17F', 'ZFP36', 'ZFP36L2', n
 
 ```{r}
 barcodes_visium <- visium_meta %>% 
-  filter(annotation %in% c('fibroblast', 'keratinocyte')) %>% 
+  filter(cluster %in% c('fibroblast', 'keratinocyte')) %>% 
   pull(rowname)
 
 
@@ -315,7 +318,7 @@ barcodes_visium <- visium_meta %>%
 ```{r}
 barcodes <- meta %>% filter(condition %in% c('PV', 'HC', 'AD'),
                             treatment %in% c('Pre', 'Mid', 'None'),
-                            cellgroup %in% c('APC', 'Trm', 'Tcell')) %>% 
+                            cellgroup %in% c('APC', 'Trm1', 'Tcell')) %>% 
   pull(rowname)
 
 
@@ -387,6 +390,20 @@ data_table_long_tx_summarized_log <-
 
 data_table_long_tx_summarized_log
 ```
+#### Normalize within patient
+```{r}
+data_table_long_tx_summarized_patient <- 
+  data_table_long %>% 
+  filter(treatment %in% c('Pre', 'Mid')) %>% 
+  group_by(id, sample, patient, condition, display, treatment, response, group, gene, cellgroup) %>% 
+  summarize(binary = mean(expression > 0),
+            expression = mean(expression)) %>% 
+  group_by(gene, cellgroup, patient) %>% 
+  mutate(max = max(expression),
+         normalized = expression/max) 
+
+data_table_long_tx_summarized_patient
+```
 
 ###Summarize by cluster and normalize across all
 ```{r}
@@ -451,14 +468,14 @@ tx_patients_nonresponders <- meta %>% filter(treatment != 'None', group == 'Non-
 
 ```{r}
 display_features <- c('APC IL23A',
-                      'Trm IL23R',
-                      paste('Trm', il23_genes),
-                      'Trm IL17A',
-                      'Trm IL17F',
+                      'Trm1 IL23R',
+                      paste('Trm1', il23_genes),
+                      'Trm1 IL17A',
+                      'Trm1 IL17F',
                       'APC IL17A',
                       'APC IL17F',
-                      'Trm ZFP36',
-                      'Trm ZFP36L2',
+                      'Trm1 ZFP36',
+                      'Trm1 ZFP36L2',
                       'keratinocyte IL17_signature',
                       'keratinocyte IL17A',
                       'keratinocyte IL17F') %>% 
@@ -489,9 +506,9 @@ p
 ```
 ### Radar plot
 ```{r fig.height=10, fig.width=10}
-display_features <- c('Trm IL23_signature',
-                      'Trm IL17A',
-                      'Trm IL17F',
+display_features <- c('Trm1 IL23_signature',
+                      'Trm1 IL17A',
+                      'Trm1 IL17F',
                       'APC IL17A',
                       'APC IL17F')
 
@@ -580,7 +597,7 @@ ggsave(plot = radar,
 ```{r fig.height=10, fig.width=10}
 
 genes_to_use <- il23_genes_strict
-display_features <- c(paste('Trm', genes_to_use))
+display_features <- c(paste('Trm1', genes_to_use))
 
 plot_input <- data_table_long_tx_summarized %>% 
   filter(treatment %in% c('Pre', 'Mid')) %>% 
@@ -657,7 +674,7 @@ ggsave(plot = radar_nonresponders,
 ```
 
 ```{r}
-de_pre_vs_mid_response %>% filter(response == 'Responder', str_detect(cluster, 'Trm'), p_val_adj < 0.01, avg_log2FC > 0) %>% pull(gene) %>% intersect(il23_genes)
+de_pre_vs_mid_response %>% filter(response == 'Responder', str_detect(cluster, 'Trm1'), p_val_adj < 0.01, avg_log2FC > 0) %>% pull(gene) %>% intersect(il23_genes)
 ```
 
 ### PV 50 radar
@@ -665,7 +682,7 @@ de_pre_vs_mid_response %>% filter(response == 'Responder', str_detect(cluster, '
 
 genes_to_use <- pv50_genes
 
-display_features <- c(paste('Trm', genes_to_use))
+display_features <- c(paste('Trm1', genes_to_use))
 
 plot_input <- data_table_long_tx_summarized %>% 
   filter(treatment %in% c('Pre', 'Mid')) %>% 
@@ -729,13 +746,14 @@ ggsave(plot = radar,
 
 
 ```
+### pv50 and IL23 response
 ```{r fig.height=10, fig.width=10}
 
 genes_to_use <- intersect(pv50_genes, il23_genes)
-genes_to_use <- intersect(pv50_genes, de_pre_vs_mid_response %>% filter(response == 'Responder', str_detect(cluster, 'Trm'), p_val_adj < 0.05, avg_log2FC > 0) %>% pull(gene))
-#genes_to_use <- intersect(pv50_genes, il23_genes_strict)
+genes_to_use <- intersect(pv50_genes, de_pre_vs_mid_response %>% filter(response == 'Responder', str_detect(cluster, 'Trm1'), p_val_adj < 0.05, avg_log2FC > 0) %>% pull(gene))
+# genes_to_use <- intersect(pv50_genes, il23_genes_strict)
 
-display_features <- c(paste('Trm', genes_to_use))
+display_features <- c(paste('Trm1', genes_to_use))
 
 plot_input <- data_table_long_tx_summarized %>% 
   filter(treatment %in% c('Pre', 'Mid')) %>% 
@@ -800,6 +818,148 @@ ggsave(plot = radar,
 
 ```
 
+### Normalize per patient
+### PV 50 radar
+```{r fig.height=10, fig.width=10}
+
+genes_to_use <- pv50_genes
+
+display_features <- c(paste('Trm1', genes_to_use))
+
+plot_input <- data_table_long_tx_summarized_patient %>% 
+  filter(treatment %in% c('Pre', 'Mid')) %>% 
+  mutate(feature = paste(cellgroup, gene)) %>% 
+  filter(feature %in% display_features) %>% 
+  mutate(feature = factor(feature, levels = display_features))
+  
+radar_plots <- map(plot_input$patient %>% unique %>% sort, function(i) {
+  which_patient <- i
+  
+  radar_input <- plot_input %>% 
+    ungroup() %>% 
+    filter(patient == which_patient) %>% 
+    select(treatment, gene, normalized) %>% 
+    pivot_wider(names_from = gene,
+                values_from = normalized) %>% 
+    select(treatment, all_of(genes_to_use)) %>% 
+    mutate(treatment = factor(treatment, levels = c('Pre', 'Mid')))
+  
+  skin_ids <- plot_input %>% filter(patient == which_patient) %>% pull(id) %>% unique()
+  response <- plot_input %>% filter(patient == which_patient) %>% pull(group) %>% unique()
+  
+  p_radar <- radar_input %>% 
+    ggradar(legend.text.size = 8,
+            grid.label.size = 0,
+            axis.label.size = 2,
+            group.point.size = 1,
+            axis.label.offset = 1.1,
+            group.line.width = 0.5,
+            #grid.line.width = 0,
+            gridline.max.linetype = 'solid',
+            gridline.mid.linetype = 'solid',
+            group.colours = c('dodgerblue4', 'orangered'),
+            plot.title = paste0('Patient ', i, ' (', skin_ids[1], ', ', skin_ids[2], '): ', response),
+            legend.position = 'top') +
+    theme(plot.title = element_text(size = 9, hjust = 0.5),
+          plot.background = element_rect(color = 'black'),
+          #legend.box.background = element_rect(color = 'blue'),
+          legend.key.height = unit(1, 'mm'),
+          legend.spacing = unit(0, 'mm')) 
+  
+  p_radar
+})
+
+radar <- radar_plots %>% patchwork::wrap_plots(ncol = 3)
+radar_responders <- radar_plots[1:6] %>% patchwork::wrap_plots(ncol = 3)
+radar_nonresponders <- radar_plots[7:9] %>% patchwork::wrap_plots(ncol = 3)
+
+radar
+```
+```{r}
+w <- 8
+h <-  7
+ggsave(plot = radar,
+       device = cairo_pdf,
+       filename = 'radar_plot_pv50_all_per_patient.pdf',
+       path = output_dir,
+       height = 10,
+       width = 10,
+       dpi = 600)
+
+
+```
+### pv50 and IL23 response
+```{r fig.height=10, fig.width=10}
+
+genes_to_use <- intersect(pv50_genes, il23_genes)
+genes_to_use <- intersect(pv50_genes, de_pre_vs_mid_response %>% filter(response == 'Responder', str_detect(cluster, 'Trm1'), p_val_adj < 0.05, avg_log2FC > 0) %>% pull(gene))
+# genes_to_use <- intersect(pv50_genes, il23_genes_strict)
+
+display_features <- c(paste('Trm1', genes_to_use))
+
+plot_input <- data_table_long_tx_summarized_patient %>% 
+  filter(treatment %in% c('Pre', 'Mid')) %>% 
+  mutate(feature = paste(cellgroup, gene)) %>% 
+  filter(feature %in% display_features) %>% 
+  mutate(feature = factor(feature, levels = display_features))
+  
+radar_plots <- map(plot_input$patient %>% unique %>% sort, function(i) {
+  which_patient <- i
+  
+  radar_input <- plot_input %>% 
+    ungroup() %>% 
+    filter(patient == which_patient) %>% 
+    select(treatment, gene, normalized) %>% 
+    pivot_wider(names_from = gene,
+                values_from = normalized) %>% 
+    select(treatment, all_of(genes_to_use)) %>% 
+    mutate(treatment = factor(treatment, levels = c('Pre', 'Mid')))
+  
+  skin_ids <- plot_input %>% filter(patient == which_patient) %>% pull(id) %>% unique()
+  response <- plot_input %>% filter(patient == which_patient) %>% pull(group) %>% unique()
+  
+  p_radar <- radar_input %>% 
+    ggradar(legend.text.size = 8,
+            grid.label.size = 0,
+            axis.label.size = 2,
+            group.point.size = 1,
+            axis.label.offset = 1.1,
+            group.line.width = 0.5,
+            #grid.line.width = 0,
+            gridline.max.linetype = 'solid',
+            gridline.mid.linetype = 'solid',
+            group.colours = c('dodgerblue4', 'orangered'),
+            plot.title = paste0('Patient ', i, ' (', skin_ids[1], ', ', skin_ids[2], '): ', response),
+            legend.position = 'top') +
+    theme(plot.title = element_text(size = 9, hjust = 0.5),
+          plot.background = element_rect(color = 'black'),
+          #legend.box.background = element_rect(color = 'blue'),
+          legend.key.height = unit(1, 'mm'),
+          legend.spacing = unit(0, 'mm')) 
+  
+  p_radar
+})
+
+radar <- radar_plots %>% patchwork::wrap_plots(ncol = 3)
+radar_responders <- radar_plots[1:6] %>% patchwork::wrap_plots(ncol = 3)
+radar_nonresponders <- radar_plots[7:9] %>% patchwork::wrap_plots(ncol = 3)
+
+radar
+```
+```{r}
+w <- 8
+h <-  7
+ggsave(plot = radar,
+       device = cairo_pdf,
+       filename = 'radar_plot_pv50_shared_per_patient.pdf',
+       path = output_dir,
+       height = 10,
+       width = 10,
+       dpi = 600)
+
+
+```
+
 ### Waterfall plot
 ```{r}
 
@@ -809,7 +969,7 @@ p_waterfall <- map(tx_patients, function(i) {
   
   display_label <- paste0('Patient ', i, ': ', data_table_long_tx_summarized %>% filter(patient == i) %>% pull(group) %>% unique())
   data_table_long_tx_summarized %>% 
-    filter(cellgroup == 'Trm',
+    filter(cellgroup == 'Trm1',
            patient == i,
            gene %in% il23_genes_strict) %>% 
     ggplot(aes(x = reorder(gene, -normalized),
@@ -822,7 +982,7 @@ p_waterfall <- map(tx_patients, function(i) {
     theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
     scale_color_manual(values = c('orangered', 'dodgerblue4')) +
     labs(x = '',
-         y = 'Average Trm Expression',
+         y = 'Average Trm1 Expression',
          title = display_label)
   
 })
@@ -846,7 +1006,7 @@ i <- 'P1'
 il23_stats <- map(patient_meta %>% filter(treatment != 'None') %>% pull(patient) %>% unique(), function(i) {
   data_subset <- data_table_long_tx_summarized %>% 
   filter(patient == i,
-         cellgroup == 'Trm',
+         cellgroup == 'Trm1',
          gene %in% il23_genes_strict) 
   
   
@@ -875,7 +1035,7 @@ il23_stats
 p <- map(patient_meta %>% filter(treatment != 'None') %>% pull(patient) %>% unique(), function(i) {
   data_subset <- data_table_long_tx_summarized %>% 
   filter(patient == i,
-         cellgroup == 'Trm',
+         cellgroup == 'Trm1',
          gene %in% il23_genes_strict) 
   
   
@@ -900,19 +1060,19 @@ p
 
 ### Select set
 ```{r fig.height=10, fig.width=10}
-display_features <- c('Trm IL23_signature',
+display_features <- c('Trm1 IL23_signature',
                       'APC IL23_signature',
-                      'Trm IL17A',
-                      'Trm IL17F',
+                      'Trm1 IL17A',
+                      'Trm1 IL17F',
                       'APC IL17A',
                       'APC IL17F',
-                      'Trm IL26',
+                      'Trm1 IL26',
                       'APC IL26',
-                      'Trm IL23A',
+                      'Trm1 IL23A',
                       'APC IL23A',
-                      'Trm IL23R',
+                      'Trm1 IL23R',
                       'APC IL23R',
-                      'Trm IFNG',
+                      'Trm1 IFNG',
                       'APC IFNG')
 
 plot_input <- data_table_long_tx_summarized %>%
@@ -971,19 +1131,19 @@ radar
 
 #### Log scale prior to normalization
 ```{r fig.height=10, fig.width=10}
-display_features <- c('Trm IL23_signature',
+display_features <- c('Trm1 IL23_signature',
                       'APC IL23_signature',
-                      'Trm IL17A',
-                      'Trm IL17F',
+                      'Trm1 IL17A',
+                      'Trm1 IL17F',
                       'APC IL17A',
                       'APC IL17F',
-                      'Trm IL26',
+                      'Trm1 IL26',
                       'APC IL26',
-                      'Trm IL23A',
+                      'Trm1 IL23A',
                       'APC IL23A',
-                      'Trm IL23R',
+                      'Trm1 IL23R',
                       'APC IL23R',
-                      'Trm IFNG',
+                      'Trm1 IFNG',
                       'APC IFNG')
 
 plot_input <- data_table_long_tx_summarized_log %>%
@@ -1062,13 +1222,13 @@ ggsave(plot = radar_nonresponders,
 ```{r}
 data_table_long_all_summarized %>% 
   filter(gene == 'IL23_signature',
-         cellgroup == 'Trm') %>% 
+         cellgroup == 'Trm1') %>% 
   ggplot(aes(x = condition,
              y = normalized,
              color = treatment)) +
   geom_sina() +
   theme_dwu(legend.position = 'right') +
-  labs(y = 'Normalized Average Trm Expression')
+  labs(y = 'Normalized Average Trm1 Expression')
 ```
 ```{r}
 
@@ -1078,7 +1238,7 @@ data_table_long_all_summarized %>%
 perfect_separators <- data_table_long_tx_summarized %>% 
   filter(gene %in% nonresponder_genes,
          treatment == 'Mid',
-         cellgroup == 'Trm') %>% 
+         cellgroup == 'Trm1') %>% 
   select(group, group, gene, expression) %>% 
   group_by(group, group, gene) %>% 
   summarize(min = min(expression),
@@ -1096,7 +1256,7 @@ Strict
 p <- data_table_long_tx_summarized %>% 
   filter(gene %in% c(il23_genes_strict, 'IL17A', 'IL17F'),
          treatment == 'Mid',
-         cellgroup == 'Trm') %>% 
+         cellgroup == 'Trm1') %>% 
   ggplot(aes(x = reorder(gene, expression),
              y = expression,
              color = group)) +
@@ -1108,7 +1268,7 @@ p <- data_table_long_tx_summarized %>%
   geom_jitter(alpha = 0.8, size = 2) +
   coord_flip() +
   labs(x = '',
-       y = 'Trm Average Expression')
+       y = 'Trm1 Average Expression')
 
 ggsave(plot = p,
        filename = 'bar_mid_separators_strict.pdf',
@@ -1125,7 +1285,7 @@ p <- data_table_long_tx_summarized %>%
   
   filter(gene %in% c(il23_genes, 'IL17A', 'IL17F'),
          treatment == 'Mid',
-         cellgroup == 'Trm') %>% 
+         cellgroup == 'Trm1') %>% 
   ggplot(aes(x = reorder(gene, expression),
              y = expression,
              color = group)) +
@@ -1137,7 +1297,7 @@ p <- data_table_long_tx_summarized %>%
   scale_color_manual(values = c('orangered', 'dodgerblue4')) +
   coord_flip() +
   labs(x = '',
-       y = 'Trm Average Expression')
+       y = 'Trm1 Average Expression')
 
 ggsave(plot = p,
        filename = 'bar_mid_separators_full.pdf',
@@ -1153,7 +1313,7 @@ p <- data_table_long_tx_summarized %>%
   
   filter(gene %in% c(il23_genes, 'IL17A', 'IL17F'),
          treatment == 'Mid',
-         cellgroup == 'Trm') %>% 
+         cellgroup == 'Trm1') %>% 
   ggplot(aes(x = group,
              y = expression,
              color = group)) +
@@ -1166,7 +1326,7 @@ p <- data_table_long_tx_summarized %>%
   #scale_color_manual(values = c('orangered', 'dodgerblue4')) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
   labs(x = '',
-       y = 'Trm Average Expression')
+       y = 'Trm1 Average Expression')
 
 ggsave(plot = p,
        filename = 'bar_mid_separators_facet_full.pdf',
@@ -1180,7 +1340,7 @@ p <- data_table_long_tx_summarized %>%
   
   filter(gene %in% c(il23_genes_strict, 'IL17A', 'IL17F'),
          treatment == 'Mid',
-         cellgroup == 'Trm') %>% 
+         cellgroup == 'Trm1') %>% 
   ggplot(aes(x = group,
              y = expression,
              color = group)) +
@@ -1193,7 +1353,7 @@ p <- data_table_long_tx_summarized %>%
   rcartocolor::scale_color_carto_d(palette = 'Prism') +
   theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
   labs(x = '',
-       y = 'Trm Average Expression')
+       y = 'Trm1 Average Expression')
 
 ggsave(plot = p,
        filename = 'bar_mid_separators_facet_strict.pdf',
@@ -1211,7 +1371,7 @@ p <- data_table_long_tx_summarized %>%
   
   filter(gene %in% 'Secreted',
          treatment == 'Mid',
-         cellgroup == 'Trm') %>% 
+         cellgroup == 'Trm1') %>% 
   ggplot(aes(x = reorder(patient, -expression),
              y = expression,
              fill = group)) +
@@ -1221,7 +1381,7 @@ p <- data_table_long_tx_summarized %>%
   #rcartocolor::scale_color_carto_d(palette = 'Prism') +
   scale_fill_manual(values = c('orangered', 'dodgerblue4')) +
   labs(x = 'Patient',
-       y = 'Trm Average Expression',
+       y = 'Trm1 Average Expression',
        title = 'Secreted Gene Signature')
 
 p
@@ -1235,7 +1395,7 @@ p <- data_table_long_tx_summarized %>%
   
   filter(gene == 'IL23_peripheral',
          treatment == 'Mid',
-         cellgroup == 'Trm') %>% 
+         cellgroup == 'Trm1') %>% 
   ggplot(aes(x = reorder(patient, -expression),
              y = expression,
              fill = group)) +
@@ -1245,7 +1405,7 @@ p <- data_table_long_tx_summarized %>%
   #rcartocolor::scale_color_carto_d(palette = 'Prism') +
   scale_fill_manual(values = c('orangered', 'dodgerblue4')) +
   labs(x = 'Patient',
-       y = 'Trm Average Expression',
+       y = 'Trm1 Average Expression',
        title = 'Peripheral IL23 Gene Signature')
 
 p
@@ -1260,7 +1420,7 @@ p
 p <- data_table_long %>% 
   filter(treatment != 'None',
          gene %in% c('IL17A', 'IL17F'),
-         group %in% c('APC', 'Trm', 'Tcell')) %>% 
+         group %in% c('APC', 'Trm1', 'Tcell')) %>% 
   group_by(patient, treatment, group, group, gene) %>% 
   summarize(expression = mean(expression)) %>% 
   ggplot(aes(x = patient,
@@ -1277,14 +1437,14 @@ p
 ### PV, AD, HC
 ```{r fig.height=6, fig.width=12}
 display_features <- c('APC IL23A',
-                      'Trm IL23R',
-                      paste('Trm', il23_genes),
-                      'Trm IL17A',
-                      'Trm IL17F',
+                      'Trm1 IL23R',
+                      paste('Trm1', il23_genes),
+                      'Trm1 IL17A',
+                      'Trm1 IL17F',
                       'APC IL17A',
                       'APC IL17F',
-                      'Trm ZFP36',
-                      'Trm ZFP36L2') %>% 
+                      'Trm1 ZFP36',
+                      'Trm1 ZFP36L2') %>% 
   unique()
 
 plot_input <- data_table_long_tx_summarized %>% 
@@ -1309,9 +1469,9 @@ p
 ```{r}
 
 meta %>% 
-  filter(annotation %in% clusters_apc,
+  filter(cluster %in% clusters_apc,
          treatment != 'None') %>% 
-  group_by(group, annotation, treatment) %>% 
+  group_by(group, cluster, treatment) %>% 
   tally() %>% 
   pivot_wider(names_from = c(group, treatment),
               values_from = n) %>% 

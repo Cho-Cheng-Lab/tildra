@@ -659,6 +659,36 @@ map(merged_annotations$global %>% unique() %>% sort(), function(i) {
 
 ```
 
+#### RashX centric
+```{r}
+map(merged_annotations$cluster %>% unique() %>% sort(), function(i) {
+  
+  # 2-way: rashx vs local and global
+  p <- plot_sankey2(merged_annotations %>% filter(global == i),
+                    nodes = c('global', 'cluster', 'local'),
+                    names = c('Global Cluster', 'RashX Cluster', 'Local Cluster'))
+  
+  ggsave(plot = p,
+         filename = paste0(i, '.png'),
+         path = here(output_dir, 'global', 'sankey2_rashx'),
+         dpi = dpi,
+         h = 4,
+         w = 8)
+  
+  # 2-way: rashx supercluster vs local and global
+    p <- plot_sankey2(merged_annotations %>% filter(global == i),
+                    nodes = c('global', 'supercluster', 'local'),
+                    names = c('Global Cluster', 'RashX Supercluster', 'Local Cluster'))
+  
+  ggsave(plot = p,
+         filename = paste0(i, '.png'),
+         path = here(output_dir, 'global', 'sankey2_rashx_supercluster'),
+         dpi = dpi,
+         h = 4,
+         w = 8)
+      
+}) %>% invisible()
+```
 
 ```{r}
 library(pheatmap)
@@ -674,20 +704,6 @@ p <- pheatmap(mat = pheatmap_input %>% column_to_rownames('group2'),
          color = c('white', colorRampPalette(RColorBrewer::brewer.pal(n = 7, name = "Blues"))(100)),
          breaks = seq(0, 1, length.out = 102), display_numbers = TRUE)
 ```
-
-```{r}
-p <- pheatmap_input %>% 
-  pivot_longer(cols = -1, names_to = 'group1', values_to = 'value') %>% 
-  ggplot(aes(x = group1,
-             y = group2,
-             fill = value)) +
-  geom_tile() +
-  scale_fill_continuous(type = 'viridis', na.value = 'green') +
-  theme(legend.position = 'right')
-
-p
-```
-
 
 ### Annotate
 #### Factor level ordering
@@ -731,6 +747,7 @@ annotation_order <- rashx_clusters %>% select(cluster, supercluster) %>%
 annotation_order
 ```
 
+#### Prepare addition of local and global annotations
 ```{r}
 annotation_local <- annotation_odds$local$supercluster %>% 
   group_by(group1) %>% 
@@ -783,7 +800,7 @@ annotation_global_levels <- annotation_global %>%
 annotation_local_levels
 ```
 
-
+#### Merged annotation information
 ```{r}
 new_annotations <- seuratobj@meta.data %>% 
   rownames_to_column() %>% 
@@ -909,7 +926,18 @@ ggsave(plot = p,
 p
 
 ```
+### Use global or local identities and set as cluster/supercluster in the object
+Use this code to select between global or local identities as the default for a given analysis
+Here we will set global as the default
+```{r}
+which_identity <- 'global'
+which_cluster <- paste0(which_identity, '_cluster')
+which_supercluster <- paste0(which_identity, '_supercluster')
 
+seuratobj$cluster <- seuratobj[[which_cluster]] # set cluster as main annotation
+seuratobj$supercluster <- seuratobj[[which_supercluster]] # set cluster as main annotation
+Idents(seuratobj) <- 'cluster'
+```
 ### Export
 ```{r}
 seuratobj@meta.data %>% rownames_to_column() %>% write_rds(here(output_dir, 'metadata.rds'), compress = 'gz')
