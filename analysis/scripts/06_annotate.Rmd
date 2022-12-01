@@ -62,25 +62,47 @@ seuratobj
 
 #### Import annotations from RashX paper
 ```{r}
+rashx <- read_rds(here('data/external/rashx.rds'))
 rashx_clusters <- read_tsv(here('analysis/output/rashx/rashx_clusters.tsv.gz'))
 rashx_clusters %>% head()
 ```
 
 ## Analysis
+### Seurat label transfer
+```{r}
+transfer_dims <- 1:20
+
+tic()
+anchors <- FindTransferAnchors(reference = rashx, 
+                               query = seuratobj,
+                               dims = transfer_dims, 
+                               features = VariableFeatures(seuratobj),
+                               reduction = 'pcaproject')
+
+predictions <- TransferData(anchorset = anchors,
+                            refdata = rashx$Ident2,
+                            dims = transfer_dims)
+
+toc()
+
+
+```
+
+
 ### Combine all annotations
 ```{r}
 merged_annotations <- metadata %>% 
   select(rowname, id, local, global) %>% 
+  left_join(predictions %>% rownames_to_column() %>% select(rowname, transfer = predicted.id))
   separate(rowname, sep = '_', into = c('barcode', NA), remove = FALSE) %>% 
   left_join(rashx_clusters) %>% 
-  drop_na() %>% 
   as_tibble()
 
 merged_annotations
 ```
 ### Agreement metrics
 ```{r}
-all_clusterings <- c('local', 'global', 'cluster', 'supercluster')
+all_clusterings <- c('local', 'global', 'transfer', 'cluster', 'supercluster')
 
 pairwise_table <- crossing('cluster1' = all_clusterings,
                            'cluster2' = all_clusterings) %>% 
@@ -187,6 +209,8 @@ dpi <- 600
 
 map(merged_annotations$local %>% unique() %>% sort(), function(i) {
   
+  print2(i)
+  
   # Local vs Global
   p <- plot_sankey1(merged_annotations %>% filter(local == i),
                     nodes = c('local', 'global'),
@@ -255,6 +279,8 @@ map(merged_annotations$local %>% unique() %>% sort(), function(i) {
 #### Global centric
 ```{r}
 map(merged_annotations$global %>% unique() %>% sort(), function(i) {
+  
+  print2(i)
   
   # Global vs local
   p <- plot_sankey1(merged_annotations %>% filter(global == i),
@@ -325,6 +351,8 @@ map(merged_annotations$global %>% unique() %>% sort(), function(i) {
 ```{r}
 map(merged_annotations$cluster %>% unique() %>% sort(), function(i) {
   
+  print2(i)
+  
   # 2-way: rashx vs local and global
   p <- plot_sankey2(merged_annotations %>% filter(global == i),
                     nodes = c('global', 'cluster', 'local'),
@@ -332,7 +360,7 @@ map(merged_annotations$cluster %>% unique() %>% sort(), function(i) {
   
   ggsave(plot = p,
          filename = paste0(i, '.png'),
-         path = here(output_dir, 'global', 'sankey2_rashx'),
+         path = here(output_dir, 'rashx', 'sankey2_rashx'),
          dpi = dpi,
          h = 4,
          w = 8)
@@ -344,7 +372,7 @@ map(merged_annotations$cluster %>% unique() %>% sort(), function(i) {
   
   ggsave(plot = p,
          filename = paste0(i, '.png'),
-         path = here(output_dir, 'global', 'sankey2_rashx_supercluster'),
+         path = here(output_dir, 'rashx', 'sankey2_rashx_supercluster'),
          dpi = dpi,
          h = 4,
          w = 8)
@@ -408,6 +436,7 @@ annotation_order <- rashx_clusters %>% select(cluster, supercluster) %>%
 
 annotation_order
 ```
+
 
 #### Prepare addition of local and global annotations
 ```{r}
@@ -545,6 +574,16 @@ ggsave(plot = p,
 p
 
 ```
+```{r}
+test <- seuratobj %>% RunUMAP(reduction = 'harmony', 
+                              dims = 1:20, 
+                              assay = 'RNA', 
+                              seed.use = 1234,
+                              n.neighbors = 30,
+                              n.epochs = 500,
+                              min.dist = 0.3)
+```
+
 #### Global
 ```{r}
 p <- seuratobj %>% 
@@ -565,6 +604,25 @@ ggsave(plot = p,
        h = 4)
 
 p
+```
+```{r}
+p <- seuratobj %>% 
+  seurat_feature(features = 'global_cluster', 
+                 facets = 'global_cluster', 
+                 legend_position = 'none',
+                 size = 0.1, 
+                 alpha = 0.1, 
+                 label = FALSE,
+                 color_package = 'carto', 
+                 color_palette = 'Bold', 
+                 rasterize_dpi = dpi)
+
+ggsave(plot = p,
+       filename = 'umap_annotated_global_cluster_facets.png',
+       dpi = dpi,
+       path = output_dir,
+       w = 8, 
+       h = 8)
 ```
 
 

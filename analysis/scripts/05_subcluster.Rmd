@@ -40,6 +40,7 @@ library(harmony)
 ```{r}
 recluster <- function(seuratobj, 
                       assay = 'RNA',
+                      reduction = 'harmony',
                       dims = 1:20,
                       seed = 42,
                       n.neighbors = 30,
@@ -54,21 +55,21 @@ recluster <- function(seuratobj,
     ### RunUMAP, FindNeighbors, and FindClusters 
   
   seuratobj <- seuratobj %>% 
-    RunUMAP(reduction = 'harmony', 
-            dims = dims, 
-            assay = assay, 
-            seed.use = seed,
-            n.neighbors = n.neighbors,
-            n.epochs = n.epochs,
-            min.dist = min.dist) %>% 
-    FindNeighbors(reduction = 'harmony', 
+    FindNeighbors(reduction = reduction, 
                   dims = dims, 
                   assay = assay,
                   annoy.metric = metric,
                   k.param = k.param) %>% 
     FindClusters(random.seed = seed,
                  algorithm = algorithm,
-                 resolution = resolution)
+                 resolution = resolution) %>% 
+    RunUMAP(reduction = reduction, 
+            dims = dims, 
+            assay = assay, 
+            seed.use = seed,
+            n.neighbors = n.neighbors,
+            n.epochs = n.epochs,
+            min.dist = min.dist)
   
   ### Fix cluster factor levels
   clusterings <- colnames(seuratobj@meta.data) %>% str_subset('_res')
@@ -83,6 +84,12 @@ recluster <- function(seuratobj,
   
   seuratobj
 }
+```
+
+### Global seed
+```{r}
+seed <- 123
+set.seed(seed)
 ```
 
 ### Import Seurat
@@ -149,27 +156,8 @@ broad_markers %>% group_by(cluster) %>% slice_max(pct.diff, n = 5)
 ```{r}
 broad_markers %>% filter(gene %in% 'COL1A1')
 ```
-### Reynolds et al markers
-
-```{r}
-markers_reynolds <- c('KRT14', 'KRT5', 
-                      'GATA3', 'KRTDAP',
-                      'CRYAB', 'TYRP1',
-                      'DKK3', 'PLEKHA4',
-                      'LUM', 'APOD',
-                      'PHLDA2', 'CCL2',
-                      'IL6', 'PDGFRA',
-                      'COL1A1', 'CXCL12',
-                      'CD82', 'CCL19', 'KCNE4', 'CPE', 'TAGLN', 'MYL9', 'HEY1', 'CCL14', 'PECAM1',
-                      'ACKR1', 'SELE', 'SNCG', 'HES1', 'MMRN1', 'XCL1' ,'XCL2', 'KLRC1', 'CCL5', 'GZMA', 
-                      'CD8A', 'CD8B', 'IL7R', 'FOXP3', 'TIGIT', 'TPSB2', 'TPSAB1', 'CD79A', 'JCHAIN', 'CD163',
-                      'C1QB', 'FCGR2A', 'MS4A6A', 'IL23A', 'CLEC9A', 'CLEC10A', 'CD1C', 'CD207', 'CD1A', 
-                      'CD14', 'IL1B', 'CCR7', 'IDO1')
-```
 
 ### Subclusters
-Use UMAP as input to clustering for cleanly selecting clusters
-
 
 #### Major cell types
 ```{r}
@@ -235,33 +223,44 @@ p1 + p2
 
 #### Reprocess subclusters
 ```{r}
-apcs <- apcs %>% DietSeurat() %>% FindVariableFeatures(nfeatures = 3000) %>% ScaleData() %>% RunPCA() %>% RunHarmony(batch)
-apcs
+apcs <- apcs %>% DietSeurat() %>% FindVariableFeatures(nfeatures = 3000) %>% ScaleData() %>% RunPCA() 
+
+ElbowPlot(apcs, ndims = 50)
+```
+
+#### Select dimensions prior to harmony as all dimensions are used
+```{r}
+max_harmony_dims <- 20
+
+apcs <- apcs %>% RunHarmony(group.by.vars = batch,
+                            dims.use = 1:max_harmony_dims)
+
+apcs %>% ElbowPlot(ndims = max_harmony_dims, reduction = 'harmony')
 ```
 
 ```{r}
-ElbowPlot(apcs, ndims = 50, reduction = 'harmony')
+lymphocytes <- lymphocytes %>% DietSeurat() %>% FindVariableFeatures(nfeatures = 3000) %>% ScaleData() %>% RunPCA() 
+
+ElbowPlot(lymphocytes, ndims = 50)
 ```
 
 ```{r}
-lymphocytes <- lymphocytes %>% DietSeurat() %>% FindVariableFeatures(nfeatures = 3000) %>% ScaleData() %>% RunPCA() %>% RunHarmony(batch)
-lymphocytes
-```
+lymphocytes <- lymphocytes %>% RunHarmony(group.by.vars = batch,
+                                          dims.use = 1:max_harmony_dims)
 
-```{r}
-ElbowPlot(lymphocytes, ndims = 50, reduction = 'harmony')
+lymphocytes %>% ElbowPlot(ndims = max_harmony_dims, reduction = 'harmony')
 ```
 
 ### Cluster subgroups separately, then recombine objects for grouped analysis
 #### Reclustering parameters
 ```{r}
-dims <- 1:20
+dims <- 1:max_harmony_dims
 ```
-
 
 ```{r}
-apcs <- apcs %>% recluster(dims = dims)
+apcs <- apcs %>% recluster(dims = dims, seed = seed)
 ```
+
 ```{r}
 p <- seurat_feature(apcs, facet_hide = TRUE, title = 'APC Subcluster', legend_position = 'none')
 
@@ -283,7 +282,7 @@ apcs@meta.data %>%
 
 #### Lymphocytes
 ```{r}
-lymphocytes <- lymphocytes %>% recluster(dims = dims)
+lymphocytes <- lymphocytes %>% recluster(dims = dims, seed = seed)
 ```
 
 ```{r}
@@ -309,20 +308,25 @@ VariableFeatures(subcluster) <- combined_features
 
 subcluster <- subcluster %>% 
   ScaleData() %>% 
-  RunPCA() %>% 
-  RunHarmony(group.by.vars = batch)
+  RunPCA() 
 
+subcluster %>% ElbowPlot(ndims = 50)
 ```
 ```{r}
-ElbowPlot(subcluster, ndims = 50, reduction = 'harmony')
+max_harmony_dims <- 20
+subcluster <- subcluster %>% RunHarmony(group.by.vars = batch,
+                                        dims.use = 1:max_harmony_dims)
+
+ElbowPlot(subcluster, ndims = max_harmony_dims, reduction = 'harmony')
 ```
 
 ### RunUMAP, FindNeighbors, and FindClusters 
 ```{r}
-subcluster <- subcluster %>% recluster(dims = 1:20,
+subcluster <- subcluster %>% recluster(dims = 1:max_harmony_dims,
                                        resolution = c(0.1, 1, 2),
                                        n.epochs = 500,
-                                       default_ident = 'RNA_snn_res.2')
+                                       default_ident = 'RNA_snn_res.2',
+                                       seed = seed)
 
 subcluster$global <- Idents(subcluster)
 ```
@@ -433,6 +437,7 @@ p5
 ```{r}
 p6 <- subcluster %>% seurat_feature(title = 'Local Clusters', 
                                     feature = 'local', 
+                                    facet_hide = TRUE,
                                     legend_position = 'none', 
                                     color_package = 'carto', 
                                     color_palette = 'Bold', 

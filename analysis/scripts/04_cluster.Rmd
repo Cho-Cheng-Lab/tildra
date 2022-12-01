@@ -1,6 +1,6 @@
 ---
 title: "Clustering and Dimensionality Reduction"
-author: "Abed Kurdi and David Wu"
+author: "David Wu"
 ---
 
 ### Use the here package for robust relative paths
@@ -25,8 +25,6 @@ dir.create(output_dir, showWarnings = FALSE)
 dir.create(data_dir, showWarnings = FALSE)
 ```
 
-
-
 ### Load libraries
 ```{r, message=FALSE}
 library(Seurat) 
@@ -36,10 +34,15 @@ library(SeuratWrappers)
 library(wutilities) # devtools::install_github('symbiologist/wutilities')
 library(tictoc)
 library(harmony)
+library(extrafont)
 theme_set(theme_dwu()) # set default theme
 ```
 
-
+### Global seed
+```{r}
+seed <- 123
+set.seed(seed)
+```
 
 ### Load Seurat object
 ```{r}
@@ -76,19 +79,27 @@ seuratobj <- seuratobj %>%
   ScaleData() %>% 
   RunPCA() 
 ```
+```{r}
+ElbowPlot(seuratobj, ndims = 50)
+```
+
 
 ### Run Harmony
 ```{r}
-seuratobj <- seuratobj %>% RunHarmony(group.by.vars = c('treatment', 'chemistry', 'patient', 'flow', 'mouse'), plot_convergence = TRUE, assay = 'RNA')
+max_harmony_dims <- 30
+
+seuratobj <- seuratobj %>% 
+  RunHarmony(group.by.vars = c('treatment', 'chemistry', 'patient', 'flow', 'mouse'),
+             dims = 1:max_harmony_dims)
 ```
 
 ### Make the elbow plot
 ```{r}
 pdf(here(output_dir, "elbow_plot.pdf"))
-ElbowPlot(seuratobj, ndims = 50, reduction = 'harmony')
+ElbowPlot(seuratobj, ndims = max_harmony_dims, reduction = 'harmony')
 dev.off()
 
-ElbowPlot(seuratobj, ndims = 50, reduction = 'harmony')
+ElbowPlot(seuratobj, ndims = max_harmony_dims, reduction = 'harmony')
 ```
 ### Examine individual harmonized PCs
 ```{r}
@@ -105,9 +116,9 @@ metric <- 'cosine'
 prune <- 1/15
 
 seuratobj <- seuratobj %>% 
-  FindNeighbors(reduction = 'harmony', dims = dims, k.param = neighbors, annoy.metric = metric) %>% 
-  FindClusters(resolution = c(0.1, 1), prune.SNN = prune) %>% 
-  RunUMAP(reduction = 'harmony', dims = dims, n.neighbors = neighbors, metric = metric) 
+  FindNeighbors(reduction = 'harmony', dims = dims, k.param = neighbors, annoy.metric = metric, prune.SNN = prune) %>% 
+  FindClusters(resolution = c(0.1, 1), random.seed = seed) %>% 
+  RunUMAP(reduction = 'harmony', dims = dims, n.neighbors = neighbors, metric = metric, seed.use = seed) 
 ```
 
 #### Use same neighborhood network for UMAP
