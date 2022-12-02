@@ -55,13 +55,8 @@ rashx_clusters <- metadata %>%
          supercluster = str_remove(Ident2, '[:digit:]|-c')) %>% # add supercluster
   select(barcode, 
          id,
-         label = Ident1, 
          cluster = Ident2, 
-         supercluster,
-         type,
-         Phase) %>% 
-  separate(label, into = c('order', NA), sep = ' ', remove = FALSE) %>% 
-  mutate(order = as.factor(as.integer(order))) 
+         supercluster) 
 
 rashx_clusters 
 ```

@@ -1,0 +1,167 @@
+---
+title: "Cluster Representation"
+author: "David Wu"
+---
+
+Set working directory to project directory
+```{r setup}
+require(knitr)
+opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+```
+
+### Optionally convert this Rmd to R script 
+```{r eval=FALSE, message=FALSE}
+current_file <- rstudioapi::getActiveDocumentContext()$path
+output_file <- stringr::str_replace(current_file, '.Rmd', '.R')
+knitr::purl(current_file, output = output_file)
+file.edit(output_file)
+```
+
+### Directories
+```{r, message=FALSE}
+output_dir <- 'analysis/output/06_cluster_representation' # analysis file output directory
+data_dir <- 'data/derived/seurat' # data file output directory
+
+dir.create(output_dir, showWarnings = FALSE)
+dir.create(data_dir, showWarnings = FALSE)
+```
+
+### Loading the libraries
+```{r, message=FALSE}
+library(Seurat) 
+library(tidyverse)
+library(ggExtra)
+library(SeuratWrappers)
+library(wutilities) # devtools::install_github('symbiologist/wutilities')
+library(tictoc)
+```
+
+```{r}
+seuratobj <- read_rds(file.path(data_dir, 'seuratobj_annotated.rds'))
+meta <- seuratobj@meta.data %>% rownames_to_column()
+seuratobj
+```
+### Cluster size and % 
+```{r}
+tallies <- meta %>% 
+  group_by(merged_label) %>% 
+  tally() %>% 
+  mutate(total = sum(n),
+         f = n/total,
+         pct = round(100 * f, 2))
+  
+tallies
+```
+```{r}
+p <- tallies %>% 
+  ggplot(aes(x = merged_label,
+             y = 100 * f,
+             fill = merged_label,
+             label = n)) +
+  geom_bar(stat = 'identity') +
+  geom_text(hjust = 0, nudge_y = 0.1) +
+  scale_x_discrete(limits = rev)+ 
+  coord_flip() +
+    labs(y = '% of Total Cells',
+         x = '') +
+  theme_dwu() +
+  theme(axis.text.y = element_text(hjust = 0)) +
+  ylim(c(0, 20))
+
+ggsave(plot = p,
+       filename = 'bar_cluster_tally.png',
+       path = output_dir,
+       h = 6,
+       w = 6)
+
+p
+```
+
+### Breakdown by sample
+```{r}
+sample_tally <- meta %>% 
+  select(id, merged_label) %>% 
+  group_by(id, merged_label) %>% 
+  tally() %>% 
+  group_by(merged_label) %>% 
+  mutate(total = sum(n),
+         f = n/total,
+         pct = round(100 * f, 2))
+
+sample_tally
+```
+```{r}
+sample_tally_wide <- 
+  sample_tally %>% 
+  select(merged_label, id, f) %>% 
+  pivot_wider(names_from = id,
+              values_from = f,
+              values_fill = 0)
+
+sample_tally_wide
+```
+### Normalize samples by cluster
+```{r}
+sample_tally2 <- meta %>% 
+  select(id, merged_label) %>% 
+  group_by(id, merged_label) %>% 
+  tally() %>% 
+  group_by(id) %>% 
+  mutate(total = sum(n),
+         f = n/total,
+         pct = round(100 * f, 2))
+
+sample_tally2
+```
+```{r}
+sample_tally2_wide <- 
+  sample_tally2 %>% 
+  select(merged_label, id, f) %>% 
+  pivot_wider(names_from = id,
+              values_from = f,
+              values_fill = 0)
+
+sample_tally2_wide
+```
+
+### Absolute count
+```{r}
+sample_tally_wide_abs <- 
+  sample_tally %>% 
+  select(merged_label, id, n) %>% 
+  pivot_wider(names_from = id,
+              values_from = n,
+              values_fill = 0)
+
+sample_tally_wide_abs
+```
+### Patient metadata
+```{r}
+pt_meta <- meta %>% 
+  select(id, condition, treatment) %>% 
+  unique() %>% 
+  arrange(id) 
+
+pt_meta
+```
+
+
+
+### Export
+```{r}
+tallies %>% write_tsv(file.path(output_dir, 'cluster_tally.tsv'))
+sample_tally_wide %>% write_tsv(file.path(output_dir, 'sample_tally_wide.tsv'))
+sample_tally2_wide %>% write_tsv(file.path(output_dir, 'sample_tally2_wide.tsv'))
+sample_tally_wide_abs %>% write_tsv(file.path(output_dir, 'sample_tally_wide_abs.tsv'))
+pt_meta %>% write_tsv(file.path(output_dir, 'pt_meta.tsv'))
+
+```
+
+
+## Session Info
+```{r}
+sessionInfo()
+```
+
+
+

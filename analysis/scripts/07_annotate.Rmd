@@ -1,0 +1,636 @@
+---
+title: "Annotation"
+author: "David Wu"
+---
+
+### Use the here package for robust relative paths
+```{r}
+library(here)
+```
+
+### Optionally convert this Rmd to R script 
+```{r eval=FALSE, message=FALSE}
+current_file <- rstudioapi::getActiveDocumentContext()$path
+output_file <- stringr::str_replace(current_file, '.Rmd', '.R')
+knitr::purl(current_file, output = output_file)
+file.edit(output_file)
+```
+
+### Directories
+```{r, message=FALSE}
+output_dir <- 'analysis/output/07_annotate' # analysis file output directory
+data_dir <- 'data/derived/tildra' # data file output directory
+
+dir.create(output_dir, showWarnings = FALSE)
+dir.create(data_dir, showWarnings = FALSE)
+```
+
+### Loading the libraries
+```{r, message=FALSE}
+library(Seurat) 
+library(tidyverse)
+library(ggExtra)
+library(SeuratWrappers)
+library(wutilities) # devtools::install_github('symbiologist/wutilities')
+library(tictoc)
+library(ggsankey)
+library(aricode)
+theme_set(wutilities::theme_dwu())
+```
+
+### Import
+#### Clustered object
+```{r}
+seuratobj <- read_rds(here(data_dir, 'seuratobj_subcluster.rds'))
+metadata <- seuratobj@meta.data %>% rownames_to_column()
+seuratobj
+```
+
+#### Import annotations from RashX paper
+```{r}
+rashx_clusters <- read_tsv(here('analysis/output/rashx/rashx_clusters.tsv.gz'))
+rashx_clusters %>% head()
+```
+#### Import transferred labels
+```{r}
+labels <- read_tsv(here('analysis/output/06_label/labels.tsv'))
+labels %>% head()
+```
+## Analysis
+### Combine all annotations
+```{r}
+merged_annotations <- metadata %>% 
+  select(rowname, id, local, global) %>% 
+  left_join(labels %>% select(rowname, label)) %>% 
+  separate(rowname, sep = '_', into = c('barcode', NA), remove = FALSE) %>% 
+  left_join(rashx_clusters %>% select(barcode, rashx = cluster)) %>% 
+  as_tibble()
+
+merged_annotations
+```
+### Agreement metrics
+```{r}
+clusters <- c('local', 'global') %>% set_names(.)
+annotations <- c('label', 'rashx') %>% set_names(.)
+
+all_clusterings <- c(clusters, annotations)
+
+pairwise_table <- crossing('cluster1' = all_clusterings,
+                           'cluster2' = all_clusterings) %>% 
+  filter(cluster1 != cluster2) %>% 
+  rowwise() %>% 
+  mutate(combination = paste(sort(c(cluster1, cluster2)), collapse = ':')) %>% 
+  group_by(combination) %>% 
+  slice_max(cluster1) %>% 
+  arrange(cluster1)
+  
+pairwise_table
+```
+
+```{r}
+agreement_metrics <- map(1:nrow(pairwise_table), function(i) {
+  row_input <- pairwise_table[i, ]
+  
+  cluster_input <- merged_annotations %>% select(all_of(c(row_input$cluster1, row_input$cluster2))) %>% drop_na()
+  
+  tibble('combination' = row_input$combination,
+         calculate_agreement(cluster_input[[row_input$cluster1]], 
+                             cluster_input[[row_input$cluster2]]) %>% 
+    mutate(across(everything(), round, 3)))
+  
+}) %>% 
+  bind_rows() %>% 
+  rowwise() %>% 
+  mutate(mean = mean(c(AMI, ARI))) %>% 
+  arrange(-mean)
+
+agreement_metrics
+```
+
+### Calculate odds and overlap
+```{r}
+annotation_odds <- map(clusters, function(i) {
+  map(annotations, function(j) {
+    
+    odds_table(merged_annotations %>% select(all_of(c(i, j))) %>% drop_na(), 
+               group1 = i,
+               group2 = j)
+  })
+})
+
+annotation_odds$local$label
+```
+
+
+
+```{r}
+input_odds <- annotation_odds$local$label
+
+top_jaccard <- input_odds %>% 
+  group_by(group1) %>% 
+  slice_max(jaccard)
+
+top_overlap <- input_odds %>% 
+  group_by(group1) %>% 
+  slice_max(overlap_coef)
+
+top_f <- input_odds %>% 
+  group_by(group1) %>% 
+  slice_max(f_group1)
+
+top_f_score<- input_odds %>% 
+  group_by(group1) %>% 
+  slice_max(f_score)
+
+top_odds <- input_odds %>% 
+  group_by(group1) %>% 
+  slice_max(odds)
+
+top_comparison <- top_f %>% select(group1, f_group1, top_f_group1 = group2) %>% 
+  left_join(top_overlap %>% select(group1, overlap_coef, top_overlap = group2)) %>% 
+  left_join(top_jaccard %>% select(group1, jaccard, top_jaccard = group2)) %>% 
+  left_join(top_f_score %>% select(group1, f_score, top_f_score = group2)) %>% 
+  left_join(top_odds %>% select(group1, odds, top_odds = group2)) %>% 
+  mutate(match = ifelse(top_f_group1 == top_jaccard, 'Yes', 'No')) 
+
+top_comparison %>% add_count(group1) %>% filter(match == 'No')
+```
+
+### Sankey plots
+```{r}
+dpi <- 300
+
+sankey1_loop <- crossing('cluster1' = all_clusterings,
+                         'cluster2' = all_clusterings) %>% 
+  filter(cluster1 != cluster2) %>% 
+  left_join(merged_annotations %>% select(all_of(all_clusterings)) %>% unique() %>% 
+    pivot_longer(cols = everything(),
+                 names_to = 'cluster1',
+                 values_to = 'celltype') %>% 
+    unique() %>% 
+    drop_na() %>% 
+    arrange(cluster1, celltype))
+
+sankey1_loop
+  
+```
+
+```{r}
+library(furrr)
+multicore(workers = 20)
+
+future_pmap_dfr(sankey1_loop, function(cluster1, cluster2, celltype) {
+  
+  print2(paste(cluster1, cluster2, celltype))
+  
+  nodes <- c(cluster1, cluster2)
+    
+    print2(paste(cluster1, cluster2, celltype, sep = ': '))
+    
+    p <- plot_sankey1(merged_annotations %>% filter(get({{cluster1}}) == celltype),
+                      nodes = nodes,
+                      names = str_to_sentence(nodes), 
+                      drop_na = TRUE)
+    
+    ggsave(plot = p,
+           filename = paste0(str_remove(celltype, '/'), '.png'),
+           path = here(output_dir, cluster1, paste0('sankey1_', cluster1, '_vs_', cluster2)),
+           dpi = dpi,
+           h = 4,
+           w = 6)  
+    
+    
+})
+```
+
+### One-way sankey
+```{r}
+map(all_clusterings, function(which_clustering) {
+  
+  other_clusterings <- setdiff(all_clusterings, which_clustering)
+  
+  map(other_clusterings, function(which_other) {
+    
+    nodes <- c(which_clustering, which_other)
+    
+    map(merged_annotations[[which_clustering]] %>% unique() %>% sort(), function(which_celltype) {
+      
+      print2(paste(which_clustering, which_other, which_celltype, sep = ': '))
+      
+      p <- plot_sankey1(merged_annotations %>% filter(get({{which_clustering}}) == which_celltype),
+                        nodes = nodes,
+                        names = str_to_sentence(nodes), 
+                        drop_na = TRUE)
+      
+      ggsave(plot = p,
+             filename = paste0(str_remove(which_celltype, '/'), '.png'),
+             path = here(output_dir, which_clustering, paste0('sankey1_', which_clustering, '_vs_', which_other)),
+             dpi = dpi,
+             h = 4,
+             w = 6)  
+      
+    })
+  })
+})
+```
+### Two-way
+```{r}
+map(clusters, function(which_clustering) {
+  
+    map(merged_annotations[[which_clustering]] %>% unique() %>% sort(), function(which_celltype) {
+      
+      print2(paste(which_clustering,which_celltype, sep = ': '))
+      
+      nodes <- c(annotations[1], which_clustering, annotations[2])
+        
+      p <- plot_sankey2(merged_annotations %>% filter(get({{which_clustering}}) == which_celltype),
+                        nodes = nodes,
+                        names = str_to_sentence(nodes), 
+                        drop_na = FALSE)
+      
+      ggsave(plot = p,
+             filename = paste0(str_remove(which_celltype, '/'), '.png'),
+             path = here(output_dir, which_clustering, paste0('sankey2_', which_clustering)),
+             dpi = dpi,
+             h = 4,
+             w = 6)  
+      
+    })
+  })
+```
+
+#### RashX centric
+```{r}
+map(merged_annotations$rashx %>% unique() %>% sort(), function(i) {
+  
+  print2(i)
+  
+  # 2-way: rashx vs local and global
+  p <- plot_sankey2(merged_annotations %>% filter(cluster == i),
+                    nodes = c('global', 'cluster', 'local'),
+                    names = c('Global Cluster', 'RashX Cluster', 'Local Cluster'))
+  
+  ggsave(plot = p,
+         filename = paste0(str_remove(i, '/'), '.png'),
+         path = here(output_dir, 'rashx', 'sankey2_rashx'),
+         dpi = dpi,
+         h = 4,
+         w = 8)
+  
+  # 2-way: rashx supercluster vs local and global
+    p <- plot_sankey2(merged_annotations %>% filter(cluster == i),
+                    nodes = c('global', 'supercluster', 'local'),
+                    names = c('Global Cluster', 'RashX Supercluster', 'Local Cluster'))
+  
+  ggsave(plot = p,
+         filename = paste0(str_remove(i, '/'), '.png'),
+         path = here(output_dir, 'rashx', 'sankey2_rashx_supercluster'),
+         dpi = dpi,
+         h = 4,
+         w = 8)
+      
+}) %>% invisible()
+```
+
+#### label centric
+```{r}
+map(merged_annotations$label %>% unique() %>% sort(), function(i) {
+  
+  print2(i)
+  
+  # 2-way: rashx vs local and global
+  p <- plot_sankey2(merged_annotations %>% filter(label == i),
+                    nodes = c('global', 'label', 'local'),
+                    names = c('Global Cluster', 'Label Transfer', 'Local Cluster'))
+  
+  ggsave(plot = p,
+         filename = paste0(str_remove(i, '/'), '.png'),
+         path = here(output_dir, 'label', 'sankey2_global_local'),
+         dpi = dpi,
+         h = 4,
+         w = 8)
+  
+  # 2-way: rashx supercluster vs local and global
+    p <- plot_sankey1(merged_annotations %>% filter(label == i),
+                    nodes = c('label', 'cluster'),
+                    names = c('Label Transfer', 'RashX Cluster'))
+  
+  ggsave(plot = p,
+         filename = paste0(str_remove(i, '/'), '.png'),
+         path = here(output_dir, 'label', 'sankey1_rashx'),
+         dpi = dpi,
+         h = 4,
+         w = 6)
+      
+}) %>% invisible()
+```
+
+```{r}
+library(pheatmap)
+
+pheatmap_input <- annotation_odds$local$cluster %>% 
+  select(group1,
+         group2,
+         f_group1) %>% 
+  pivot_wider(names_from = group1, values_from = f_group1, values_fill = 0)
+
+p <- pheatmap(mat = pheatmap_input %>% column_to_rownames('group2'), 
+         angle_col = 0, 
+         color = c('white', colorRampPalette(RColorBrewer::brewer.pal(n = 7, name = "Blues"))(100)),
+         breaks = seq(0, 1, length.out = 102), display_numbers = TRUE)
+```
+
+### Annotate
+#### Factor level ordering
+```{r}
+rashx_clusters$supercluster %>% unique() %>% sort()
+```
+
+```{r}
+supercluster_order <- c('Tcm', 
+                        'Trm', 
+                        'Tmm', 
+                        'CTL',
+                        'CTLem',
+                        'CTLex',
+                        'Tet',
+                        'Tn',
+                        'Treg',
+                        'cmTreg',
+                        'eTreg',
+                        'ILC',
+                        'NK',
+                        'ILC/NK',
+                        'B',
+                        'Plasma',
+                        'Mac',
+                        'Mono',
+                        'InfMono',
+                        'DC',
+                        'migDC',
+                        'moDC',
+                        'LC',
+                        'Mast')
+
+annotation_order <- rashx_clusters %>% select(cluster, supercluster) %>% 
+  unique() %>% 
+  mutate(supercluster = factor(supercluster, levels = supercluster_order)) %>% 
+  arrange(supercluster, cluster) %>% 
+  mutate(order = 1:n(),
+         supercluster = as.character(supercluster))
+
+annotation_order
+```
+
+
+#### Prepare addition of local and global annotations
+```{r}
+annotation_local <- annotation_odds$local$label %>% 
+  group_by(group1) %>% 
+  slice_max(f_group1) %>% 
+  select(group1,
+         cluster = group2,
+         f_in_cluster = f_group1) %>% 
+  left_join(annotation_order) %>% 
+  ungroup() %>% 
+  select(local = group1, 
+         local_cluster = cluster, 
+         local_supercluster = supercluster, 
+         local_order = order,
+         f_in_local_cluster = f_in_cluster)
+
+annotation_local
+```
+
+
+```{r}
+annotation_global <- annotation_odds$global$label %>% 
+  group_by(group1) %>% 
+  slice_max(f_group1) %>% 
+  select(group1,
+         cluster = group2,
+         f_in_cluster = f_group1) %>% 
+  left_join(annotation_order) %>% 
+  ungroup() %>% 
+  select(global = group1, 
+         global_cluster = cluster, 
+         global_supercluster = supercluster, 
+         global_order = order,
+         f_in_global_cluster = f_in_cluster)
+
+annotation_global
+```
+
+```{r}
+annotation_local_levels <- annotation_local %>% 
+  select(local_order, local_cluster, local_supercluster) %>% 
+  unique() %>% 
+  arrange(local_order)
+
+annotation_global_levels <- annotation_global %>% 
+  select(global_order, global_cluster, global_supercluster) %>% 
+  unique() %>% 
+  arrange(global_order)
+
+annotation_global_levels
+```
+
+#### Merged annotation information
+```{r}
+new_annotations <- seuratobj@meta.data %>% 
+  rownames_to_column() %>% 
+  select(rowname, local, global) %>% 
+  left_join(annotation_local) %>% 
+  left_join(annotation_global) %>% 
+  mutate(local_cluster = factor(local_cluster, levels = annotation_local_levels$local_cluster),
+         local_supercluster = factor(local_supercluster, levels = unique(annotation_local_levels$local_supercluster)),
+         global_cluster = factor(global_cluster, levels = annotation_global_levels$global_cluster),
+         global_supercluster = factor(global_supercluster, levels = unique(annotation_global_levels$global_supercluster))) %>% 
+  column_to_rownames()
+
+new_annotations 
+```
+### Add annotation
+```{r}
+seuratobj <- AddMetaData(seuratobj, new_annotations)
+seuratobj$annotation <- seuratobj$global_cluster
+Idents(seuratobj) <- 'annotation'
+Idents(seuratobj) %>% head()
+```
+#### Ensure correct sample factor levels
+```{r}
+sample_order <- seuratobj@meta.data %>% 
+  select(patient, sample, sample_order) %>% 
+  unique() %>% 
+  arrange(sample_order)
+sample_order
+```
+
+```{r}
+seuratobj$condition <- factor(seuratobj$condition, levels = c('HC', 'AD', 'PV'))
+seuratobj$treatment <- factor(seuratobj$treatment, levels = c('None', 'Pre', 'Mid'))
+seuratobj$group <- factor(seuratobj$group, levels = c('Responder', 'Non-responder'))
+seuratobj$patient <- factor(seuratobj$patient, levels = unique(sample_order$patient))
+seuratobj$sample <- factor(seuratobj$sample, levels = sample_order$sample)
+```
+
+### Save plots
+#### Local
+```{r}
+p <- seuratobj %>% 
+  seurat_feature(features = 'local_cluster', 
+                 facet_hide = TRUE, 
+                 legend_position = 'none',
+                 size = 0.1, 
+                 alpha = 0.1, 
+                 color_package = 'carto', 
+                 color_palette = 'Bold', 
+                 rasterize_dpi = dpi)
+
+ggsave(plot = p,
+       filename = 'umap_annotated_local_cluster.png',
+       dpi = dpi,
+       path = output_dir,
+       w = 4, 
+       h = 4)
+
+p
+```
+
+
+```{r}
+p <- seuratobj %>% 
+  seurat_feature(features = 'local_supercluster', 
+                 facet_hide = TRUE, 
+                 legend_position = 'none', 
+                 size = 0.1, alpha = 0.1, 
+                 color_package = 'carto', 
+                 color_palette = 'Bold', 
+                 rasterize_dpi = dpi)
+
+ggsave(plot = p,
+       filename = 'umap_annotated_local_supercluster.png',
+       path = output_dir,
+       dpi = dpi,
+       w = 4, 
+       h = 4)
+
+p
+
+```
+```{r}
+p <- seuratobj %>% 
+  seurat_feature(features = 'local', 
+                 facets = 'local_cluster', 
+                 legend_position = 'none',
+                 size = 0.1, 
+                 alpha = 0.1, 
+                 label = FALSE,
+                 color_package = 'carto', 
+                 color_palette = 'Bold', 
+                 rasterize_dpi = dpi)
+
+ggsave(plot = p,
+       filename = 'umap_annotated_local_cluster_facets.png',
+       dpi = dpi,
+       path = output_dir,
+       w = 8, 
+       h = 8)
+```
+
+```{r}
+test <- seuratobj %>% 
+  RunUMAP(reduction = 'harmony', 
+          dims = 1:20, 
+          assay = 'RNA', 
+          seed.use = 1234,
+          n.neighbors = 30,
+          n.epochs = 500,
+          min.dist = 0.3)
+```
+
+#### Global
+```{r}
+p <- seuratobj %>% 
+  seurat_feature(features = 'global_cluster', 
+                 facet_hide = TRUE, 
+                 legend_position = 'none',
+                 size = 0.1, 
+                 alpha = 0.1, 
+                 color_package = 'carto', 
+                 color_palette = 'Bold', 
+                 rasterize_dpi = dpi)
+
+ggsave(plot = p,
+       filename = 'umap_annotated_global_cluster.png',
+       dpi = dpi,
+       path = output_dir,
+       w = 4, 
+       h = 4)
+
+p
+```
+```{r}
+p <- seuratobj %>% 
+  seurat_feature(features = 'global', 
+                 facets = 'global_cluster', 
+                 legend_position = 'none',
+                 size = 0.1, 
+                 alpha = 0.1, 
+                 label = FALSE,
+                 color_package = 'carto', 
+                 color_palette = 'Bold', 
+                 rasterize_dpi = dpi)
+
+ggsave(plot = p,
+       filename = 'umap_annotated_global_cluster_facets.png',
+       dpi = dpi,
+       path = output_dir,
+       w = 8, 
+       h = 8)
+```
+
+
+```{r}
+p <- seuratobj %>% 
+  seurat_feature(features = 'global_supercluster', 
+                 facet_hide = TRUE, 
+                 legend_position = 'none', 
+                 size = 0.1, alpha = 0.1, 
+                 color_package = 'carto', 
+                 color_palette = 'Bold', 
+                 rasterize_dpi = dpi)
+
+ggsave(plot = p,
+       filename = 'umap_annotated_global_supercluster.png',
+       path = output_dir,
+       dpi = dpi,
+       w = 4, 
+       h = 4)
+
+p
+
+```
+### Use global or local identities and set as cluster/supercluster in the object
+Use this code to select between global or local identities as the default for a given analysis
+Here we will set global as the default
+```{r}
+which_identity <- 'local'
+which_cluster <- paste0(which_identity, '_cluster')
+which_supercluster <- paste0(which_identity, '_supercluster')
+
+seuratobj$cluster <- seuratobj[[which_cluster]] # set cluster as main annotation
+seuratobj$supercluster <- seuratobj[[which_supercluster]] # set cluster as main annotation
+Idents(seuratobj) <- 'cluster'
+```
+### Export
+```{r}
+seuratobj@meta.data %>% rownames_to_column() %>% write_rds(here(output_dir, 'metadata.rds'), compress = 'gz')
+
+seuratobj %>% write_rds(here(data_dir, 'seuratobj_annotated.rds'))
+```
+
+## Session Info
+```{r}
+sessionInfo()
+```

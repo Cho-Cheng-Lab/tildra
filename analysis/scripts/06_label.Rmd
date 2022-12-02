@@ -1,0 +1,112 @@
+---
+title: "Label transfer"
+author: "David Wu"
+---
+
+### Use the here package for robust relative paths
+```{r}
+library(here)
+```
+
+### Optionally convert this Rmd to R script 
+```{r eval=FALSE, message=FALSE}
+current_file <- rstudioapi::getActiveDocumentContext()$path
+output_file <- stringr::str_replace(current_file, '.Rmd', '.R')
+knitr::purl(current_file, output = output_file)
+file.edit(output_file)
+```
+
+### Directories
+```{r, message=FALSE}
+output_dir <- 'analysis/output/06_label' # analysis file output directory
+data_dir <- 'data/derived/tildra' # data file output directory
+
+dir.create(output_dir, showWarnings = FALSE)
+dir.create(data_dir, showWarnings = FALSE)
+```
+
+### Loading the libraries
+```{r, message=FALSE}
+library(Seurat) 
+library(tidyverse)
+library(wutilities) # devtools::install_github('symbiologist/wutilities')
+library(tictoc)
+theme_set(wutilities::theme_dwu())
+```
+
+### Import
+#### Clustered object
+```{r}
+seuratobj <- read_rds(here(data_dir, 'seuratobj_subcluster.rds'))
+seuratobj
+```
+
+#### Import RashX dataset
+```{r}
+rashx <- read_rds(here('data/external/rashx.rds'))
+rashx
+```
+
+## Analysis
+### Load scibet library
+```{r}
+library(scibet)
+```
+
+### Prepare input
+#### WARNING: required >160 GB RAM when densifying sparse matrices
+```{r}
+shared_genes <- intersect(rownames(seuratobj), rownames(rashx))
+
+tic()
+ref_input <- rashx@assays$RNA@data[shared_genes, ] %>% as.matrix() %>% t() %>% as.data.frame()
+ref_input <- cbind(ref_input, 'label' = rashx$Ident2)
+query_input <- seuratobj@assays$RNA@data[shared_genes, ] %>% as.matrix() %>% t() %>% as.data.frame()
+toc()
+```
+### Label transfer
+```{r}
+tic()
+prd <- SciBet(train = ref_input,
+              test = query_input, 
+              k = 3000)
+
+seuratobj$label <- prd
+toc()
+```
+
+
+```{r}
+p1 <- seurat_feature(seuratobj, features = 'label', facet_hide = TRUE, color_package = 'carto', color_palette = 'Bold', rasterize_dpi = 600, legend_position = 'none')
+
+ggsave(plot = p1,
+       filename = 'umap_label_facets.png',
+       path = output_dir,
+       dpi = 600,
+       w = 5, 
+       h = 5)
+
+p1
+```
+
+```{r}
+p2 <- seurat_feature(seuratobj, features = 'label', facets = 'label', facet_hide = FALSE, color_package = 'carto', color_palette = 'Bold', label = FALSE, legend_position = 'none', rasterize_dpi = 600)
+
+ggsave(plot = p2,
+       filename = 'umap_label_facets.png',
+       path = output_dir,
+       dpi = 600,
+       w = 10, 
+       h = 10)
+p2
+```
+### Export
+```{r}
+seuratobj@meta.data %>% rownames_to_column() %>% select(rowname, label) %>% write_tsv(here(output_dir, 'labels.tsv'))
+```
+
+
+## Session Info
+```{r}
+sessionInfo()
+```

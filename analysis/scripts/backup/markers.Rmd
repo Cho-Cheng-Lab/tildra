@@ -1,0 +1,321 @@
+---
+title: "Markers"
+author: "Abed Kurdi and David Wu"
+---
+
+### Use the here package for robust relative paths
+```{r}
+library(here)
+```
+
+### Optionally convert this Rmd to R script 
+```{r eval=FALSE, message=FALSE}
+current_file <- rstudioapi::getActiveDocumentContext()$path
+output_file <- stringr::str_replace(current_file, '.Rmd', '.R')
+knitr::purl(current_file, output = output_file)
+file.edit(output_file)
+```
+
+### Directories
+```{r, message=FALSE}
+output_dir <- 'analysis/output/05_markers' # analysis file output directory
+data_dir <- 'data/derived/tildra' # data file output directory
+
+dir.create(output_dir, showWarnings = FALSE)
+```
+
+### Loading the libraries
+```{r, message=FALSE}
+library(Seurat) 
+library(tidyverse)
+library(ggExtra)
+library(openxlsx)
+library(SeuratWrappers)
+library(wutilities)
+library(tictoc)
+```
+
+
+```{r}
+seuratobj <- read_rds(here(data_dir, 'seuratobj_clustered.rds'))
+metadata <- seuratobj@meta.data %>% rownames_to_column() %>% as_tibble()
+seuratobj
+```
+
+### DotPlot of markers from main figure
+https://www.science.org/cms/10.1126/sciimmunol.abl9165/asset/bb8091a4-7223-44d8-a619-99756ea43ee5/assets/images/large/sciimmunol.abl9165-f1.jpg
+```{r}
+main_markers <- c("CD3D",
+                  "CCR7",
+                  "SELL",
+                  "KLF2","CD69","ITGAE","CXCR6","CD4","TIGIT","FOXP3",
+                  "IL2RA","CTLA4","CD8A","CD8B","GZMB","PDCD1","LAG3","KLRB1","PRF1","KLRD1","GNLY",
+                  "TNFRSF18","PRDM1","BATF","TRAT1","RORA","GATA3","PTGDR2",
+                  "IL7R", "HLA-DRA","HLA-DRB1",
+                  "CD83","IDO1","CD207","EPCAM","CD68","C1QB","C1QC","CD163","CLEC10A","CD1C",
+                  "THBD","XCR1","SIRPA","F13A1","IGKC","JCHAIN","CD79A","MS4A1","NR4A1","NR4A2","KLF4",
+                  "CEBPB","LYZ","MS4A7","SERPINA1","CD14","S100A9","IL23A","TPSB2","TPSAB1","MKI67","TOP2A",
+                  "ITGA4","NCR1","IL17A","IL17F","IL23R")
+
+p <- DotPlot(seuratobj, features = main_markers) + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+p
+```
+```{r}
+p2 <- DotPlot(seuratobj, features = main_markers, cluster.idents = TRUE) + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+p2
+```
+
+```{r}
+seuratobj <- BuildClusterTree(seuratobj, dims = 1:30, reduction = 'harmony')
+PlotClusterTree(seuratobj)
+```
+
+```{r}
+markers_reynolds <- c('KRT14', 'KRT5', 
+                      'GATA3', 'KRTDAP',
+                      'CRYAB', 'TYRP1',
+                      'DKK3', 'PLEKHA4',
+                      'LUM', 'APOD',
+                      'PHLDA2', 'CCL2',
+                      'IL6', 'PDGFRA',
+                      'COL1A1', 'CXCL12',
+                      'CD82', 'CCL19', 'KCNE4', 'CPE', 'TAGLN', 'MYL9', 'HEY1', 'CCL14', 'PECAM1',
+                      'ACKR1', 'SELE', 'SNCG', 'HES1', 'MMRN1', 'XCL1' ,'XCL2', 'KLRC1', 'CCL5', 'GZMA', 
+                      'CD8A', 'CD8B', 'IL7R', 'FOXP3', 'TIGIT', 'TPSB2', 'TPSAB1', 'CD79A', 'JCHAIN', 'CD163',
+                      'C1QB', 'FCGR2A', 'MS4A6A', 'IL23A', 'CLEC9A', 'CLEC10A', 'CD1C', 'CD207', 'CD1A', 
+                      'CD14', 'IL1B', 'CCR7', 'IDO1')
+```
+
+### Visualize
+```{r}
+p <- seurat_feature(seuratobj, features = c('RNA_snn_res.0.2'), facet_hide = TRUE, legend_position = 'none', title = 'Resolution: 0.2')
+
+p
+```
+```{r}
+p <- seurat_feature(seuratobj, features = c('RNA_snn_res.2.4'), facet_hide = TRUE, color_package = 'generate', color_palette = 'pimp', legend_position = 'none', title = 'Resolution: 2.4')
+
+p
+```
+
+
+
+### Mouse clusters
+```{r eval=FALSE}
+p <- seurat_feature(seuratobj, c('percent.mouse', 'mm10---Actb'))
+
+ggsave(plot = p,
+       filename = 'mouse_features.png',
+       h = 3,
+       w = 6,
+       path = output_dir)
+
+p
+```
+### QC metrics
+```{r}
+p <- seurat_feature(seuratobj, c('percent.mt', 'percent.ribo', 'percent.stress'))
+
+ggsave(plot = p,
+       filename = 'qc_features.png',
+       h = 3,
+       w = 9,
+       path = output_dir)
+
+p
+```
+
+
+### Highest resolution
+```{r}
+Idents(seuratobj) <- "RNA_snn_res.2.4"
+
+tic()
+markers_res_2.4 <- RunPrestoAll(seuratobj,
+                                min.pct = 0.05,
+                                logfc.threshold = 0.25) %>% 
+  mutate(pct.diff = pct.1-pct.2) %>% 
+  select(gene, everything())
+toc()
+
+markers_res_2.4 %>% write_tsv(file.path(output_dir, 'markers', 'markers_res_2.4.tsv'))
+
+clusters <- markers_res_2.4$cluster %>% unique() %>% as.character() %>% as.integer() %>% sort()
+
+# create excel notebook
+OUT <- createWorkbook()
+for(i in clusters){
+    tryCatch({
+	    markers <- markers_res_2.4 %>% filter(cluster == i)
+
+      addWorksheet(OUT, paste0("cluster_",i))
+      writeData(OUT, sheet = paste0("cluster_",i), x = markers)
+      
+      }, error=function(e){message(paste0("We have an error here in cluster ", i))})
+}
+
+saveWorkbook(OUT, file.path(output_dir,"/markers/DEG_per_cluster_res_2.4.xlsx"), overwrite = TRUE)
+```
+
+
+
+#### Dot Plot
+```{r}
+pdf(file.path(output_dir,"/dot_plot/main_markers.pdf"), width=18, height=8)
+DotPlot(seuratobj, features=main_markers, cols=c("#5F4B8BFF", "#ED2B33FF"), cluster.idents=TRUE)+
+  RotatedAxis()
+dev.off()
+```
+
+
+### Feature plots
+```{r}
+p <- seurat_feature(seuratobj, features = main_markers, facet_size = 6, nrow = 7)
+
+ggsave(plot = p,
+       filename = 'main_markers.png',
+       w = 12,
+       h = 7,
+       path = output_dir)
+```
+
+
+### Get the markers
+### Resolution of 0.2
+```{r}
+Idents(seuratobj) <- "RNA_snn_res.0.2"
+
+tic()
+markers_res_0.2 <- RunPrestoAll(seuratobj,
+                                min.pct = 0.05,
+                                logfc.threshold = 0.25) %>% 
+  mutate(pct.diff = pct.1-pct.2) %>% 
+  select(gene, everything())
+toc()
+
+markers_res_0.2 %>% write_tsv(file.path(output_dir, 'markers', 'markers_res_0.2.tsv'))
+
+clusters <- markers_res_0.2$cluster %>% unique() %>% as.character() %>% sort()
+
+# create excel notebook
+OUT <- createWorkbook()
+for(i in clusters){
+    tryCatch({
+	    markers <- markers_res_0.2 %>% filter(cluster == i)
+
+      addWorksheet(OUT, paste0("cluster_",i))
+      writeData(OUT, sheet = paste0("cluster_",i), x = markers)
+      
+      }, error=function(e){message(paste0("We have an error here in cluster ", i))})
+}
+
+saveWorkbook(OUT, file.path(output_dir,"/markers/DEG_per_cluster_res_0.2.xlsx"), overwrite = TRUE)
+```
+
+
+
+
+                  
+
+#### Dot Plot
+```{r}
+pdf(file.path(output_dir,"dot_plot/dot_plot_marker_genes_at_res_0.2_no_limits_defined.pdf"), width=18, height=8)
+DotPlot(seuratobj, features=main_markers, cols=c("#5F4B8BFF", "#ED2B33FF"), cluster.idents=TRUE)+
+  RotatedAxis()
+dev.off()
+```
+
+### Resolution of 1
+```{r}
+Idents(seuratobj) <- "RNA_snn_res.1"
+
+tic()
+markers_res_0.2 <- RunPrestoAll(seuratobj,
+                                min.pct = 0.05,
+                                logfc.threshold = 0.25) %>% 
+  mutate(pct.diff = pct.1-pct.2) %>% 
+  select(gene, everything())
+toc()
+
+markers_res_0.2 %>% write_tsv(file.path(output_dir, 'markers', 'markers_res_1.0.tsv'))
+
+clusters <- markers_res_0.2$cluster %>% unique() %>% as.character() %>% sort()
+
+# create excel notebook
+OUT <- createWorkbook()
+for(i in clusters){
+    tryCatch({
+	    markers <- markers_res_0.2 %>% filter(cluster == i)
+
+      addWorksheet(OUT, paste0("cluster_",i))
+      writeData(OUT, sheet = paste0("cluster_",i), x = markers)
+      
+      }, error=function(e){message(paste0("We have an error here in cluster ", i))})
+}
+
+saveWorkbook(OUT, file.path(output_dir,"/markers/DEG_per_cluster_res_1.0.xlsx"), overwrite = TRUE)
+```
+
+
+
+#### Dot Plot
+```{r}
+pdf(file.path(output_dir,"/dot_plot/dot_plot_marker_genes_at_res_1_no_limits_defined.pdf"), width=18, height=8)
+DotPlot(seuratobj, features=main_markers, cols=c("#5F4B8BFF", "#ED2B33FF"), cluster.idents=TRUE)+
+  RotatedAxis()
+dev.off()
+```
+### Feature plots
+```{r}
+p <- seurat_feature(seuratobj, features = main_markers, facet_size = 6, nrow = 7)
+
+ggsave(plot = p,
+       filename = 'main_markers.png',
+       w = 12,
+       h = 7,
+       path = output_dir)
+```
+
+
+### Generate feature plots for all markers
+Start with a subset and exclude mouse genes
+```{r eval=FALSE}
+library(parallel)
+plot_dir <- file.path(output_dir, 'feature_plots')
+markers <- markers_res_0.2
+genes_to_plot <- markers %>% filter(avg_log2FC > 0, !str_detect(gene, 'mm10---')) %>% pull(gene) %>% unique()
+completed_genes <- list.files(plot_dir) %>% str_remove('.png')
+remaining_genes <- setdiff(genes_to_plot, completed_genes)
+
+tic()
+mclapply(1:length(remaining_genes),
+         mc.cores = 60,
+         FUN = function(i) {
+           
+           gene <- remaining_genes[i]
+           print2(paste0('Plotting gene ', i, ' of ', length(remaining_genes), ': ', gene))
+           p <- seurat_feature(seuratobj, 
+                               features = gene)
+           
+           ggsave(plot = p,
+                  filename = paste0(gene, '.png'),
+                  path = plot_dir,
+                  h = 4,
+                  w = 4,
+                  dpi = 100)
+           
+         })
+toc()
+```
+
+
+
+## Session Info
+```{r}
+sessionInfo()
+```
+
+
+
