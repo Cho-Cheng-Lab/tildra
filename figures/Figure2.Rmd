@@ -67,8 +67,8 @@ dir.create(output_dir)
 ### Analysis
 ```{r}
 metadata <- seuratobj@meta.data %>% rownames_to_column() 
-de_combined_cluster <- read_tsv(here('analysis/output/07_de/', which_cluster, 'de_combined.tsv.gz'))
-de_combined_supercluster <- read_tsv(here('analysis/output/07_de/', which_supercluster, 'de_combined.tsv.gz'))
+de_combined_cluster <- read_tsv(here('analysis/output/08_de/', which_cluster, 'de_combined.tsv.gz'))
+de_combined_supercluster <- read_tsv(here('analysis/output/08_de/', which_supercluster, 'de_combined.tsv.gz'))
 ```
 
 ```{r}
@@ -150,9 +150,10 @@ p <- de_subset %>%
   geom_col(color = 'black') +
   facet_wrap(~comparison, scales = 'free_y', nrow = 3) +
   theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
-  #coord_flip() +
   labs(x = '',
-       y = '# of DEGs')
+       y = '# of DEGs') +
+  scale_fill_carto_d(drop = FALSE) +
+  scale_x_discrete(drop = FALSE)
 
 ggsave(plot = p,
        filename = 'F2A_de_tally.pdf',
@@ -176,10 +177,10 @@ p <- de_subset %>%
   geom_col(color = 'black') +
   facet_wrap(~comparison, scales = 'free_y', nrow = 1) +
   theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
-  #coord_flip() +
-  ggthemes::scale_fill_few() +
+  scale_x_discrete(drop = FALSE) +
+  ggthemes::scale_fill_few(drop = FALSE) +
   labs(x = '',
-       y = '# of DEGs') 
+       y = '# of DEGs')  
   
 
 ggsave(plot = p,
@@ -230,7 +231,6 @@ response_genes
 ```
 ### Extract expression
 ```{r}
-
 genes_to_extract <- genesets$gene_symbol %>% unique()
 
 metadata_subset <- metadata %>% 
@@ -240,6 +240,7 @@ metadata_subset <- metadata %>%
          treatment = factor(treatment, levels = c('Pre', 'Mid', 'Healthy')))
 
 barcodes <- metadata_subset$rowname
+
 exprs <- FetchData(seuratobj, 
                    cells = barcodes,
                    vars = genes_to_extract) %>% 
@@ -278,6 +279,8 @@ summarized_table <- merged_table %>%
   group_by(treatment, group, cluster, gene) %>% 
   summarize(mean = mean(expression),
             sd = sd(expression))
+
+summarized_table %>% head()
 ```
 
 
@@ -299,7 +302,8 @@ p
 ### Biocarta
 ```{r}
 p <- summarized_table %>% 
-  filter(gene %in% (genesets %>% filter(gs_name == 'BIOCARTA_IL17_PATHWAY') %>% pull(gene_symbol))) %>% 
+  filter(cluster == 'Trm1',
+         gene %in% (genesets %>% filter(gs_name == 'BIOCARTA_IL17_PATHWAY') %>% pull(gene_symbol))) %>% 
    ggplot(aes(x = treatment,
               y = mean,
               fill = treatment)) +
@@ -316,7 +320,8 @@ p
 ### Wikipathway
 ```{r}
 p <- summarized_table %>% 
-  filter(gene %in% (genesets %>% filter(gs_name == 'WP_IL17_SIGNALING_PATHWAY') %>% pull(gene_symbol))) %>% 
+  filter(cluster == 'Trm1',
+         gene %in% (genesets %>% filter(gs_name == 'WP_IL17_SIGNALING_PATHWAY') %>% pull(gene_symbol))) %>% 
    ggplot(aes(x = treatment,
               y = mean,
               fill = treatment)) +
@@ -333,7 +338,8 @@ p
 ### PID
 ```{r}
 p <- summarized_table %>% 
-  filter(gene %in% (genesets %>% filter(gs_name == 'PID_IL23_PATHWAY') %>% pull(gene_symbol))) %>% 
+  filter(cluster == 'Trm1',
+         gene %in% (genesets %>% filter(gs_name == 'PID_IL23_PATHWAY') %>% pull(gene_symbol))) %>% 
    ggplot(aes(x = treatment,
               y = mean,
               fill = treatment)) +

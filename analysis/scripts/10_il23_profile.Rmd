@@ -67,7 +67,7 @@ seuratobj
 ```
 ### Use global or local identities and set as cluster/supercluster in the object
 ```{r}
-which_identity <- 'global'
+which_identity <- 'local'
 which_cluster <- paste0(which_identity, '_cluster')
 which_supercluster <- paste0(which_identity, '_supercluster')
 
@@ -149,8 +149,8 @@ pv50_genes <- pv50$...1 %>% intersect(rownames(seuratobj))
 Genes that change in responders but not non-responders
 Group-level
 ```{r}
-de_pre_vs_mid_response <- bind_rows(read_tsv(here('analysis/output/07_de', which_cluster, 'de_pre_vs_mid_responder.tsv.gz')) %>% mutate(response = 'Responder'),
-                                    read_tsv(here('analysis/output/07_de', which_cluster, 'de_pre_vs_mid_nonresponder.tsv.gz')) %>% mutate(response = 'Non-responder'))
+de_pre_vs_mid_response <- bind_rows(read_tsv(here('analysis/output/08_de', which_cluster, 'de_pre_vs_mid_responder.tsv.gz')) %>% mutate(response = 'Responder'),
+                                    read_tsv(here('analysis/output/08_de', which_cluster, 'de_pre_vs_mid_nonresponder.tsv.gz')) %>% mutate(response = 'Non-responder'))
 
 il23_group_response <- de_pre_vs_mid_response %>% 
   filter(p_val_adj < 0.05,
@@ -171,7 +171,7 @@ il23_nonresponsive
 ```
 Patient-level
 ```{r}
-de_pre_vs_mid_patients <- read_tsv(here('analysis/output/07_de', which_cluster,'de_pre_vs_mid_per_patient.tsv.gz'))
+de_pre_vs_mid_patients <- read_tsv(here('analysis/output/08_de', which_cluster,'de_pre_vs_mid_per_patient.tsv.gz'))
 
 il23_patients_responsive <- de_pre_vs_mid_patients %>% 
   filter(p_val_adj < 0.05,
@@ -213,7 +213,7 @@ il23_genes_strict
 
 ### Nonresponder signature
 ```{r}
-de_responder_vs_nonresponder <- read_tsv(here('analysis/output/07_de', which_cluster, 'de_responder_vs_nonresponder_mid.tsv.gz'))
+de_responder_vs_nonresponder <- read_tsv(here('analysis/output/08_de', which_cluster, 'de_responder_vs_nonresponder_mid.tsv.gz'))
 ```
 
 ```{r}
@@ -230,7 +230,7 @@ nonresponder_genes <- nonresponder_markers %>% filter(str_detect(cluster, 'Trm1'
 
 ### Tildra response in APCs
 ```{r eval=FALSE}
-de_pre_vs_mid_apc <- read_tsv(here('analysis/output/07_de', which_cluster, 'de_pre_vs_mid.tsv.gz'))
+de_pre_vs_mid_apc <- read_tsv(here('analysis/output/08_de', which_cluster, 'de_pre_vs_mid.tsv.gz'))
 
 apc_responders <- de_pre_vs_mid_apc %>% 
   filter(response == 'Responder',

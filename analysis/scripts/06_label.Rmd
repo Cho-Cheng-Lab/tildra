@@ -80,7 +80,7 @@ toc()
 p1 <- seurat_feature(seuratobj, features = 'label', facet_hide = TRUE, color_package = 'carto', color_palette = 'Bold', rasterize_dpi = 600, legend_position = 'none')
 
 ggsave(plot = p1,
-       filename = 'umap_label_facets.png',
+       filename = 'umap_label.png',
        path = output_dir,
        dpi = 600,
        w = 5, 
@@ -90,7 +90,7 @@ p1
 ```
 
 ```{r}
-p2 <- seurat_feature(seuratobj, features = 'label', facets = 'label', facet_hide = FALSE, color_package = 'carto', color_palette = 'Bold', label = FALSE, legend_position = 'none', rasterize_dpi = 600)
+p2 <- seurat_feature(seuratobj, features = 'local', facets = 'label', facet_hide = FALSE, color_package = 'carto', color_palette = 'Bold', label = FALSE, legend_position = 'none', rasterize_dpi = 600)
 
 ggsave(plot = p2,
        filename = 'umap_label_facets.png',
@@ -102,9 +102,70 @@ p2
 ```
 ### Export
 ```{r}
-seuratobj@meta.data %>% rownames_to_column() %>% select(rowname, label) %>% write_tsv(here(output_dir, 'labels.tsv'))
+seuratobj@meta.data %>% rownames_to_column() %>% select(rowname, label) %>% write_tsv(here(output_dir, 'labels.tsv.gz'))
 ```
 
+```{r}
+rm(ref_input)
+rm(query_input)
+gc()
+```
+
+### Seurat label transfer (took 10 hours)
+```{r}
+library(future)
+options(future.globals.maxSize = 60 * 1024^3)
+plan('multicore', workers = 40)
+ 
+transfer_dims <- 1:30
+tic()
+anchors <- FindTransferAnchors(reference = rashx, 
+                               query = seuratobj,
+                               dims = transfer_dims, 
+                               features = VariableFeatures(seuratobj),
+                               reduction = 'pcaproject',
+                               reference.reduction = 'pca')
+
+
+transfer <- TransferData(anchorset = anchors,
+                            refdata = rashx$Ident2,
+                            dims = transfer_dims)
+toc()
+
+transfer %>% rownames_to_column() %>% write_tsv(here(output_dir, 'transfer.tsv.gz'))
+```
+
+```{r}
+transfer
+```
+```{r}
+seuratobj$transfer <- transfer$predicted.id
+```
+
+```{r}
+p1 <- seurat_feature(seuratobj, features = 'transfer', facet_hide = TRUE, color_package = 'carto', color_palette = 'Bold', rasterize_dpi = 600, legend_position = 'none')
+
+ggsave(plot = p1,
+       filename = 'umap_transfer.png',
+       path = output_dir,
+       dpi = 600,
+       w = 5, 
+       h = 5)
+
+p1
+```
+
+```{r}
+p2 <- seurat_feature(seuratobj, features = 'local', facets = 'transfer', facet_hide = FALSE, color_package = 'carto', color_palette = 'Bold', label = FALSE, legend_position = 'none', rasterize_dpi = 600)
+
+ggsave(plot = p2,
+       filename = 'umap_transfer_facets.png',
+       path = output_dir,
+       dpi = 600,
+       w = 10, 
+       h = 10)
+p2
+```
 
 ## Session Info
 ```{r}

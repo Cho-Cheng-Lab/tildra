@@ -19,7 +19,7 @@ file.edit(output_file)
 
 ### Directories
 ```{r, message=FALSE}
-output_dir <- here('analysis/output/07_de') # analysis file output directory
+output_dir <- here('analysis/output/08_de') # analysis file output directory
 data_dir <- here('data/derived/tildra') # data file output directory
 
 dir.create(output_dir, showWarnings = FALSE)
@@ -147,10 +147,9 @@ write_excel_notebook <- function(input_table,
 seuratobj <- read_rds(here(data_dir, 'seuratobj_annotated.rds'))
 seuratobj
 ```
-
 ### Set identity
 ```{r}
-which_annotation <- 'global_supercluster'
+which_annotation <- 'global_cluster'
 seuratobj$annotation <- seuratobj[[which_annotation]]
 Idents(seuratobj) <- 'annotation'
 
