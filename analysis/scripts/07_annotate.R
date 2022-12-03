@@ -41,14 +41,20 @@ rashx_clusters %>% head()
 
 
 ## -------------------------------------------------------------------------------------------------------------------------
-labels <- read_tsv(here('analysis/output/06_label/labels.tsv'))
-labels %>% head()
+labels1 <- read_tsv(here('analysis/output/06_label/labels.tsv.gz'))
+labels1 %>% head()
+
+
+## -------------------------------------------------------------------------------------------------------------------------
+labels2 <- read_tsv(here('analysis/output/06_label/transfer.tsv.gz'))
+labels2 %>% head()
 
 
 ## -------------------------------------------------------------------------------------------------------------------------
 merged_annotations <- metadata %>% 
   select(rowname, id, local, global) %>% 
-  left_join(labels %>% select(rowname, label)) %>% 
+  left_join(labels1 %>% select(rowname, label)) %>% 
+  left_join(labels2 %>% select(rowname, transfer = predicted.id)) %>% 
   separate(rowname, sep = '_', into = c('barcode', NA), remove = FALSE) %>% 
   left_join(rashx_clusters %>% select(barcode, rashx = cluster)) %>% 
   as_tibble()
@@ -58,7 +64,7 @@ merged_annotations
 
 ## -------------------------------------------------------------------------------------------------------------------------
 clusters <- c('local', 'global') %>% set_names(.)
-annotations <- c('label', 'rashx') %>% set_names(.)
+annotations <- c('transfer', 'rashx') %>% set_names(.)
 
 all_clusterings <- c(clusters, annotations)
 
@@ -295,8 +301,8 @@ library(pheatmap)
 pheatmap_input <- annotation_odds$local$label %>% 
   select(group1,
          group2,
-         f_group1) %>% 
-  pivot_wider(names_from = group1, values_from = f_group1, values_fill = 0)
+         metric = overlap_coef) %>% 
+  pivot_wider(names_from = group1, values_from = metric, values_fill = 0)
 
 p <- pheatmap(mat = pheatmap_input %>% column_to_rownames('group2'), 
          angle_col = 0, 

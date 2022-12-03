@@ -158,15 +158,14 @@ broad_markers %>% filter(gene %in% 'COL1A1')
 ```
 
 ### Subclusters
-
 #### Major cell types
 ```{r}
-mast_clusters <- broad_markers %>% filter(gene == 'TPSAB1') %>% pull(cluster)
-stromal_clusters <- broad_markers %>% filter(gene == 'COL1A1') %>% pull(cluster)
-bcell_clusters <- broad_markers %>% filter(gene == 'MS4A1') %>% pull(cluster)
-cycling_clusters <- broad_markers %>% filter(gene == 'MKI67') %>% pull(cluster)
-apc_clusters <- broad_markers %>% filter(gene == 'HLA-DRA') %>% pull(cluster)
-lymphocyte_clusters <- broad_markers %>% filter(gene %in% c('CD3D', 'CD4', 'CD8A')) %>% pull(cluster)
+mast_clusters <- broad_markers %>% filter(gene == 'TPSAB1') %>% pull(cluster) %>% unique()
+stromal_clusters <- broad_markers %>% filter(gene %in% c('COL1A1', 'PECAM1')) %>% pull(cluster) %>% unique()
+bcell_clusters <- broad_markers %>% filter(gene %in% c('MS4A1', 'CD79A', 'IGKC', 'JCHAIN')) %>% pull(cluster) %>% unique()
+cycling_clusters <- broad_markers %>% filter(gene == 'MKI67') %>% pull(cluster) %>% unique()
+apc_clusters <- broad_markers %>% filter(gene == 'HLA-DRA') %>% pull(cluster) %>% unique()
+lymphocyte_clusters <- broad_markers %>% filter(gene %in% c('CD3D', 'CD4', 'CD8A')) %>% pull(cluster) %>% unique()
 
 ```
 
@@ -289,6 +288,17 @@ lymphocytes <- lymphocytes %>% recluster(dims = dims, seed = seed)
 p <- seurat_feature(lymphocytes, facet_hide = TRUE)
 p
 ```
+```{r}
+p <- seurat_feature(lymphocytes, facet_hide = TRUE, title = 'Lymphocyte Subcluster', legend_position = 'none')
+
+ggsave(plot = p,
+       filename = 'umap_lymphocyte.png',
+       h = 5,
+       w = 5,
+       path = output_dir)
+p
+```
+
 ```{r}
 lymphocytes@meta.data %>%
   select(seurat_clusters, id) %>%

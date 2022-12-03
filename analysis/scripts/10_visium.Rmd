@@ -142,12 +142,12 @@ Fibroblasts = cluster 0
 metadata <- FetchData(seuratobj,
                       vars = c('id', 'treatment', 'ident')) %>% 
   rownames_to_column() %>% 
-  mutate(annotation = case_when(
+  mutate(cluster = case_when(
     ident == 0 ~ 'fibroblast',
     ident == 3 ~ 'keratinocyte'),
     treatment = str_replace(treatment, 'post', 'mid'),
     treatment = factor(str_to_sentence(treatment), levels = c('Pre', 'Mid', 'None'))) %>% 
-  select(rowname, id, treatment, annotation)
+  select(rowname, id, treatment, cluster)
 
 metadata
 ```
@@ -165,14 +165,8 @@ visium_expression <- seuratobj@assays$SCT@data
 ### Export
 ```{r}
 metadata %>% write_tsv(here(output_dir, 'visium_meta.tsv.gz'))
-visium_expression %>% write_rds(here(output_dir, 'visium_expression.rds'))
-
+visium_expression %>% write_rds(here(output_dir, 'visium_expression.rds'), compress = 'gz')
 ```
 
 
-
-
-```{r}
-
-```
 

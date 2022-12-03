@@ -153,7 +153,7 @@ which_annotation <- 'global_cluster'
 seuratobj$annotation <- seuratobj[[which_annotation]]
 Idents(seuratobj) <- 'annotation'
 
-meta <- seuratobj@meta.data %>% rownames_to_column()
+metadata <- seuratobj@meta.data %>% rownames_to_column()
 
 output_dir <- here(output_dir, which_annotation)
 dir.create(output_dir)
@@ -161,32 +161,26 @@ dir.create(output_dir)
 
 ### Prepare metadata subset
 ```{r}
-analyze <- meta %>% 
-  select(rowname, id, sample, condition, treatment, annotation, response, group) %>% 
-  mutate(description = factor(paste(condition, treatment) %>% str_remove(' None'),
-                              levels = c('PV Pre',
-                                         'PV Mid',
-                                         'PV',
-                                         'AD',
-                                         'HC'))) %>% 
+analyze <- metadata %>% 
+  select(rowname, id, sample, patient, condition, treatment, annotation, response, group) %>% 
   as_tibble()
 
 analyze %>% head()
 ```
 
 ```{r}
-patient_meta <- meta %>% 
+metadata_patient <- metadata %>% 
   select(id, patient, sample, treatment, condition, response, group) %>% 
   unique()
 
-patient_meta
+metadata_patient
 ```
 
 
 ### Global parameters
 ```{r}
 which_test <- 'Presto'
-which_cluster <- 'annotation'
+which_annotation <- 'annotation'
 sample_threshold <- 2 # at least 3 samples per comparison group (within a cluster)
 responder_threshold <- 1 # fewer patients
 cell_threshold <- 10 # at least 10 cells per sample (within a cluster)
@@ -204,10 +198,10 @@ data_subset <- bind_rows(
 )
 
 patients_per_cluster <- data_subset %>% 
-  group_by(sample, group, across(all_of(which_cluster))) %>% 
+  group_by(sample, group, across(all_of(which_annotation))) %>% 
   tally() %>% 
   filter(n > cell_threshold) %>% 
-  group_by(group, across(all_of(which_cluster))) %>% 
+  group_by(group, across(all_of(which_annotation))) %>% 
   tally() %>% 
   pivot_wider(names_from = group,
               values_from = n,
@@ -215,12 +209,12 @@ patients_per_cluster <- data_subset %>%
   filter(group1 > sample_threshold,
          group2 > sample_threshold) 
 
-de_ad_vs_hc <- map(patients_per_cluster[[which_cluster]], function(i) {
+de_ad_vs_hc <- map(patients_per_cluster[[which_annotation]], function(i) {
   
   print2(i)
   
   de_pipeline(seuratobj = seuratobj,
-              cluster_col = which_cluster,
+              cluster_col = which_annotation,
               cluster = i, 
               group1_id = 'AD',
               group2_id = 'HC',
@@ -248,10 +242,10 @@ data_subset <- bind_rows(
 )
 
 patients_per_cluster <- data_subset %>% 
-  group_by(sample, group, across(all_of(which_cluster))) %>% 
+  group_by(sample, group, across(all_of(which_annotation))) %>% 
   tally() %>% 
   filter(n > cell_threshold) %>% 
-  group_by(group, across(all_of(which_cluster))) %>% 
+  group_by(group, across(all_of(which_annotation))) %>% 
   tally() %>% 
   pivot_wider(names_from = group,
               values_from = n,
@@ -259,12 +253,12 @@ patients_per_cluster <- data_subset %>%
   filter(group1 > sample_threshold,
          group2 > sample_threshold) 
 
-de_pv_vs_hc <- map(patients_per_cluster[[which_cluster]], function(i) {
+de_pv_vs_hc <- map(patients_per_cluster[[which_annotation]], function(i) {
   
   print2(i)
   
   de_pipeline(seuratobj = seuratobj,
-              cluster_col = which_cluster,
+              cluster_col = which_annotation,
               cluster = i, 
               group1_id = 'PV',
               group2_id = 'HC',
@@ -295,10 +289,10 @@ data_subset <- bind_rows(
 )
 
 patients_per_cluster <- data_subset %>% 
-  group_by(sample, group, across(all_of(which_cluster))) %>% 
+  group_by(sample, group, across(all_of(which_annotation))) %>% 
   tally() %>% 
   filter(n > cell_threshold) %>% 
-  group_by(group, across(all_of(which_cluster))) %>% 
+  group_by(group, across(all_of(which_annotation))) %>% 
   tally() %>% 
   pivot_wider(names_from = group,
               values_from = n,
@@ -306,12 +300,12 @@ patients_per_cluster <- data_subset %>%
   filter(group1 > sample_threshold,
          group2 > sample_threshold) 
 
-de_adpv_vs_hc <- map(patients_per_cluster[[which_cluster]], function(i) {
+de_adpv_vs_hc <- map(patients_per_cluster[[which_annotation]], function(i) {
   
   print2(i)
   
   de_pipeline(seuratobj = seuratobj,
-              cluster_col = which_cluster,
+              cluster_col = which_annotation,
               cluster = i, 
               group1_id = 'AD+PV',
               group2_id = 'HC',
@@ -341,10 +335,10 @@ data_subset <- bind_rows(
 )
 
 patients_per_cluster <- data_subset %>% 
-  group_by(sample, group, across(all_of(which_cluster))) %>% 
+  group_by(sample, group, across(all_of(which_annotation))) %>% 
   tally() %>% 
   filter(n > cell_threshold) %>% 
-  group_by(group, across(all_of(which_cluster))) %>% 
+  group_by(group, across(all_of(which_annotation))) %>% 
   tally() %>% 
   pivot_wider(names_from = group,
               values_from = n,
@@ -352,12 +346,12 @@ patients_per_cluster <- data_subset %>%
   filter(group1 > sample_threshold,
          group2 > sample_threshold) 
 
-de_ad_vs_pv <- map(patients_per_cluster[[which_cluster]], function(i) {
+de_ad_vs_pv <- map(patients_per_cluster[[which_annotation]], function(i) {
   
   print2(i)
   
   de_pipeline(seuratobj = seuratobj,
-              cluster_col = which_cluster,
+              cluster_col = which_annotation,
               cluster = i, 
               group1_id = 'AD',
               group2_id = 'PV',
@@ -390,10 +384,10 @@ data_subset <- bind_rows(
 )
 
 patients_per_cluster <- data_subset %>% 
-  group_by(sample, group, across(all_of(which_cluster))) %>% 
+  group_by(sample, group, across(all_of(which_annotation))) %>% 
   tally() %>% 
   filter(n > cell_threshold) %>% 
-  group_by(group, across(all_of(which_cluster))) %>% 
+  group_by(group, across(all_of(which_annotation))) %>% 
   tally() %>% 
   pivot_wider(names_from = group,
               values_from = n,
@@ -401,12 +395,12 @@ patients_per_cluster <- data_subset %>%
   filter(group1 > sample_threshold,
          group2 > sample_threshold) 
 
-de_pre_vs_mid <- map(patients_per_cluster[[which_cluster]], function(i) {
+de_pre_vs_mid <- map(patients_per_cluster[[which_annotation]], function(i) {
   
   print2(i)
   
   de_pipeline(seuratobj = seuratobj,
-              cluster_col = which_cluster,
+              cluster_col = which_annotation,
               cluster = i, 
               group1_id = 'Pre',
               group2_id = 'Mid',
@@ -438,10 +432,10 @@ data_subset <- bind_rows(
 )
 
 patients_per_cluster <- data_subset %>% 
-  group_by(sample, group, across(all_of(which_cluster))) %>% 
+  group_by(sample, group, across(all_of(which_annotation))) %>% 
   tally() %>% 
   filter(n > cell_threshold) %>% 
-  group_by(group, across(all_of(which_cluster))) %>% 
+  group_by(group, across(all_of(which_annotation))) %>% 
   tally() %>% 
   pivot_wider(names_from = group,
               values_from = n,
@@ -449,19 +443,20 @@ patients_per_cluster <- data_subset %>%
   filter(group1 > responder_threshold,
          group2 > responder_threshold) 
 
-de_pre_vs_mid_responder <- map(patients_per_cluster[[which_cluster]], function(i) {
+de_pre_vs_mid_responder <- map(patients_per_cluster[[which_annotation]], function(i) {
   
   print2(i)
   
   de_pipeline(seuratobj = seuratobj,
-              cluster_col = which_cluster,
+              cluster_col = which_annotation,
               cluster = i, 
               group1_id = 'Responder Pre',
               group2_id = 'Responder Mid',
               group1_filters = group1_filters,
               group2_filters = group2_filters)
   
-}) %>% bind_rows()
+}) %>% bind_rows() %>% 
+  mutate(group = 'Responder')
 
 de_pre_vs_mid_responder %>% write_tsv(here(output_dir, 'de_pre_vs_mid_responder.tsv.gz'))
 write_excel_notebook(input_table = de_pre_vs_mid_responder,
@@ -484,10 +479,10 @@ data_subset <- bind_rows(
 )
 
 patients_per_cluster <- data_subset %>% 
-  group_by(sample, group, across(all_of(which_cluster))) %>% 
+  group_by(sample, group, across(all_of(which_annotation))) %>% 
   tally() %>% 
   filter(n > cell_threshold) %>% 
-  group_by(group, across(all_of(which_cluster))) %>% 
+  group_by(group, across(all_of(which_annotation))) %>% 
   tally() %>% 
   pivot_wider(names_from = group,
               values_from = n,
@@ -495,26 +490,25 @@ patients_per_cluster <- data_subset %>%
   filter(group1 > responder_threshold,
          group2 > responder_threshold) 
 
-de_pre_vs_mid_nonresponder <- map(patients_per_cluster[[which_cluster]], function(i) {
+de_pre_vs_mid_nonresponder <- map(patients_per_cluster[[which_annotation]], function(i) {
   
   print2(i)
   
   de_pipeline(seuratobj = seuratobj,
-              cluster_col = which_cluster,
+              cluster_col = which_annotation,
               cluster = i, 
               group1_id = 'Non-responder Pre',
               group2_id = 'Non-responder Mid',
               group1_filters = group1_filters,
               group2_filters = group2_filters)
   
-}) %>% bind_rows()
+}) %>% bind_rows() %>% 
+  mutate(group = 'Non-responder')
 
 de_pre_vs_mid_nonresponder %>% write_tsv(here(output_dir, 'de_pre_vs_mid_nonresponder.tsv.gz'))
 write_excel_notebook(input_table = de_pre_vs_mid_nonresponder,
                      output_file = here(output_dir, 'de_pre_vs_mid_nonresponder.xlsx'))
 ```
-
-
 ### Responders vs non-responders in Pre samples (all clusters)
 ```{r}
 group1_filters <- list('condition' = 'PV',
@@ -531,10 +525,10 @@ data_subset <- bind_rows(
 )
 
 patients_per_cluster <- data_subset %>% 
-  group_by(sample, group, across(all_of(which_cluster))) %>% 
+  group_by(sample, group, across(all_of(which_annotation))) %>% 
   tally() %>% 
   filter(n > cell_threshold) %>% 
-  group_by(group, across(all_of(which_cluster))) %>% 
+  group_by(group, across(all_of(which_annotation))) %>% 
   tally() %>% 
   pivot_wider(names_from = group,
               values_from = n,
@@ -542,12 +536,12 @@ patients_per_cluster <- data_subset %>%
   filter(group1 > responder_threshold,
          group2 > responder_threshold) 
 
-de_responder_vs_nonresponder_pre <- map(patients_per_cluster[[which_cluster]], function(i) {
+de_responder_vs_nonresponder_pre <- map(patients_per_cluster[[which_annotation]], function(i) {
   
   print2(i)
   
   de_pipeline(seuratobj = seuratobj,
-              cluster_col = which_cluster,
+              cluster_col = which_annotation,
               cluster = i, 
               group1_id = 'Responder Pre',
               group2_id = 'Non-responder Pre',
@@ -577,10 +571,10 @@ data_subset <- bind_rows(
 )
 
 patients_per_cluster <- data_subset %>% 
-  group_by(sample, group, across(all_of(which_cluster))) %>% 
+  group_by(sample, group, across(all_of(which_annotation))) %>% 
   tally() %>% 
   filter(n > cell_threshold) %>% 
-  group_by(group, across(all_of(which_cluster))) %>% 
+  group_by(group, across(all_of(which_annotation))) %>% 
   tally() %>% 
   pivot_wider(names_from = group,
               values_from = n,
@@ -588,12 +582,12 @@ patients_per_cluster <- data_subset %>%
   filter(group1 > responder_threshold,
          group2 > responder_threshold) 
 
-de_responder_vs_nonresponder_mid <- map(patients_per_cluster[[which_cluster]], function(i) {
+de_responder_vs_nonresponder_mid <- map(patients_per_cluster[[which_annotation]], function(i) {
   
   print2(i)
   
   de_pipeline(seuratobj = seuratobj,
-              cluster_col = which_cluster,
+              cluster_col = which_annotation,
               cluster = i, 
               group1_id = 'Responder Mid',
               group2_id = 'Non-responder Mid',
@@ -607,35 +601,49 @@ write_excel_notebook(input_table = de_responder_vs_nonresponder_mid,
                      output_file = here(output_dir, 'de_responder_vs_nonresponder_mid.xlsx'))
 ```
 
-### Per sample analysis of Trm 
+### Per patient analysis across all clusters
 ```{r}
-patients <- patient_meta %>% 
+patients <- metadata_patient %>% 
   filter(treatment != 'None') %>% 
   select(patient, id, group, treatment) %>% 
   pivot_wider(names_from = treatment, values_from = id)
 
-cluster <- str_subset(analyze$annotation, 'Trm') %>% unique() %>% head(1)
-
-de_pre_vs_mid_per_patient <- map(patients$patient, function(i) {
+de_pre_vs_mid_per_patient <- map(patients$patient, function(which_patient) {
   
-  single_patient <- patients %>% filter(patient == i)
-  response <- single_patient$group
-  cluster_subset <- meta %>% filter(annotation %in% {{cluster}})
-  pre_barcodes <- cluster_subset %>% filter(id == single_patient$Pre) %>% pull(rowname)
-  mid_barcodes <- cluster_subset %>% filter(id == single_patient$Mid) %>% pull(rowname)
+  single_patient <- patients %>% filter(patient == which_patient)
   
-  print2(i)
-  de_pipeline(seuratobj = seuratobj,
-              cluster = cluster, 
-              group1_barcodes = pre_barcodes,
-              group2_barcodes = mid_barcodes,
-              group1_id = paste0(i, '_Pre'),
-              group2_id = paste0(i, '_Mid'), 
-              test.use = which_test) 
+  cells_per_cluster <- analyze %>% 
+    filter(patient == which_patient) %>% 
+    group_by(annotation, treatment) %>% 
+    tally() %>% 
+    pivot_wider(names_from = treatment,
+                values_from = n) %>% 
+    filter(Pre > cell_threshold,
+           Mid > cell_threshold) 
+  
+  cluster_level <- map(cells_per_cluster$annotation, function(which_cluster) {
+    
+    print2(paste0(which_patient, ': ', which_cluster))
+    
+    pre_barcodes <- analyze %>% filter(id == single_patient$Pre, .[[which_annotation]] == which_cluster) %>% pull(rowname)
+    mid_barcodes <- analyze %>% filter(id == single_patient$Mid, .[[which_annotation]] == which_cluster) %>% pull(rowname)
+    
+    de_pipeline(seuratobj = seuratobj,
+                cluster_col = which_annotation,
+                cluster = which_cluster, 
+                group1_barcodes = pre_barcodes,
+                group2_barcodes = mid_barcodes,
+                group1_id = paste0(which_patient, '_Pre'),
+                group2_id = paste0(which_patient, '_Mid'), 
+                test.use = which_test) 
+  }) %>% bind_rows() %>% 
+    mutate(patient = which_patient,
+           group = single_patient$group)
    
-}) %>% bind_rows()
+}) %>% bind_rows() 
 
 de_pre_vs_mid_per_patient %>% write_tsv(here(output_dir, 'de_pre_vs_mid_per_patient.tsv.gz'))
+
 write_excel_notebook(input_table = de_pre_vs_mid_per_patient,
                      output_file = here(output_dir, 'de_pre_vs_mid_per_patient.xlsx'),
                      tabs = 'patient',
@@ -643,41 +651,6 @@ write_excel_notebook(input_table = de_pre_vs_mid_per_patient,
 
 
 
-```
-
-### Per sample PV pre and mid vs HC
-```{r}
-patients <- patient_meta %>% 
-  filter(condition == 'HC' | (treatment != 'None')) 
-
-de_per_sample_vs_hc <- map(patients %>% filter(condition == 'PV') %>% pull(id), function(i) {
-  
-  single_patient <- patients %>% filter(id == i)
-  cluster_subset <- meta %>% filter(annotation == {{cluster}})
-  single_barcodes <- cluster_subset %>% filter(id == single_patient$id) %>% pull(rowname)
-  control_barcodes <- cluster_subset %>% filter(condition == 'HC') %>% pull(rowname)
-  display <- paste0(single_patient$patient,' ', single_patient$treatment, '', single_patient$id, '', single_patient$response)
-  
-  print2(i)
-  de_pipeline(seuratobj = seuratobj,
-              cluster = cluster, 
-              group1_barcodes = single_barcodes,
-              group2_barcodes = control_barcodes,
-              group1_id = i,
-              group2_id = 'HC') %>% 
-    mutate(id = display)
-}) %>% bind_rows()
-
-
-de_per_sample_vs_hc %>% write_tsv(here(output_dir, 'de_per_sample_vs_hc.tsv.gz'))
-
-write_excel_notebook(input_table = de_per_sample_vs_hc %>% 
-                       separate(id, into = c('patient', NA, 'skin_id', 'response'), remove = F) %>% 
-                       mutate(label = paste(patient, skin_id, response)) %>% 
-                       select(label, patient, skin_id, id, everything()),
-                     output_file = here(output_dir, 'de_per_sample_vs_hc.xlsx'),
-                     tabs = 'label',
-                     prefix = '')
 ```
 
 

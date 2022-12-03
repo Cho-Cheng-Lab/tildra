@@ -52,24 +52,131 @@ rashx_clusters <- read_tsv(here('analysis/output/rashx/rashx_clusters.tsv.gz'))
 rashx_clusters %>% head()
 ```
 #### Import transferred labels
-##### SciBet
+##### SciBet or Seurat
 ```{r}
-labels1 <- read_tsv(here('analysis/output/06_label/labels.tsv.gz'))
-labels1 %>% head()
+labels1 <- read_tsv(here('analysis/output/06_label/labels.tsv.gz')) %>% select(rowname, scibet = label)
+labels2 <- read_tsv(here('analysis/output/06_label/transfer.tsv.gz')) %>% select(rowname, seurat = predicted.id)
+
+label_transfer <- metadata %>% select(rowname, local, global) %>% left_join(labels1) %>% left_join(labels2)
+label_transfer %>% head()
+```
+#### Which label to use?
+```{r}
+clusters <- c('local', 'global') %>% set_names(.)
+labels <- c('scibet', 'seurat') %>% set_names(.)
+
+label_odds <- map(clusters, function(i) {
+  map(labels, function(j) {
+    
+    odds_table(label_transfer %>% select(all_of(c(i, j))) %>% drop_na(), 
+               group1 = i,
+               group2 = j) %>% 
+      group_by(group1) %>% 
+      slice_max(f_group1) %>% 
+      select(group1, group2) %>% 
+      mutate('cluster' = i,
+             'label' = j)
+  }) %>% bind_rows()
+}) %>% bind_rows() %>% 
+  ungroup()
+
+label_match <- label_odds %>% 
+  pivot_wider(names_from = 'label',
+              values_from = 'group2') %>% 
+  mutate(match = ifelse(scibet == seurat, 'Yes', 'No'))
+
+label_match
+```
+```{r}
+label_match %>% filter(match == 'No')
 ```
 
-##### Seurat label transfer
 ```{r}
-labels2 <- read_tsv(here('analysis/output/06_label/transfer.tsv.gz'))
-labels2 %>% head()
+label_match %>% 
+  group_by(cluster) %>% 
+  summarize(n_total = n(),
+            n_match = sum(match == 'Yes')) %>% 
+  mutate(f_match = n_match / n_total)
 ```
+```{r}
+celltype <- 'Trm1'
+
+p <- plot_sankey(label_match %>% filter(cluster == 'local', (seurat %in% celltype) | (scibet %in% celltype)),
+                 nodes = c('scibet', 'group1', 'seurat'),
+                 reverse = FALSE)
+
+p
+```
+
+```{r}
+plot_sankey <- function(df,
+                        nodes,
+                        names = NULL,
+                        reverse = TRUE,
+                        total = TRUE,
+                        prefix = 'Interactions:',
+                        arrange = 1,
+                        title = NULL,
+                        drop_na = FALSE) {
+  
+  sankey_input <- df %>% select(all_of(nodes)) %>% mutate(across(.fns = as.character)) %>% arrange(across(nodes[arrange]))
+  
+  if(drop_na) {
+    sankey_input <- sankey_input %>% drop_na()
+  }
+  
+  if(is.null(names)) {
+    names <- nodes
+  } else {
+    colnames(sankey_input) <- names
+  }
+  
+  if(reverse) {
+    sankey_input <- sankey_input %>% make_long(length(nodes):1)
+  } else {
+    sankey_input <- sankey_input %>% make_long(1:length(nodes))
+  }
+  
+    
+  if(total) {
+    total <- paste(prefix, nrow(df))
+  } else {
+    total <- NULL
+  }
+  
+  # Construct plot
+  p <- ggplot(sankey_input %>% mutate(node = factor(node)), 
+              aes(x = x, 
+                  next_x = next_x, 
+                  node = node, 
+                  next_node = next_node,
+                  fill = node,
+                  label = node)) +
+    geom_sankey(flow.alpha = 0.6,
+                flow.color = 'black',
+                node.color = 'black') +
+    theme_sankey(base_size = 10, base_family = 'Arial') +
+    theme(legend.position = 'none',
+          plot.title = element_text(hjust = 0.5),
+          plot.subtitle = element_text(hjust = 0.5),
+          axis.text.x = element_text(size = 10, color = 'black'))+
+    geom_sankey_label(size = 3, color = "black", fill = "white", family = 'Arial') + 
+    scale_fill_viridis_d() + 
+    labs(x = '',
+         title = title,
+         subtitle = total)
+  
+}
+```
+
+
+
 ## Analysis
 ### Combine all annotations
 ```{r}
 merged_annotations <- metadata %>% 
   select(rowname, id, local, global) %>% 
-  left_join(labels1 %>% select(rowname, label)) %>% 
-  left_join(labels2 %>% select(rowname, transfer = predicted.id)) %>% 
+  left_join(label_transfer %>% select(rowname, label = scibet)) %>% 
   separate(rowname, sep = '_', into = c('barcode', NA), remove = FALSE) %>% 
   left_join(rashx_clusters %>% select(barcode, rashx = cluster)) %>% 
   as_tibble()
@@ -79,7 +186,7 @@ merged_annotations
 ### Agreement metrics
 ```{r}
 clusters <- c('local', 'global') %>% set_names(.)
-annotations <- c('label', 'rashx', 'transfer') %>% set_names(.)
+annotations <- c('label', 'rashx') %>% set_names(.)
 
 all_clusterings <- c(clusters, annotations)
 
@@ -110,7 +217,8 @@ agreement_metrics <- map(1:nrow(pairwise_table), function(i) {
   bind_rows() %>% 
   rowwise() %>% 
   mutate(mean = mean(c(AMI, ARI))) %>% 
-  arrange(-mean)
+  arrange(-mean) %>% 
+  ungroup()
 
 agreement_metrics
 ```
@@ -250,7 +358,7 @@ mclapply(1:nrow(sankey2_loop), mc.cores = cores, FUN = function(i) {
   
   ggsave(plot = p,
          filename = paste0(str_remove(parameters$celltype, '/'), '.png'),
-         path = here(output_dir, parameters$cluster, 'sankey2'),
+         path = here(output_dir, parameters$cluster, paste0('sankey2_', parameters$cluster, '_vs_', annotations[1], '_vs_', annotations[2])),
          dpi = dpi,
          h = 4,
          w = 6)
@@ -474,9 +582,11 @@ which_identity <- 'local'
 which_cluster <- paste0(which_identity, '_cluster')
 which_supercluster <- paste0(which_identity, '_supercluster')
 
-seuratobj$cluster <- seuratobj[[which_cluster]] # set cluster as main annotation
-seuratobj$supercluster <- seuratobj[[which_supercluster]] # set cluster as main annotation
-Idents(seuratobj) <- 'cluster'
+seuratobj$cluster <- seuratobj[[which_cluster]] 
+seuratobj$supercluster <- seuratobj[[which_supercluster]] 
+
+seuratobj$annotation <- seuratobj$cluster # set cluster as main annotation
+Idents(seuratobj) <- 'annotation'
 ```
 ### Export
 ```{r}
@@ -488,6 +598,8 @@ seuratobj %>% write_rds(here(data_dir, 'seuratobj_annotated.rds'))
 ### Save plots
 ```{r}
 dpi <- 600
+w <- 5
+h <- 5
 ```
 
 #### Local
@@ -506,8 +618,8 @@ ggsave(plot = p,
        filename = 'umap_annotated_local_cluster.png',
        dpi = dpi,
        path = output_dir,
-       w = 4, 
-       h = 4)
+       w = w, 
+       h = h)
 
 p
 ```
@@ -527,8 +639,8 @@ ggsave(plot = p,
        filename = 'umap_annotated_local_supercluster.png',
        path = output_dir,
        dpi = dpi,
-       w = 4, 
-       h = 4)
+       w = w, 
+       h = h)
 
 p
 
@@ -549,8 +661,8 @@ ggsave(plot = p,
        filename = 'umap_annotated_local_cluster_facets.png',
        dpi = dpi,
        path = output_dir,
-       w = 8, 
-       h = 8)
+       w = w * 2, 
+       h = h * 2)
 ```
 
 #### Global
@@ -569,8 +681,8 @@ ggsave(plot = p,
        filename = 'umap_annotated_global_cluster.png',
        dpi = dpi,
        path = output_dir,
-       w = 4, 
-       h = 4)
+       w = w, 
+       h = h)
 
 p
 ```
@@ -590,8 +702,8 @@ ggsave(plot = p,
        filename = 'umap_annotated_global_cluster_facets.png',
        dpi = dpi,
        path = output_dir,
-       w = 8, 
-       h = 8)
+       w = w * 2, 
+       h = h * 2)
 ```
 
 
@@ -609,8 +721,8 @@ ggsave(plot = p,
        filename = 'umap_annotated_global_supercluster.png',
        path = output_dir,
        dpi = dpi,
-       w = 4, 
-       h = 4)
+       w = w, 
+       h = h)
 
 p
 
