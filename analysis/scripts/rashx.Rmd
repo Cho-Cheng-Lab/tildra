@@ -46,11 +46,23 @@ sample_info <- metadata %>%
   unique()
 sample_info
 ```
+### Retrieve barcodes
+#### Duplicated cells
+```{r}
+duplicates <- metadata %>% 
+  separate(rowname, sep = '_', into = c('celltype', 'barcode', 'sample', 'sample_id'), remove = FALSE) %>% 
+  group_by(barcode, orig.ident) %>% add_count() %>% filter(n > 1) %>% arrange(orig.ident, barcode)
+duplicates
+```
+```{r}
+to_remove <- duplicates %>% filter(celltype == 'Cell cycle') %>% pull(rowname)
+```
 
 #### Prepare clustering data and add supercluster
 ```{r}
 rashx_clusters <- metadata %>% 
-  separate(rowname, sep = '_', into = c('celltype', 'barcode', 'sample', 'sample_id')) %>% 
+  filter(!(rowname %in% to_remove)) %>% 
+  separate(rowname, sep = '_', into = c('celltype', 'barcode', 'sample', 'sample_id'), remove = FALSE) %>% 
   mutate(id = str_remove(ident, 'kin'),
          supercluster = str_remove(Ident2, '[:digit:]|-c')) %>% # add supercluster
   select(barcode, 
@@ -68,8 +80,10 @@ rashx_clusters %>% select(cluster, supercluster) %>% unique() %>% arrange(superc
 ## Export
 ```{r}
 rashx_clusters %>% write_tsv(here(output_dir, 'rashx_clusters.tsv.gz'))
-```
 
+subset(seuratobj, cells = c(colnames(seuratobj) %>% setdiff(to_remove))) %>% 
+  write_rds(here('data/external/rashx_clean.rds'))
+```
 ## Session Info
 ```{r}
 sessionInfo()

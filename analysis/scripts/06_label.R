@@ -31,27 +31,27 @@ seuratobj
 
 
 ## -------------------------------------------------------------------------------------------------------------------------
-rashx <- read_rds(here('data/external/rashx.rds'))
+rashx <- read_rds(here('data/external/rashx_clean.rds'))
 rashx
 
 ## -------------------------------------------------------------------------------------------------------------------------
-seurat_feature(rashx, feature = 'Ident2')
+#seurat_feature(rashx, feature = 'Ident2')
 
 
 ## -------------------------------------------------------------------------------------------------------------------------
 library(future)
-options(future.globals.maxSize = 60 * 1024^3)
 plan('multicore', workers = 40)
- 
-transfer_dims <- 1:30
+options(future.globals.maxSize = 60 * 1024^3)
+
+transfer_dims <- 1:20
 tic()
 anchors <- FindTransferAnchors(reference = rashx, 
                                query = seuratobj,
                                dims = transfer_dims, 
                                features = VariableFeatures(seuratobj),
                                reduction = 'pcaproject',
-                               reference.reduction = 'harmony',
-                               k.filter = NA) # skip filtering for large dataset
+                               reference.reduction = 'pca',
+                               k.filter = 200) # adjust filter for large dataset
 
 
 transfer <- TransferData(anchorset = anchors,
@@ -59,7 +59,7 @@ transfer <- TransferData(anchorset = anchors,
                          dims = transfer_dims)
 toc()
 
-transfer %>% rownames_to_column() %>% write_tsv(here(output_dir, 'transfer2.tsv.gz'))
+transfer %>% rownames_to_column() %>% write_tsv(here(output_dir, 'transfer20dim200k.tsv.gz'))
 
 
 ## -------------------------------------------------------------------------------------------------------------------------
@@ -92,59 +92,6 @@ ggsave(plot = p2,
        w = 10, 
        h = 10)
 p2
-
-
-## -------------------------------------------------------------------------------------------------------------------------
-library(scibet)
-
-
-## -------------------------------------------------------------------------------------------------------------------------
-shared_genes <- intersect(rownames(seuratobj), rownames(rashx))
-
-tic()
-ref_input <- rashx@assays$RNA@data[shared_genes, ] %>% as.matrix() %>% t() %>% as.data.frame()
-ref_input <- cbind(ref_input, 'label' = rashx$Ident2)
-query_input <- seuratobj@assays$RNA@data[shared_genes, ] %>% as.matrix() %>% t() %>% as.data.frame()
-toc()
-
-
-## -------------------------------------------------------------------------------------------------------------------------
-tic()
-prd <- SciBet(train = ref_input,
-              test = query_input, 
-              k = 3000)
-
-seuratobj$label <- prd
-toc()
-
-
-## -------------------------------------------------------------------------------------------------------------------------
-p1 <- seurat_feature(seuratobj, features = 'label', facet_hide = TRUE, color_package = 'carto', color_palette = 'Bold', rasterize_dpi = 600, legend_position = 'none')
-
-ggsave(plot = p1,
-       filename = 'umap_label.png',
-       path = output_dir,
-       dpi = 600,
-       w = 5, 
-       h = 5)
-
-p1
-
-
-## -------------------------------------------------------------------------------------------------------------------------
-p2 <- seurat_feature(seuratobj, features = 'local', facets = 'label', facet_hide = FALSE, color_package = 'carto', color_palette = 'Bold', label = FALSE, legend_position = 'none', rasterize_dpi = 600)
-
-ggsave(plot = p2,
-       filename = 'umap_label_facets.png',
-       path = output_dir,
-       dpi = 600,
-       w = 10, 
-       h = 10)
-p2
-
-
-## -------------------------------------------------------------------------------------------------------------------------
-seuratobj@meta.data %>% rownames_to_column() %>% select(rowname, label) %>% write_tsv(here(output_dir, 'labels.tsv.gz'))
 
 
 ## -------------------------------------------------------------------------------------------------------------------------
