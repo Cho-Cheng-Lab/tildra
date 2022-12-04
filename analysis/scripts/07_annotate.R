@@ -41,22 +41,18 @@ rashx_clusters %>% head()
 
 
 ## -------------------------------------------------------------------------------------------------------------------------
-labels1 <- read_tsv(here('analysis/output/06_label/labels.tsv.gz'))
-labels1 %>% head()
+labels <- read_tsv(here('analysis/output/06_label/transfer_pca50_kNA.tsv.gz')) %>% select(rowname, label = predicted.id)
 
-
-## -------------------------------------------------------------------------------------------------------------------------
-labels2 <- read_tsv(here('analysis/output/06_label/transfer.tsv.gz'))
-labels2 %>% head()
+label_transfer <- metadata %>% select(rowname, local, global) %>% left_join(labels)
+label_transfer %>% head()
 
 
 ## -------------------------------------------------------------------------------------------------------------------------
 merged_annotations <- metadata %>% 
   select(rowname, id, local, global) %>% 
-  left_join(labels1 %>% select(rowname, label)) %>% 
-  left_join(labels2 %>% select(rowname, transfer = predicted.id)) %>% 
+  left_join(label_transfer %>% select(rowname, label)) %>% 
   separate(rowname, sep = '_', into = c('barcode', NA), remove = FALSE) %>% 
-  left_join(rashx_clusters %>% select(barcode, rashx = cluster)) %>% 
+  left_join(rashx_clusters %>% select(barcode, id, rashx = cluster)) %>% 
   as_tibble()
 
 merged_annotations
@@ -64,7 +60,7 @@ merged_annotations
 
 ## -------------------------------------------------------------------------------------------------------------------------
 clusters <- c('local', 'global') %>% set_names(.)
-annotations <- c('transfer', 'rashx') %>% set_names(.)
+annotations <- c('label', 'rashx') %>% set_names(.)
 
 all_clusterings <- c(clusters, annotations)
 
@@ -95,8 +91,12 @@ agreement_metrics <- map(1:nrow(pairwise_table), function(i) {
   bind_rows() %>% 
   rowwise() %>% 
   mutate(mean = mean(c(AMI, ARI))) %>% 
-  arrange(-mean)
+  arrange(-mean) %>% 
+  ungroup()
+agreement_metrics
 
+
+## -------------------------------------------------------------------------------------------------------------------------
 agreement_metrics
 
 
@@ -229,7 +229,7 @@ mclapply(1:nrow(sankey2_loop), mc.cores = cores, FUN = function(i) {
   
   ggsave(plot = p,
          filename = paste0(str_remove(parameters$celltype, '/'), '.png'),
-         path = here(output_dir, parameters$cluster, 'sankey2'),
+         path = here(output_dir, parameters$cluster, paste0('sankey2_', parameters$cluster, '_vs_', annotations[1], '_vs_', annotations[2])),
          dpi = dpi,
          h = 4,
          w = 6)
@@ -440,9 +440,11 @@ which_identity <- 'local'
 which_cluster <- paste0(which_identity, '_cluster')
 which_supercluster <- paste0(which_identity, '_supercluster')
 
-seuratobj$cluster <- seuratobj[[which_cluster]] # set cluster as main annotation
-seuratobj$supercluster <- seuratobj[[which_supercluster]] # set cluster as main annotation
-Idents(seuratobj) <- 'cluster'
+seuratobj$cluster <- seuratobj[[which_cluster]] 
+seuratobj$supercluster <- seuratobj[[which_supercluster]] 
+
+seuratobj$annotation <- seuratobj$cluster # set cluster as main annotation
+Idents(seuratobj) <- 'annotation'
 
 
 ## -------------------------------------------------------------------------------------------------------------------------
@@ -453,6 +455,8 @@ seuratobj %>% write_rds(here(data_dir, 'seuratobj_annotated.rds'))
 
 ## -------------------------------------------------------------------------------------------------------------------------
 dpi <- 600
+w <- 5
+h <- 5
 
 
 ## -------------------------------------------------------------------------------------------------------------------------
@@ -470,8 +474,8 @@ ggsave(plot = p,
        filename = 'umap_annotated_local_cluster.png',
        dpi = dpi,
        path = output_dir,
-       w = 4, 
-       h = 4)
+       w = w, 
+       h = h)
 
 p
 
@@ -490,8 +494,8 @@ ggsave(plot = p,
        filename = 'umap_annotated_local_supercluster.png',
        path = output_dir,
        dpi = dpi,
-       w = 4, 
-       h = 4)
+       w = w, 
+       h = h)
 
 p
 
@@ -512,8 +516,8 @@ ggsave(plot = p,
        filename = 'umap_annotated_local_cluster_facets.png',
        dpi = dpi,
        path = output_dir,
-       w = 8, 
-       h = 8)
+       w = w * 2, 
+       h = h * 2)
 
 
 ## -------------------------------------------------------------------------------------------------------------------------
@@ -531,8 +535,8 @@ ggsave(plot = p,
        filename = 'umap_annotated_global_cluster.png',
        dpi = dpi,
        path = output_dir,
-       w = 4, 
-       h = 4)
+       w = w, 
+       h = h)
 
 p
 
@@ -552,8 +556,8 @@ ggsave(plot = p,
        filename = 'umap_annotated_global_cluster_facets.png',
        dpi = dpi,
        path = output_dir,
-       w = 8, 
-       h = 8)
+       w = w * 2, 
+       h = h * 2)
 
 
 ## -------------------------------------------------------------------------------------------------------------------------
@@ -570,8 +574,8 @@ ggsave(plot = p,
        filename = 'umap_annotated_global_supercluster.png',
        path = output_dir,
        dpi = dpi,
-       w = 4, 
-       h = 4)
+       w = w, 
+       h = h)
 
 p
 

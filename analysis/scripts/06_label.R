@@ -50,7 +50,7 @@ anchors <- FindTransferAnchors(reference = rashx,
                                dims = transfer_dims, 
                                features = VariableFeatures(seuratobj),
                                reduction = 'pcaproject',
-                               reference.reduction = 'pca',
+                               reference.reduction = 'harmony',
                                k.filter = 200) # adjust filter for large dataset
 
 
@@ -59,7 +59,7 @@ transfer <- TransferData(anchorset = anchors,
                          dims = transfer_dims)
 toc()
 
-transfer %>% rownames_to_column() %>% write_tsv(here(output_dir, 'transfer20dim200k.tsv.gz'))
+transfer %>% rownames_to_column() %>% write_tsv(here(output_dir, 'transfer_harmony20_k200.tsv.gz'))
 
 
 ## -------------------------------------------------------------------------------------------------------------------------

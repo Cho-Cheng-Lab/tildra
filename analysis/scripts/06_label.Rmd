@@ -59,7 +59,7 @@ library(future)
 plan('multicore', workers = 40)
 options(future.globals.maxSize = 60 * 1024^3)
 
-transfer_dims <- 1:30
+transfer_dims <- 1:50
 tic()
 anchors <- FindTransferAnchors(reference = rashx, 
                                query = seuratobj,
@@ -67,7 +67,7 @@ anchors <- FindTransferAnchors(reference = rashx,
                                features = VariableFeatures(seuratobj),
                                reduction = 'pcaproject',
                                reference.reduction = 'pca',
-                               k.filter = 30) # adjust filter for large dataset
+                               k.filter = 200) # adjust filter for large dataset
 
 
 transfer <- TransferData(anchorset = anchors,
@@ -75,7 +75,7 @@ transfer <- TransferData(anchorset = anchors,
                          dims = transfer_dims)
 toc()
 
-transfer %>% rownames_to_column() %>% write_tsv(here(output_dir, 'transfer.tsv.gz'))
+transfer %>% rownames_to_column() %>% write_tsv(here(output_dir, 'transfer_pca50_k200.tsv.gz'))
 ```
 
 ```{r}
@@ -109,6 +109,76 @@ ggsave(plot = p2,
        h = 10)
 p2
 ```
+
+### Compare average expression on a cluster-by-cluster level
+#### Key markers
+```{r}
+rashx_markers <- c("CD3D",
+                  "CCR7",
+                  "SELL",
+                  "KLF2","CD69","ITGAE","CXCR6","CD4","TIGIT","FOXP3",
+                  "IL2RA","CTLA4","CD8A","CD8B","GZMB","PDCD1","LAG3","KLRB1","PRF1","KLRD1","GNLY",
+                  "TNFRSF18","PRDM1","BATF","TRAT1","RORA","GATA3","PTGDR2",
+                  "IL7R", "HLA-DRA","HLA-DRB1",
+                  "CD83","IDO1","CD207","EPCAM","CD68","C1QB","C1QC","CD163","CLEC10A","CD1C",
+                  "THBD","XCR1","SIRPA","F13A1","IGKC","JCHAIN","CD79A","MS4A1","NR4A1","NR4A2","KLF4",
+                  "CEBPB","LYZ","MS4A7","SERPINA1","CD14","S100A9","IL23A","TPSB2","TPSAB1","MKI67","TOP2A",
+                  "ITGA4","NCR1","IL17A","IL17F","IL23R")
+
+rashx_markers <- VariableFeatures(seuratobj)
+```
+
+```{r}
+rashx_avg <- AverageExpression(rashx, group.by = 'Ident2', features = rashx_markers, assays = 'RNA')[['RNA']]
+local_avg <-  AverageExpression(seuratobj, group.by = 'local', features = rashx_markers, assays = 'RNA')[['RNA']]
+global_avg <- AverageExpression(seuratobj, group.by = 'global', features = rashx_markers, assays = 'RNA')[['RNA']]
+```
+
+```{r}
+rashx2local <- cor(rashx_avg, local_avg)
+pheatmap::pheatmap(rashx2local)
+```
+```{r}
+rashx2global <- cor(rashx_avg, global_avg)
+pheatmap::pheatmap(rashx2global)
+```
+```{r}
+local_top <- rashx2local %>% 
+  as.data.frame() %>% 
+  rownames_to_column('label') %>% 
+  pivot_longer(-label,
+               names_to = 'local',
+               values_to = 'r') %>% 
+  group_by(local) %>% 
+  slice_max(r) %>% 
+  ungroup() %>% 
+  arrange(factor(local, levels = levels(seuratobj$local))) %>% 
+  select(local, label, r) %>% 
+  mutate(r = round(r, 3))
+
+local_top
+```
+```{r}
+global_top <- rashx2global %>% 
+  as.data.frame() %>% 
+  rownames_to_column('label') %>% 
+  pivot_longer(-label,
+               names_to = 'global',
+               values_to = 'r') %>% 
+  group_by(global) %>% 
+  slice_max(r) %>% 
+  ungroup() %>% 
+  arrange(factor(global, levels = levels(seuratobj$global))) %>% 
+  select(global, label, r) %>% 
+  mutate(r = round(r, 3))
+
+global_top
+```
+```{r}
+local_top %>% write_tsv(here(output_dir, 'local_top.tsv'))
+global_top %>% write_tsv(here(output_dir, 'global_top.tsv'))
+```
+
 
 ## Session Info
 ```{r}
