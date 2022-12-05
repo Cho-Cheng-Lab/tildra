@@ -1,15 +1,15 @@
-## -------------------------------------------------------------------------------------------------------------------------
+## ---------------------------------------------------------------------------------------------------------------------------------------------
 library(here)
 
 
-## ----eval=FALSE, message=FALSE--------------------------------------------------------------------------------------------
+## ----eval=FALSE, message=FALSE----------------------------------------------------------------------------------------------------------------
 ## current_file <- rstudioapi::getActiveDocumentContext()$path
 ## output_file <- stringr::str_replace(current_file, '.Rmd', '.R')
 ## knitr::purl(current_file, output = output_file)
 ## file.edit(output_file)
 
 
-## ---- message=FALSE-------------------------------------------------------------------------------------------------------
+## ---- message=FALSE---------------------------------------------------------------------------------------------------------------------------
 output_dir <- 'analysis/output/07_annotate' # analysis file output directory
 data_dir <- 'data/derived/tildra' # data file output directory
 
@@ -17,7 +17,7 @@ dir.create(output_dir, showWarnings = FALSE)
 dir.create(data_dir, showWarnings = FALSE)
 
 
-## ---- message=FALSE-------------------------------------------------------------------------------------------------------
+## ---- message=FALSE---------------------------------------------------------------------------------------------------------------------------
 library(Seurat) 
 library(tidyverse)
 library(ggExtra)
@@ -25,29 +25,35 @@ library(SeuratWrappers)
 library(wutilities) # devtools::install_github('symbiologist/wutilities')
 library(tictoc)
 library(ggsankey)
-library(aricode)
+library(googlesheets4)
 theme_set(wutilities::theme_dwu())
 
 
-## -------------------------------------------------------------------------------------------------------------------------
+## ---------------------------------------------------------------------------------------------------------------------------------------------
 seuratobj <- read_rds(here(data_dir, 'seuratobj_subcluster.rds'))
 metadata <- seuratobj@meta.data %>% rownames_to_column()
 seuratobj
 
 
-## -------------------------------------------------------------------------------------------------------------------------
+## ---------------------------------------------------------------------------------------------------------------------------------------------
+rashx <- read_rds('data/external/rashx_clean.rds')
 rashx_clusters <- read_tsv(here('analysis/output/rashx/rashx_clusters.tsv.gz'))
 rashx_clusters %>% head()
 
 
-## -------------------------------------------------------------------------------------------------------------------------
-labels <- read_tsv(here('analysis/output/06_label/transfer_pca50_kNA.tsv.gz')) %>% select(rowname, label = predicted.id)
+## ---------------------------------------------------------------------------------------------------------------------------------------------
+labels <- read_tsv(here('analysis/output/06_label/transfer_pca30_kNA.tsv.gz')) %>% select(rowname, label = predicted.id)
 
 label_transfer <- metadata %>% select(rowname, local, global) %>% left_join(labels)
 label_transfer %>% head()
 
 
-## -------------------------------------------------------------------------------------------------------------------------
+## ---------------------------------------------------------------------------------------------------------------------------------------------
+local_top <- read_tsv(here('analysis/output/06_label/local_top.tsv'))
+global_top <- read_tsv(here('analysis/output/06_label/global_top.tsv')) %>% mutate(global = factor(global))
+
+
+## ---------------------------------------------------------------------------------------------------------------------------------------------
 merged_annotations <- metadata %>% 
   select(rowname, id, local, global) %>% 
   left_join(label_transfer %>% select(rowname, label)) %>% 
@@ -58,7 +64,7 @@ merged_annotations <- metadata %>%
 merged_annotations
 
 
-## -------------------------------------------------------------------------------------------------------------------------
+## ---------------------------------------------------------------------------------------------------------------------------------------------
 clusters <- c('local', 'global') %>% set_names(.)
 annotations <- c('label', 'rashx') %>% set_names(.)
 
@@ -76,7 +82,7 @@ pairwise_table <- crossing('cluster1' = all_clusterings,
 pairwise_table
 
 
-## -------------------------------------------------------------------------------------------------------------------------
+## ---------------------------------------------------------------------------------------------------------------------------------------------
 agreement_metrics <- map(1:nrow(pairwise_table), function(i) {
   row_input <- pairwise_table[i, ]
   
@@ -96,11 +102,7 @@ agreement_metrics <- map(1:nrow(pairwise_table), function(i) {
 agreement_metrics
 
 
-## -------------------------------------------------------------------------------------------------------------------------
-agreement_metrics
-
-
-## -------------------------------------------------------------------------------------------------------------------------
+## ---------------------------------------------------------------------------------------------------------------------------------------------
 annotation_odds <- map(clusters, function(i) {
   map(annotations, function(j) {
     
@@ -113,40 +115,7 @@ annotation_odds <- map(clusters, function(i) {
 annotation_odds$local$label
 
 
-## -------------------------------------------------------------------------------------------------------------------------
-input_odds <- annotation_odds$local$label
-
-top_jaccard <- input_odds %>% 
-  group_by(group1) %>% 
-  slice_max(jaccard)
-
-top_overlap <- input_odds %>% 
-  group_by(group1) %>% 
-  slice_max(overlap_coef)
-
-top_f <- input_odds %>% 
-  group_by(group1) %>% 
-  slice_max(f_group1)
-
-top_f_score<- input_odds %>% 
-  group_by(group1) %>% 
-  slice_max(f_score)
-
-top_odds <- input_odds %>% 
-  group_by(group1) %>% 
-  slice_max(odds)
-
-top_comparison <- top_f %>% select(group1, f_group1, top_f_group1 = group2) %>% 
-  left_join(top_overlap %>% select(group1, overlap_coef, top_overlap = group2)) %>% 
-  left_join(top_jaccard %>% select(group1, jaccard, top_jaccard = group2)) %>% 
-  left_join(top_f_score %>% select(group1, f_score, top_f_score = group2)) %>% 
-  left_join(top_odds %>% select(group1, odds, top_odds = group2)) %>% 
-  mutate(match = ifelse(top_f_group1 == top_jaccard, 'Yes', 'No')) 
-
-top_comparison %>% add_count(group1) %>% filter(match == 'No')
-
-
-## -------------------------------------------------------------------------------------------------------------------------
+## ---------------------------------------------------------------------------------------------------------------------------------------------
 dpi <- 300
 
 sankey1_loop <- crossing('cluster1' = all_clusterings,
@@ -164,7 +133,7 @@ sankey1_loop
   
 
 
-## -------------------------------------------------------------------------------------------------------------------------
+## ---------------------------------------------------------------------------------------------------------------------------------------------
 library(parallel)
 cores <- 20
 
@@ -196,7 +165,7 @@ mclapply(1:nrow(sankey1_loop), mc.cores = cores, FUN = function(i) {
 toc()
 
 
-## -------------------------------------------------------------------------------------------------------------------------
+## ---------------------------------------------------------------------------------------------------------------------------------------------
 sankey2_loop <- merged_annotations %>% 
   select(all_of(clusters)) %>% 
   unique() %>% 
@@ -211,7 +180,7 @@ sankey2_loop <- merged_annotations %>%
 sankey2_loop
 
 
-## -------------------------------------------------------------------------------------------------------------------------
+## ---------------------------------------------------------------------------------------------------------------------------------------------
 tic()
 mclapply(1:nrow(sankey2_loop), mc.cores = cores, FUN = function(i) {
 
@@ -237,7 +206,7 @@ mclapply(1:nrow(sankey2_loop), mc.cores = cores, FUN = function(i) {
 toc()
 
 
-## -------------------------------------------------------------------------------------------------------------------------
+## ---------------------------------------------------------------------------------------------------------------------------------------------
 annotation_loop <- merged_annotations %>% 
   select(all_of(annotations)) %>% 
   unique() %>% 
@@ -252,7 +221,7 @@ annotation_loop <- merged_annotations %>%
 annotation_loop
 
 
-## -------------------------------------------------------------------------------------------------------------------------
+## ---------------------------------------------------------------------------------------------------------------------------------------------
 mclapply(1:nrow(annotation_loop), mc.cores = cores, FUN = function(i) {
 
   parameters <- annotation_loop[i,]
@@ -295,7 +264,7 @@ mclapply(1:nrow(annotation_loop), mc.cores = cores, FUN = function(i) {
 })
 
 
-## -------------------------------------------------------------------------------------------------------------------------
+## ---------------------------------------------------------------------------------------------------------------------------------------------
 library(pheatmap)
 
 pheatmap_input <- annotation_odds$local$label %>% 
@@ -310,11 +279,11 @@ p <- pheatmap(mat = pheatmap_input %>% column_to_rownames('group2'),
          breaks = seq(0, 1, length.out = 102), display_numbers = TRUE)
 
 
-## -------------------------------------------------------------------------------------------------------------------------
+## ---------------------------------------------------------------------------------------------------------------------------------------------
 rashx_clusters$supercluster %>% unique() %>% sort()
 
 
-## -------------------------------------------------------------------------------------------------------------------------
+## ---------------------------------------------------------------------------------------------------------------------------------------------
 supercluster_order <- c('Tcm', 
                         'Trm', 
                         'Tmm', 
@@ -350,49 +319,429 @@ annotation_order <- rashx_clusters %>% select(cluster, supercluster) %>%
 annotation_order
 
 
-## -------------------------------------------------------------------------------------------------------------------------
+## ---------------------------------------------------------------------------------------------------------------------------------------------
 annotation_local <- annotation_odds$local$label %>% 
   group_by(group1) %>% 
   slice_max(f_group1) %>% 
-  select(group1,
+  select(local = group1,
          cluster = group2,
          f_in_cluster = f_group1) %>% 
-  left_join(annotation_order) %>% 
-  ungroup() %>% 
-  select(local = group1, 
-         local_cluster = cluster, 
-         local_supercluster = supercluster, 
-         local_order = order,
-         f_in_local_cluster = f_in_cluster)
+  left_join(local_top) %>% # expression-based cluster-matching
+  mutate(match = ifelse(label == cluster, TRUE, FALSE))
 
 annotation_local
 
-
-## -------------------------------------------------------------------------------------------------------------------------
+## ---------------------------------------------------------------------------------------------------------------------------------------------
 annotation_global <- annotation_odds$global$label %>% 
   group_by(group1) %>% 
   slice_max(f_group1) %>% 
-  select(group1,
+  select(global = group1,
          cluster = group2,
          f_in_cluster = f_group1) %>% 
-  left_join(annotation_order) %>% 
-  ungroup() %>% 
-  select(global = group1, 
-         global_cluster = cluster, 
-         global_supercluster = supercluster, 
-         global_order = order,
-         f_in_global_cluster = f_in_cluster)
+  left_join(global_top) %>% # expression-based cluster-matching
+  mutate(match = ifelse(label == cluster, TRUE, FALSE))
 
 annotation_global
 
 
-## -------------------------------------------------------------------------------------------------------------------------
-annotation_local_levels <- annotation_local %>% 
+## ---------------------------------------------------------------------------------------------------------------------------------------------
+rashx_markers <- c("CD3D",
+                  "CCR7",
+                  "SELL",
+                  "KLF2","CD69","ITGAE","CXCR6","CD4","TIGIT","FOXP3",
+                  "IL2RA","CTLA4","CD8A","CD8B","GZMB","PDCD1","LAG3","KLRB1","PRF1","KLRD1","GNLY",
+                  "TNFRSF18","PRDM1","BATF","TRAT1","RORA","GATA3","PTGDR2",
+                  "IL7R", "HLA-DRA","HLA-DRB1",
+                  "CD83","IDO1","CD207","EPCAM","CD68","C1QB","C1QC","CD163","CLEC10A","CD1C",
+                  "THBD","XCR1","SIRPA","F13A1","IGKC","JCHAIN","CD79A","MS4A1","NR4A1","NR4A2","KLF4",
+                  "CEBPB","LYZ","MS4A7","SERPINA1","CD14","S100A9","IL23A","TPSB2","TPSAB1","MKI67","TOP2A",
+                  "ITGA4","NCR1","IL17A","IL17F","IL23R")
+
+dotplot_custom <- function(seuratobj,
+                           features,
+                           group.by,
+                           assay = 'RNA',
+                           cluster.idents = TRUE) {
+  
+  DotPlot(object = seuratobj, 
+          features = features, 
+          group.by = group.by,
+          cluster.idents = cluster.idents, 
+          assay = assay, 
+          col.min = 0.3, 
+          col.max = 0.8, 
+          dot.min = 0.12, 
+          dot.scale = 1) +
+    scale_size(range = c(0, 5))+ 
+    scale_size_area(max_size = 5)+ 
+    theme(text = element_text(family = 'Arial'),
+          axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+          axis.text.y = element_text(angle = 0, vjust = 0.5, hjust=1),
+          plot.background = element_rect(fill = 'white')) +
+    labs(x = '',
+         y = '') +
+    scale_color_gradientn(colours = viridis::magma(20), limits = c(0,1), oob = scales::squish)
+  
+}
+
+p_rashx <- dotplot_custom(rashx,
+                          features = rashx_markers,
+                          group.by = 'Ident2')
+
+ggsave(plot = p_rashx,
+       path = output_dir,
+       width = 14,
+       height = 8,
+       filename = 'dotplot_rashx.png')
+
+p_local <- dotplot_custom(seuratobj,
+                          features = rashx_markers,
+                          group.by = 'local')
+
+ggsave(plot = p_local,
+       path = output_dir,
+       width = 14,
+       height = 8,
+       filename = 'dotplot_local.png')
+
+p_global <- dotplot_custom(seuratobj,
+                           features = rashx_markers,
+                           group.by = 'global')
+
+ggsave(plot = p_global,
+       path = output_dir,
+       width = 14,
+       height = 8,
+       filename = 'dotplot_global.png')
+
+p_local
+
+## ---------------------------------------------------------------------------------------------------------------------------------------------
+df_rashx <- ggplot_build(p_rashx)
+data.plot <- df_rashx$plot$data
+data.plot
+
+
+## ---------------------------------------------------------------------------------------------------------------------------------------------
+dotplot_dataprep <- function(seuratobj,
+                             features,
+                             cells = NULL,
+                             group.by,
+                             prefix = NULL) {
+  
+  data.features <- FetchData(seuratobj,
+                             vars = features,
+                             cells = cells)
+  
+  if(is.null(prefix)) {
+    prefix <- group.by
+  }
+  
+  seuratobj[['group']] <- paste0(prefix, '_', seuratobj[[group.by]][[1]])
+  data.features$id <- seuratobj[['group', drop = TRUE]]
+  id.levels <- levels(x = data.features$id)
+  data.features$id <- as.vector(x = data.features$id)
+  
+  data.plot <- lapply(
+    X = unique(x = data.features$id),
+    FUN = function(ident) {
+      data.use <- data.features[data.features$id == ident, 1:(ncol(x = data.features) - 1), drop = FALSE]
+      avg.exp <- apply(
+        X = data.use,
+        MARGIN = 2,
+        FUN = function(x) {
+          return(mean(x = expm1(x = x)))
+        }
+      )
+      pct.exp <- apply(X = data.use, MARGIN = 2, FUN = PercentAbove, threshold = 0)
+      return(list(avg.exp = avg.exp, pct.exp = pct.exp))
+    }
+  )
+  
+  names(x = data.plot) <- unique(x = data.features$id)
+  data.plot
+}
+
+dotplot_cluster <- function(data.plot) {
+  
+  id.levels <- names(data.plot)
+  
+  mat <- do.call(
+    what = rbind,
+    args = lapply(X = data.plot, FUN = unlist)
+  )
+  mat <- scale(x = mat)
+  id.levels <- id.levels[hclust(d = dist(x = mat))$order]
+  
+  data.plot <- lapply(
+    X = names(x = data.plot),
+    FUN = function(x) {
+      data.use <- as.data.frame(x = data.plot[[x]])
+      data.use$features.plot <- rownames(x = data.use)
+      data.use$id <- x
+      return(data.use)
+    }
+  )
+  data.plot <- do.call(what = 'rbind', args = data.plot)
+  
+  if (!is.null(x = id.levels)) {
+    data.plot$id <- factor(x = data.plot$id, levels = id.levels)
+  }
+  
+  data.plot
+  
+}
+
+dotplot_scale <- function(data.plot, 
+                          col.min = 0.3, 
+                          col.max = 0.8) {
+  avg.exp.scaled <- sapply(
+    X = unique(x = data.plot$features.plot),
+    FUN = function(x) {
+      data.use <- data.plot[data.plot$features.plot == x, 'avg.exp']
+        data.use <- scale(x = data.use)
+        data.use <- MinMax(data = data.use, min = col.min, max = col.max)
+
+      return(data.use)
+    }
+  )
+  
+  avg.exp.scaled <- as.vector(x = t(x = avg.exp.scaled))
+  
+  data.plot$avg.exp.scaled <- avg.exp.scaled
+  
+  data.plot
+  
+  
+}
+
+doubledotplot <- function(seuratobj1,
+                          seuratobj2,
+                          group.by1,
+                          group.by2,
+                          prefix1,
+                          prefix2,
+                          features,
+                          dot.min = 0.12,
+                          dot.scale = 1,
+                          scale.min = NA,
+                          scale.max = NA,
+                          col.min = 0.3,
+                          col.max = 0.8,
+                          plot = TRUE) {
+  
+  dataprep1 <- dotplot_dataprep(seuratobj1, features = features, group.by = group.by1, prefix = prefix1)
+  dataprep2 <- dotplot_dataprep(seuratobj2, features = features, group.by = group.by2, prefix = prefix2)
+  
+  data_combined <- dotplot_cluster(c(dataprep1, dataprep2))
+  
+  data.plot <- data_combined %>% dotplot_scale(col.min = col.min,
+                                               col.max = col.max)
+  
+  data.plot$pct.exp[data.plot$pct.exp < dot.min] <- NA
+  data.plot$pct.exp <- data.plot$pct.exp * 100
+  
+   if (!is.na(x = scale.min)) {
+    data.plot[data.plot$pct.exp < scale.min, 'pct.exp'] <- scale.min
+  }
+  if (!is.na(x = scale.max)) {
+    data.plot[data.plot$pct.exp > scale.max, 'pct.exp'] <- scale.max
+  }
+  
+  data.plot$features.plot <- factor(data.plot$features.plot, levels = features)
+  
+  if (plot) {
+    data.plot %>% 
+      ggplot(aes(x = features.plot,
+                 y = id)) +
+      geom_point(aes(size = pct.exp,
+                     color = avg.exp.scaled)) +
+      scale_radius(range = c(0, dot.scale), limits = c(scale.min, scale.max)) +
+      guides(size = guide_legend(title = 'Percent Expressed')) +
+      theme_dwu() +
+      theme(axis.title.x = element_blank(), 
+            axis.title.y = element_blank(),
+            axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+      scale_color_gradientn(colours = viridis::magma(20), limits = c(0, 1), oob = scales::squish) +
+      scale_size(range = c(0, 5))+ 
+      scale_size_area(max_size = 5)
+  }
+  
+  else {
+    data.plot
+  }
+}
+
+dotplot_filtered_plot <- function(data.plot,
+                                  id = NULL,
+                                  features = NULL,
+                                  dot.min = 0.12,
+                                  dot.scale = 1,
+                                  scale.min = NA,
+                                  scale.max = NA,
+                                  col.min = 0.3,
+                                  col.max = 0.8) {
+  
+  if(!is.null(id)) {
+    data.plot <- data.plot %>% filter(id %in% {{id}})
+  }
+  if(!is.null(features)) {
+    data.plot <- data.plot %>% filter(features.plot %in% {{features}})
+  }
+    
+   data.plot %>% 
+      ggplot(aes(x = features.plot,
+                 y = id)) +
+      geom_point(aes(size = pct.exp,
+                     color = avg.exp.scaled)) +
+      scale_radius(range = c(0, dot.scale), limits = c(scale.min, scale.max)) +
+      guides(size = guide_legend(title = 'Percent Expressed')) +
+      theme_dwu() +
+      theme(axis.title.x = element_blank(), 
+            axis.title.y = element_blank(),
+            axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+      scale_color_gradientn(colours = viridis::magma(20), limits = c(0, 1), oob = scales::squish) +
+      scale_size(range = c(0, 5))+ 
+      scale_size_area(max_size = 5)
+}
+
+
+## ---------------------------------------------------------------------------------------------------------------------------------------------
+p_dotplot_rashx_v_local <- doubledotplot(seuratobj1 = rashx,
+                                         seuratobj2 = seuratobj,
+                                         group.by1 = 'Ident2',
+                                         group.by2 = 'local',
+                                         prefix1 <- 'RashX',
+                                         prefix2 <- 'Local',
+                                         features = rashx_markers)
+
+p_dotplot_rashx_v_global <- doubledotplot(seuratobj1 = rashx,
+                                          seuratobj2 = seuratobj,
+                                          group.by1 = 'Ident2',
+                                          group.by2 = 'global',
+                                          prefix1 <- 'RashX',
+                                          prefix2 <- 'Global',
+                                          features = rashx_markers)
+
+ggsave(plot = p_dotplot_rashx_v_local,
+       path = output_dir,
+       width = 14,
+       height = 14,
+       filename = 'dotplot_rashx_v_local.png')
+
+ggsave(plot = p_dotplot_rashx_v_global,
+       path = output_dir,
+       width = 14,
+       height = 14,
+       filename = 'dotplot_rashx_v_global.png')
+
+
+
+
+## ---------------------------------------------------------------------------------------------------------------------------------------------
+top_n <- 5
+
+map(clusters, function(which_cluster) {
+  
+  prefix1 <- str_to_sentence(which_cluster)
+  prefix2 <- 'RashX'
+
+  df_dotplot <- doubledotplot(seuratobj1 = seuratobj,
+                              group.by1 = which_cluster,
+                              prefix1 = prefix1,
+                              seuratobj2 = rashx,
+                              group.by2 = 'Ident2',
+                              prefix2 <- prefix2,
+                              features = rashx_markers,
+                              plot = FALSE)
+  
+  top_per_cluster <- annotation_odds[[which_cluster]]$label %>% 
+    group_by(group1) %>% 
+    slice_max(f_group1, n = top_n) %>% 
+    select(group1, group2, f_group1)
+  
+  map(top_per_cluster$group1 %>% unique(), function(which_cluster_id) {
+    
+    print2(which_cluster_id)
+    top_matches <- top_per_cluster %>% filter(group1 == which_cluster_id) %>% pull(group2)
+    
+    ids <- c(paste0(prefix1, '_', which_cluster_id),
+             paste0(prefix2, '_', top_matches))
+    
+    p_individual_dotplot <- dotplot_filtered_plot(df_dotplot,
+                                                 id = ids) +
+      ggtitle(paste0('Closest Matches for Cluster ', which_cluster_id))
+    
+    ggsave(plot = p_individual_dotplot,
+           path = here(output_dir, 'dotplot', which_cluster),
+           width = 14,
+           height = 3,
+           filename = paste0(which_cluster_id, '.png'))
+    
+  })
+  
+  
+})
+
+
+
+
+
+## ----eval=FALSE-------------------------------------------------------------------------------------------------------------------------------
+## library(googledrive)
+## library(googlesheets4)
+## options(httr_oob_default=TRUE)
+## 
+## ss <- drive_get('Tildra project')
+## write_sheet(annotation_local, ss = ss, sheet = 'local')
+## write_sheet(annotation_global, ss = ss, sheet = 'global')
+## 
+
+
+## ----eval=FALSE-------------------------------------------------------------------------------------------------------------------------------
+## annotation_local_curated <- read_sheet(ss = ss, sheet = 'local_curated')
+## annotation_local_curated %>% write_tsv(here(output_dir, 'annotation_local_curated.tsv'))
+## 
+## annotation_local_curated <- read_sheet(ss = ss, sheet = 'global_curated')
+## annotation_local_curated %>% write_tsv(here(output_dir, 'annotation_global_curated.tsv'))
+
+
+## ---------------------------------------------------------------------------------------------------------------------------------------------
+annotation_local_curated <- read_tsv(here(output_dir, 'annotation_local_curated.tsv'))
+annotation_global_curated <- read_tsv(here(output_dir, 'annotation_global_curated.tsv')) %>% mutate(global = factor(global))
+
+annotation_local_curated
+
+
+## ---------------------------------------------------------------------------------------------------------------------------------------------
+annotation_local_final <- annotation_local_curated %>% 
+  select(local, cluster = curated) %>% 
+  left_join(annotation_order) %>% 
+  ungroup() %>% 
+  select(local, 
+         local_cluster = cluster, 
+         local_supercluster = supercluster, 
+         local_order = order) 
+
+annotation_global_final <- annotation_global_curated %>% 
+  select(global, cluster = curated) %>% 
+  left_join(annotation_order) %>% 
+  ungroup() %>% 
+  select(global, 
+         global_cluster = cluster, 
+         global_supercluster = supercluster, 
+         global_order = order) 
+
+annotation_local_final
+
+
+## ---------------------------------------------------------------------------------------------------------------------------------------------
+annotation_local_levels <- annotation_local_final %>% 
   select(local_order, local_cluster, local_supercluster) %>% 
   unique() %>% 
   arrange(local_order)
 
-annotation_global_levels <- annotation_global %>% 
+annotation_global_levels <- annotation_global_final %>% 
   select(global_order, global_cluster, global_supercluster) %>% 
   unique() %>% 
   arrange(global_order)
@@ -400,12 +749,12 @@ annotation_global_levels <- annotation_global %>%
 annotation_global_levels
 
 
-## -------------------------------------------------------------------------------------------------------------------------
+## ---------------------------------------------------------------------------------------------------------------------------------------------
 new_annotations <- seuratobj@meta.data %>% 
   rownames_to_column() %>% 
   select(rowname, local, global) %>% 
-  left_join(annotation_local) %>% 
-  left_join(annotation_global) %>% 
+  left_join(annotation_local_final) %>% 
+  left_join(annotation_global_final) %>% 
   mutate(local_cluster = factor(local_cluster, levels = annotation_local_levels$local_cluster),
          local_supercluster = factor(local_supercluster, levels = unique(annotation_local_levels$local_supercluster)),
          global_cluster = factor(global_cluster, levels = annotation_global_levels$global_cluster),
@@ -415,11 +764,11 @@ new_annotations <- seuratobj@meta.data %>%
 new_annotations 
 
 
-## -------------------------------------------------------------------------------------------------------------------------
+## ---------------------------------------------------------------------------------------------------------------------------------------------
 seuratobj <- AddMetaData(seuratobj, new_annotations)
 
 
-## -------------------------------------------------------------------------------------------------------------------------
+## ---------------------------------------------------------------------------------------------------------------------------------------------
 sample_order <- seuratobj@meta.data %>% 
   select(patient, sample, sample_order) %>% 
   unique() %>% 
@@ -427,7 +776,7 @@ sample_order <- seuratobj@meta.data %>%
 sample_order
 
 
-## -------------------------------------------------------------------------------------------------------------------------
+## ---------------------------------------------------------------------------------------------------------------------------------------------
 seuratobj$condition <- factor(seuratobj$condition, levels = c('HC', 'AD', 'PV'))
 seuratobj$treatment <- factor(seuratobj$treatment, levels = c('None', 'Pre', 'Mid'))
 seuratobj$group <- factor(seuratobj$group, levels = c('Responder', 'Non-responder'))
@@ -435,7 +784,7 @@ seuratobj$patient <- factor(seuratobj$patient, levels = unique(sample_order$pati
 seuratobj$sample <- factor(seuratobj$sample, levels = sample_order$sample)
 
 
-## -------------------------------------------------------------------------------------------------------------------------
+## ---------------------------------------------------------------------------------------------------------------------------------------------
 which_identity <- 'local'
 which_cluster <- paste0(which_identity, '_cluster')
 which_supercluster <- paste0(which_identity, '_supercluster')
@@ -447,19 +796,19 @@ seuratobj$annotation <- seuratobj$cluster # set cluster as main annotation
 Idents(seuratobj) <- 'annotation'
 
 
-## -------------------------------------------------------------------------------------------------------------------------
+## ---------------------------------------------------------------------------------------------------------------------------------------------
 seuratobj@meta.data %>% rownames_to_column() %>% write_rds(here(output_dir, 'metadata.rds'), compress = 'gz')
 
 seuratobj %>% write_rds(here(data_dir, 'seuratobj_annotated.rds'))
 
 
-## -------------------------------------------------------------------------------------------------------------------------
+## ---------------------------------------------------------------------------------------------------------------------------------------------
 dpi <- 600
 w <- 5
 h <- 5
 
 
-## -------------------------------------------------------------------------------------------------------------------------
+## ---------------------------------------------------------------------------------------------------------------------------------------------
 p <- seuratobj %>% 
   seurat_feature(features = 'local_cluster', 
                  facet_hide = TRUE, 
@@ -480,7 +829,7 @@ ggsave(plot = p,
 p
 
 
-## -------------------------------------------------------------------------------------------------------------------------
+## ---------------------------------------------------------------------------------------------------------------------------------------------
 p <- seuratobj %>% 
   seurat_feature(features = 'local_supercluster', 
                  facet_hide = TRUE, 
@@ -500,7 +849,7 @@ ggsave(plot = p,
 p
 
 
-## -------------------------------------------------------------------------------------------------------------------------
+## ---------------------------------------------------------------------------------------------------------------------------------------------
 p <- seuratobj %>% 
   seurat_feature(features = 'local', 
                  facets = 'local_cluster', 
@@ -520,7 +869,7 @@ ggsave(plot = p,
        h = h * 2)
 
 
-## -------------------------------------------------------------------------------------------------------------------------
+## ---------------------------------------------------------------------------------------------------------------------------------------------
 p <- seuratobj %>% 
   seurat_feature(features = 'global_cluster', 
                  facet_hide = TRUE, 
@@ -540,7 +889,7 @@ ggsave(plot = p,
 
 p
 
-## -------------------------------------------------------------------------------------------------------------------------
+## ---------------------------------------------------------------------------------------------------------------------------------------------
 p <- seuratobj %>% 
   seurat_feature(features = 'global', 
                  facets = 'global_cluster', 
@@ -560,7 +909,7 @@ ggsave(plot = p,
        h = h * 2)
 
 
-## -------------------------------------------------------------------------------------------------------------------------
+## ---------------------------------------------------------------------------------------------------------------------------------------------
 p <- seuratobj %>% 
   seurat_feature(features = 'global_supercluster', 
                  facet_hide = TRUE, 
@@ -581,6 +930,6 @@ p
 
 
 
-## -------------------------------------------------------------------------------------------------------------------------
+## ---------------------------------------------------------------------------------------------------------------------------------------------
 sessionInfo()
 

@@ -417,7 +417,7 @@ p_rashx <- dotplot_custom(rashx,
                           group.by = 'Ident2')
 
 ggsave(plot = p_rashx,
-       path = output_dir,
+       path = here(output_dir, 'dotplot'),
        width = 14,
        height = 8,
        filename = 'dotplot_rashx.png')
@@ -427,7 +427,7 @@ p_local <- dotplot_custom(seuratobj,
                           group.by = 'local')
 
 ggsave(plot = p_local,
-       path = output_dir,
+       path = here(output_dir, 'dotplot'),
        width = 14,
        height = 8,
        filename = 'dotplot_local.png')
@@ -437,18 +437,14 @@ p_global <- dotplot_custom(seuratobj,
                            group.by = 'global')
 
 ggsave(plot = p_global,
-       path = output_dir,
+       path = here(output_dir, 'dotplot'),
        width = 14,
        height = 8,
        filename = 'dotplot_global.png')
 
 p_local
 ```
-```{r}
-df_rashx <- ggplot_build(p_rashx)
-data.plot <- df_rashx$plot$data
-data.plot
-```
+
 
 #### Custom dot plot function for dual object clustering
 ```{r}
@@ -653,26 +649,20 @@ p_dotplot_rashx_v_global <- doubledotplot(seuratobj1 = rashx,
                                           features = rashx_markers)
 
 ggsave(plot = p_dotplot_rashx_v_local,
-       path = output_dir,
+       path = here(output_dir, 'dotplot'),
        width = 14,
        height = 14,
        filename = 'dotplot_rashx_v_local.png')
 
 ggsave(plot = p_dotplot_rashx_v_global,
-       path = output_dir,
+       path = here(output_dir, 'dotplot'),
        width = 14,
        height = 14,
        filename = 'dotplot_rashx_v_global.png')
 
 
 ```
-```{r}
-map(clusters, function(which_cluster) {
-  
-  
-})
 
-```
 
 #### Individual plots 
 ```{r}
@@ -741,10 +731,15 @@ Import curated labels
 ```{r eval=FALSE}
 annotation_local_curated <- read_sheet(ss = ss, sheet = 'local_curated')
 annotation_local_curated %>% write_tsv(here(output_dir, 'annotation_local_curated.tsv'))
+
+annotation_local_curated <- read_sheet(ss = ss, sheet = 'global_curated')
+annotation_local_curated %>% write_tsv(here(output_dir, 'annotation_global_curated.tsv'))
 ```
 
 ```{r}
 annotation_local_curated <- read_tsv(here(output_dir, 'annotation_local_curated.tsv'))
+annotation_global_curated <- read_tsv(here(output_dir, 'annotation_global_curated.tsv')) %>% mutate(global = factor(global))
+
 annotation_local_curated
 ```
 
@@ -758,46 +753,26 @@ annotation_local_final <- annotation_local_curated %>%
          local_supercluster = supercluster, 
          local_order = order) 
 
+annotation_global_final <- annotation_global_curated %>% 
+  select(global, cluster = curated) %>% 
+  left_join(annotation_order) %>% 
+  ungroup() %>% 
+  select(global, 
+         global_cluster = cluster, 
+         global_supercluster = supercluster, 
+         global_order = order) 
+
 annotation_local_final
 ```
 
 
 ```{r}
-annotation_global <- annotation_odds$global$label %>% 
-  group_by(group1) %>% 
-  slice_max(f_group1) %>% 
-  select(group1,
-         cluster = group2,
-         f_in_cluster = f_group1) %>% 
-  left_join(annotation_order) %>% 
-  ungroup() %>% 
-  select(global = group1, 
-         global_cluster = cluster, 
-         global_supercluster = supercluster, 
-         global_order = order,
-         f_in_global_cluster = f_in_cluster)
-
-annotation_global
-```
-
-
-
-
-```{r}
-annotation_local_curated <- 
-  annotation_local
-
-annotation_local %>% 
-```
-
-
-```{r}
-annotation_local_levels <- annotation_local %>% 
+annotation_local_levels <- annotation_local_final %>% 
   select(local_order, local_cluster, local_supercluster) %>% 
   unique() %>% 
   arrange(local_order)
 
-annotation_global_levels <- annotation_global %>% 
+annotation_global_levels <- annotation_global_final %>% 
   select(global_order, global_cluster, global_supercluster) %>% 
   unique() %>% 
   arrange(global_order)
@@ -810,8 +785,8 @@ annotation_global_levels
 new_annotations <- seuratobj@meta.data %>% 
   rownames_to_column() %>% 
   select(rowname, local, global) %>% 
-  left_join(annotation_local) %>% 
-  left_join(annotation_global) %>% 
+  left_join(annotation_local_final) %>% 
+  left_join(annotation_global_final) %>% 
   mutate(local_cluster = factor(local_cluster, levels = annotation_local_levels$local_cluster),
          local_supercluster = factor(local_supercluster, levels = unique(annotation_local_levels$local_supercluster)),
          global_cluster = factor(global_cluster, levels = annotation_global_levels$global_cluster),
