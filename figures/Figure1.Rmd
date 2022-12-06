@@ -50,7 +50,7 @@ seuratobj
 
 ### Use global or local identities and set as cluster/supercluster in the object
 ```{r}
-which_identity <- 'local'
+which_identity <- 'global'
 which_cluster <- paste0(which_identity, '_cluster')
 which_supercluster <- paste0(which_identity, '_supercluster')
 
@@ -551,6 +551,16 @@ conditions <- c('APC', 'Lymphocyte')
 
 ```
 
+```{r}
+celltype_input <- cluster_tallies %>% 
+    filter(treatment %in% c('Pre', 'Mid')) %>% 
+    group_by(patient, sample, treatment, total, celltype, group) %>% 
+    summarize(n = sum(n)) %>% 
+  rowwise() %>% 
+  mutate(f = n/total, 
+         pct = 100 * f)
+  
+```
 
 #### Combined
 ```{r}

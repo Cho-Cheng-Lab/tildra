@@ -19,8 +19,8 @@ file.edit(output_file)
 
 ### Directories
 ```{r, message=FALSE}
-output_dir <- 'analysis/output/10_il23_profile' # analysis file output directory
-data_dir <- 'data/derived/tildra' # data file output directory
+output_dir <- here('analysis/output/10_il23_profile') # analysis file output directory
+data_dir <- here('data/derived/tildra') # data file output directory
 
 dir.create(output_dir, showWarnings = FALSE)
 dir.create(data_dir, showWarnings = FALSE)
@@ -128,7 +128,7 @@ clusters_all <- metadata$cluster %>% unique()
 ## Gene sets
 ### PV50
 ```{r}
-pv50 <- readxl::read_excel('analysis/input/PV50.xlsx')
+pv50 <- readxl::read_excel(here('analysis/input/PV50.xlsx'))
 pv50_genes <- pv50$...1 %>% intersect(rownames(seuratobj))
 ```
 
@@ -204,8 +204,8 @@ il23_genes_strict$Tcm
 https://pubmed.ncbi.nlm.nih.gov/30543901/
 ```{r}
 il17 <- bind_rows(
-  readxl::read_xlsx('analysis/input/NIHMS1522377-supplement-2 Cho IL17A.xlsx', sheet = 'Table S1C', skip = 1) %>% mutate(time = 'T_1'),
-  readxl::read_xlsx('analysis/input/NIHMS1522377-supplement-2 Cho IL17A.xlsx', sheet = 'Table S1D', skip = 1) %>% mutate(time = 'T_24'))
+  readxl::read_xlsx(here('analysis/input/NIHMS1522377-supplement-2 Cho IL17A.xlsx'), sheet = 'Table S1C', skip = 1) %>% mutate(time = 'T_1'),
+  readxl::read_xlsx(here('analysis/input/NIHMS1522377-supplement-2 Cho IL17A.xlsx'), sheet = 'Table S1D', skip = 1) %>% mutate(time = 'T_24'))
 colnames(il17)[1] <- 'gene'
 il17
 ```
@@ -238,109 +238,6 @@ il23_peripheral <- c('GNLY',
                      'PTPN13',
                      'S100A4')
 ```
-
-
-```{r}
-tildra_barcodes <- metadata %>% filter(treatment %in% c('Pre', 'Mid')) %>% pull(rowname)
-
-pseudo <- pseudobulk(seuratobj,
-                     cells = tildra_barcodes,
-                     genes = il23_genes_strict$Trm1,
-                     group_by = c('cluster', 'id')) %>% 
-  left_join(metadata_sample %>% select(id, patient, treatment, group, sample_label, patient_label))
-
-pseudo 
-```
-
-### Radar plot
-```{r fig.height=10, fig.width=10}
-plot_input <- pseudo %>% 
-  filter(cluster == 'Trm1', patient == 'P1') %>% 
-  select(feature = gene,
-         treatment,
-         normalized = cpm) %>% 
-  group_by(feature) %>% 
-  mutate(feature_max = max(normalized),
-         normalized = normalized/feature_max,
-         treatment = droplevels(treatment))
-
-plot_input
-```
-
-
-```{r fig.height=10, fig.width=10}
-radar_input <- plot_input %>% 
-    select(treatment, feature, normalized) %>% 
-    pivot_wider(names_from = feature,
-                values_from = normalized)
-radar_input
-```
-
-```{r fig.height=10, fig.width=10}
-p_radar <- radar_input %>% 
-  ggradar(legend.text.size = 8,
-          grid.label.size = 0,
-          axis.label.size = 2,
-          group.point.size = 2,
-          axis.label.offset = 1.1,
-          group.line.width = 1,
-          group.colours = c('dodgerblue4', 'orangered'),
-          legend.position = 'top') +
-  theme(plot.title = element_text(size = 9, hjust = 0.5),
-        plot.background = element_rect(color = 'black'),
-        legend.key.height = unit(1, 'mm'),
-        legend.spacing = unit(0, 'mm')) 
-
-p_radar
-```
-
-
-
-```{r}
-
-```
-
-```{r fig.height=10, fig.width=10}
-radar_plots <- map(plot_input$patient %>% unique %>% sort, function(i) {
-  which_patient <- i
-  
-  radar_input <- plot_input %>% 
-    ungroup() %>% 
-    filter(patient == which_patient) %>% 
-    select(treatment, feature, normalized) %>% 
-    pivot_wider(names_from = feature,
-                values_from = normalized) %>% 
-    select(treatment, display_features) %>% 
-    mutate(treatment = factor(treatment, levels = c('Pre', 'Mid')))
-  
-  skin_ids <- plot_input %>% filter(patient == which_patient) %>% pull(id) %>% unique()
-  response <- plot_input %>% filter(patient == which_patient) %>% pull(group) %>% unique()
-  
-  p_radar <- radar_input %>% 
-    ggradar(legend.text.size = 8,
-            grid.label.size = 0,
-            axis.label.size = 2,
-            group.point.size = 2,
-            axis.label.offset = 1.1,
-            group.line.width = 1,
-            group.colours = c('dodgerblue4', 'orangered'),
-            plot.title = paste0('Patient ', i, ' (', skin_ids[1], ', ', skin_ids[2], '): ', response),
-            legend.position = 'top') +
-    theme(plot.title = element_text(size = 9, hjust = 0.5),
-          plot.background = element_rect(color = 'black'),
-          #legend.box.background = element_rect(color = 'blue'),
-          legend.key.height = unit(1, 'mm'),
-          legend.spacing = unit(0, 'mm')) 
-  
-  p_radar
-})
-radar <- radar_plots %>% patchwork::wrap_plots(ncol = 3)
-radar_responders <- radar_plots[1:6] %>% patchwork::wrap_plots(ncol = 3)
-radar_nonresponders <- radar_plots[7:9] %>% patchwork::wrap_plots(ncol = 3)
-
-radar
-```
-
 
 ### Extract all expression data
 ```{r}
@@ -462,6 +359,216 @@ plot_radar <- function(df,
           legend.spacing = unit(0, 'mm')) 
 }
 ```
+
+```{r}
+tildra_barcodes <- metadata %>% filter(treatment %in% c('Pre', 'Mid')) %>% pull(rowname)
+
+pseudo <- pseudobulk(seuratobj,
+                     cells = tildra_barcodes,
+                     genes = il23_genes_all %>% unlist() %>% unique(),
+                     group_by = c('cluster', 'id')) %>% 
+  left_join(metadata_sample %>% select(id, patient, treatment, group, sample_label, patient_label))
+
+pseudo 
+```
+
+### Radar plot
+```{r fig.height=10, fig.width=10}
+plot_radar_patient <- function(pseudo,
+                               cluster,
+                               patient,
+                               genes,
+                               normalize = TRUE,
+                               scale = c('within', 'across'),
+                               colors = c('dodgerblue4', 'orangered'),
+                               title = 'patient_label') {
+  
+  plot_title <- pseudo %>% filter(patient == {{patient}}) %>% pull({{title}}) %>% unique()
+  
+  plot_input <- pseudo %>% 
+    filter(cluster %in% {{cluster}}, 
+           gene %in% {{genes}}) %>% 
+    select(patient,
+           feature = gene,
+           treatment,
+           normalized = cpm)
+  
+  if(scale == 'across') {
+    
+    plot_input <- plot_input %>% 
+      group_by(feature) %>% 
+      mutate(feature_max = max(normalized),
+             normalized = normalized/feature_max) %>% 
+      filter(patient == {{patient}})
+    
+  } else if(scale == 'within') {
+    
+    plot_input <- plot_input %>% 
+      filter(patient == {{patient}}) %>% 
+      group_by(feature) %>% 
+      mutate(feature_max = max(normalized),
+             normalized = normalized/feature_max)
+  }
+  
+  
+  radar_input <- plot_input %>% 
+    mutate(treatment = droplevels(treatment)) %>% 
+    select(treatment, feature, normalized) %>% 
+    pivot_wider(names_from = feature,
+                values_from = normalized)
+  
+  p_radar <- radar_input %>% 
+    ggradar(legend.text.size = 8,
+            grid.label.size = 0,
+            axis.label.size = 2,
+            group.point.size = 2,
+            axis.label.offset = 1.1,
+            group.line.width = 1,
+            group.colours = colors,
+            legend.position = 'top', 
+            font.radar = 'Arial') +
+    theme(text = element_text(family = 'Arial'),
+          plot.title = element_text(size = 9, hjust = 0.5),
+          plot.background = element_rect(color = 'black'),
+          legend.key.height = unit(1, 'mm'),
+          legend.spacing = unit(0, 'mm')) +
+    ggtitle(plot_title)
+  
+  p_radar
+  
+}
+```
+
+
+```{r}
+plot_radar_patient(pseudo = pseudo,
+                   cluster = 'Trm1',
+                   patient = 'P2',
+                   genes = il23_genes_all$Trm1)
+```
+
+```{r fig.height=10, fig.width=10}
+which_scale <- 'within'
+
+map(c('within', 'across'), function(which_scale) {
+  
+  map(pseudo$cluster %>% unique() %>% sort() %>% as.character(), function(which_cluster) {
+  
+  if(length(il23_genes_all[[which_cluster]]) > 1) {
+    
+    p <- map(pseudo$patient %>% unique() %>% sort() %>% as.character(), function(which_patient) {
+      
+      print2(paste(which_patient, which_cluster))
+      
+       if((pseudo %>% filter(patient == which_patient,
+                           cluster == which_cluster,
+                           gene %in% il23_genes_strict[[which_cluster]]) %>% 
+         nrow() > 0)) {
+      plot_radar_patient(pseudo = pseudo,
+                         cluster = which_cluster,
+                         patient = which_patient,
+                         genes = il23_genes_all[[which_cluster]],
+                         scale = which_scale)
+       } else {
+         ggplot()
+       }
+    }) %>% wrap_plots() 
+    
+    print2('Saving')
+    ggsave(plot = p,
+           h = 10,
+           w = 10,
+           path = here(output_dir, 'radar_all'),
+           filename = paste0(which_scale, '_', which_cluster, '.png'))
+    
+  }
+    
+    if(length(il23_genes_strict[[which_cluster]]) > 1) {
+      
+      print2(paste(which_patient, which_cluster))
+      
+      p <- map(pseudo$patient %>% unique() %>% sort(), function(which_patient) {
+        
+        if((pseudo %>% filter(patient == which_patient,
+                              cluster == which_cluster,
+                              gene %in% il23_genes_strict[[which_cluster]]) %>% 
+            nrow() > 0)) {
+          
+          plot_radar_patient(pseudo = pseudo,
+                             cluster = which_cluster,
+                             patient = which_patient,
+                             genes = il23_genes_strict[[which_cluster]],
+                             scale = which_scale)
+        } else {
+          ggplot()
+        }
+        
+        
+      }) %>% wrap_plots()
+      
+      ggsave(plot = p,
+             h = 10,
+             w = 10,
+             path = here(output_dir, 'radar_strict'),
+             filename = paste0(which_scale, '_', which_cluster, '.png'))
+    }
+  })
+})
+
+```
+
+
+
+
+```{r}
+ 
+      
+    }
+```
+
+```{r fig.height=10, fig.width=10}
+radar_plots <- map(plot_input$patient %>% unique %>% sort, function(i) {
+  which_patient <- i
+  
+  radar_input <- plot_input %>% 
+    ungroup() %>% 
+    filter(patient == which_patient) %>% 
+    select(treatment, feature, normalized) %>% 
+    pivot_wider(names_from = feature,
+                values_from = normalized) %>% 
+    select(treatment, display_features) %>% 
+    mutate(treatment = factor(treatment, levels = c('Pre', 'Mid')))
+  
+  skin_ids <- plot_input %>% filter(patient == which_patient) %>% pull(id) %>% unique()
+  response <- plot_input %>% filter(patient == which_patient) %>% pull(group) %>% unique()
+  
+  p_radar <- radar_input %>% 
+    ggradar(legend.text.size = 8,
+            grid.label.size = 0,
+            axis.label.size = 2,
+            group.point.size = 2,
+            axis.label.offset = 1.1,
+            group.line.width = 1,
+            group.colours = c('dodgerblue4', 'orangered'),
+            plot.title = paste0('Patient ', i, ' (', skin_ids[1], ', ', skin_ids[2], '): ', response),
+            legend.position = 'top') +
+    theme(plot.title = element_text(size = 9, hjust = 0.5),
+          plot.background = element_rect(color = 'black'),
+          #legend.box.background = element_rect(color = 'blue'),
+          legend.key.height = unit(1, 'mm'),
+          legend.spacing = unit(0, 'mm')) 
+  
+  p_radar
+})
+radar <- radar_plots %>% patchwork::wrap_plots(ncol = 3)
+radar_responders <- radar_plots[1:6] %>% patchwork::wrap_plots(ncol = 3)
+radar_nonresponders <- radar_plots[7:9] %>% patchwork::wrap_plots(ncol = 3)
+
+radar
+```
+
+
+
 ```{r}
 mtcars_radar <- mtcars %>% 
   as_tibble(rownames = "group") %>% 

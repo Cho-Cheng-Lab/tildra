@@ -50,7 +50,7 @@ seuratobj
 ```
 ### Use global or local identities and set as cluster/supercluster in the object
 ```{r}
-which_identity <- 'global'
+which_identity <- 'local'
 which_cluster <- paste0(which_identity, '_cluster')
 which_supercluster <- paste0(which_identity, '_supercluster')
 
@@ -215,7 +215,7 @@ What is corrected by treatment?
 
 Import gene sets
 ```{r}
-genesets <- read_tsv('analysis/output/msigdb/il23_il17_gene_sets.tsv')
+genesets <- read_tsv(here('analysis/output/msigdb/il23_il17_gene_sets.tsv'))
 ```
 
 ```{r}
