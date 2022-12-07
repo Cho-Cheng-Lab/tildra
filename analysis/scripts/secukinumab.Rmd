@@ -1,12 +1,11 @@
 ---
-title: "Figrue 2"
+title: "Secukinumab"
 author: "David Wu"
 ---
 
 Set working directory to project directory
 ```{r setup}
-require(knitr)
-opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+library(here)
 ```
 
 ### Optionally convert this Rmd to R script 
@@ -47,13 +46,13 @@ theme_set(theme_dwu()) # set default theme
 ### Data from Liu et al. https://www.jidinnovations.org/article/S2667-0267(21)00096-5/fulltext#secsectitle0065
 GEO link: https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE171012
 ```{r}
-secu <- read_tsv('analysis/input/GSE171012_CountData_SecukinumabPsoRnaSeq_20210324.tsv.gz')
+secu <- read_tsv(here('analysis/input/GSE171012_CountData_SecukinumabPsoRnaSeq_20210324.tsv.gz'))
 
 secu
 ```
 
 ```{r}
-load('data/external/20180706_Novartis062518_FilteringAndQC/RObj-CountAndAnnoTables_Novartis062518_20190624.rdata')
+load(here('data/external/20180706_Novartis062518_FilteringAndQC/RObj-CountAndAnnoTables_Novartis062518_20190624.rdata'))
 ```
 
 ```{r}
