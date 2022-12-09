@@ -451,6 +451,7 @@ de_compare %>%
   filter(padj_il23 < 0.05,
          padj_il17 > 0.05)
 ```
+
 ```{r}
 genes_of_interest <- de_compare %>% 
   filter(padj_il23 < 0.05,
@@ -478,6 +479,15 @@ expression_table_il17_subset <- expression_table_il17 %>%
 
 expression_table_il23 %>% head()
 ```
+
+```{r}
+de_compare %>% mutate(significant_il23 = ifelse(padj_il23 < 0.05, TRUE, FALSE),
+                      significant_il17 = ifelse(padj_il17 < 0.05, TRUE, FALSE),
+                      radar_gene = ifelse(gene_name %in% radar_genes, TRUE, FALSE),
+                      pv50_gene = ifelse(gene_name %in% pv50_genes, TRUE, FALSE)) %>% 
+  write_tsv(here(output_dir, 'deg_comparison.tsv'))
+```
+
 ```{r}
 expression_table_merge <- 
   bind_rows(expression_table_il23 %>% select(gene, patient, treatment, group, CellType, cpm, log10cpm) %>% mutate(therapy = 'Tildra'),
@@ -513,7 +523,7 @@ p <- expression_table_merge %>%
              y = log10cpm,
              fill = treatment)) +
   geom_boxplot() +
-  facet_wrap(~combination, scales = 'free_y', nrow = 3) +
+  facet_wrap(~combination, scales = 'free_y', nrow = 6) +
   theme(legend.position = 'top') +
   scale_fill_few() +
   labs(y = 'log10 counts per million',
@@ -530,6 +540,17 @@ intersect(radar_genes, genes_of_interest$gene_name)
 intersect(pv50_genes, genes_of_interest$gene_name)
 ```
 
+```{r}
+de_compare %>% 
+  filter(padj_il23 < 0.05, CellType == 'CD8') %>% pull(gene_name) %>% n_distinct() 
+```
+
+```{r}
+ de_compare %>% 
+  filter(padj_il23 < 0.05,
+         log2FoldChange_il23 < 0) %>% 
+  filter(gene_name %in% radar_genes)
+```
 
 ```{r}
 ```
@@ -662,6 +683,7 @@ waterfall_plots <- map(expression_table_long$SubjectId %>% unique(), function(i)
 
   
 ```
+
 
 ## Session Info
 ```{r}
