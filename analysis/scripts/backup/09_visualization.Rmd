@@ -1,0 +1,214 @@
+---
+title: "DE analysis"
+author: "David Wu"
+---
+
+Set working directory to project directory
+```{r setup}
+require(knitr)
+opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+```
+
+### Optionally convert this Rmd to R script 
+```{r eval=FALSE, message=FALSE}
+current_file <- rstudioapi::getActiveDocumentContext()$path
+output_file <- stringr::str_replace(current_file, '.Rmd', '.R')
+knitr::purl(current_file, output = output_file)
+file.edit(output_file)
+```
+
+### Directories
+```{r, message=FALSE}
+output_dir <- 'analysis/output/09_visualization' # analysis file output directory
+data_dir <- 'data/derived/seurat' # data file output directory
+
+dir.create(output_dir, showWarnings = FALSE)
+dir.create(data_dir, showWarnings = FALSE)
+```
+
+### Loading the libraries
+```{r, message=FALSE}
+library(Seurat) 
+library(tidyverse)
+library(ggExtra)
+library(SeuratWrappers)
+library(wutilities) # devtools::install_github('symbiologist/wutilities')
+library(tictoc)
+library(ggforce)
+```
+
+```{r}
+seuratobj <- read_rds(file.path(data_dir, 'seuratobj_annotated.rds'))
+meta <- seuratobj@meta.data %>% rownames_to_column()
+seuratobj
+```
+### Proportion of cells in each cluster
+```{r}
+analyze <- meta %>% 
+  select(rowname, id, sample, condition, treatment, cluster, merged_label) %>% 
+  mutate(description = factor(paste(condition, treatment) %>% str_remove(' None'),
+                              levels = c('PV Pre',
+                                         'PV Post',
+                                         'PV',
+                                         'AD',
+                                         'HC')))
+
+analyze %>% head()
+```
+### Violin plots 
+```{r}
+seurat_violin <- function(seuratobj,
+                          features,
+                          barcodes = colnames(seuratobj),
+                          pseudocount = 0.01) {
+
+  plot_input <- FetchData(seuratobj, features) %>% 
+    rownames_to_column() %>% 
+    filter(rowname %in% barcodes) %>% 
+    pivot_longer(cols = -rowname,
+                 names_to = 'feature',
+                 values_to = 'value')
+  
+  plot_input %>%
+    ggplot(aes(x = feature,
+               y = value + pseudocount,
+               color = feature)) +
+    geom_violin() +
+    geom_sina(size = 0.5, alpha = 0.5) +
+    theme_dwu() +
+    scale_y_log10() +
+    #rcartocolor::scale_color_carto_d(direction = -1) +
+    labs(x = '',
+         y = 'Expression') +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1))
+  
+  
+}
+```
+
+```{r}
+clusters_all <- meta$merged_label %>% unique()
+clusters_t <- clusters_all %>% str_subset('T')
+clusters_apc <- clusters_all %>% setdiff(clusters_t)
+
+cluster_groups <- list('All Cells' = clusters_all,
+                       'T Cells' = clusters_t,
+                       'Trm' = 'Trm_merge',
+                       'APCs' = clusters_apc)
+
+```
+
+
+```{r}
+feature <- 'IL23A'
+
+cluster_groups
+
+cluster_table <- map(names(cluster_groups), function(i) {
+  
+  data_subset <- meta %>% 
+    apply_filters(list('merged_label' = cluster_groups[[i]])) %>% 
+    select(rowname, merged_label) %>% 
+    mutate(group = i)
+  
+}) %>% bind_rows()
+
+plot_input <- FetchData(seuratobj, feature) %>% rownames_to_column() %>% inner_join(cluster_table)
+```
+
+
+```{r}
+plot_input %>%
+  filter(rowname %in% barcodes) %>% 
+  ggplot(aes(x = group,
+             y = IL23A + 0.01,
+             color = group)) +
+  geom_violin() +
+  geom_sina(size = 0.5, alpha = 0.5) +
+  theme_dwu() +
+  scale_y_log10() +
+  rcartocolor::scale_color_carto_d(direction = -1) +
+  labs(x = '',
+       y = 'IL23A Expression')
+  
+  
+
+
+```
+```{r}
+plot_input %>%
+  filter(rowname %in% barcodes) %>% 
+  ggplot(aes(x = group,
+             y = IL23A,
+             color = group)) +
+  geom_violin() +
+  geom_sina(size = 0.5, alpha = 0.5) +
+  theme_dwu() +
+  scale_y_log10() +
+  rcartocolor::scale_color_carto_d(direction = -1) +
+  labs(x = '',
+       y = 'IL23A Expression')
+```
+For all genes of interest
+```{r}
+trm_barcodes <- meta %>% filter(merged_label == 'Trm_merge') %>% pull(rowname)
+pv50 <- readxl::read_excel('analysis/input/PV50.xlsx')
+
+genes <- c('IL23A', 'IL23R', pv50$`...1`, 'ZFP36', 'ZFP36L2')
+
+p <- seurat_violin(seuratobj,
+                   features = genes,
+                   barcodes = trm_barcodes)
+```
+
+
+```{r}
+trm_barcodes <- meta %>% filter(merged_label == 'Trm_merge', treatment == 'Pre') %>% pull(rowname)
+
+
+genes
+plot_input <- FetchData(seuratobj, genes[32:62]) %>% 
+    rownames_to_column() %>% 
+    filter(rowname %in% trm_barcodes) %>% 
+    pivot_longer(cols = -rowname,
+                 names_to = 'feature',
+                 values_to = 'value')
+  
+  p <- plot_input %>%
+    ggplot(aes(x = feature,
+               y = value + 0.01,
+               color = feature)) +
+    geom_violin() +
+    #geom_sina(size = 0.5, alpha = 0.5) +
+    theme_dwu() +
+    scale_y_log10() +
+    ##rcartocolor::scale_color_carto_d(direction = -1) +
+    #facet_wrap(~feature) +
+    labs(x = '',
+         y = 'Expression') +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+```{r}
+seurat_feature(seuratobj, features = c('IL23A', 'IL23R'))
+```
+```{r}
+seurat_feature(seuratobj, features = 'merged_label')
+```
+```{r}
+VlnPlot(seuratobj, features = c('IL23A', 'IL23R'))
+```
+
+```{r}
+DotPlot(seuratobj, features = c('IL23A', 'IL23R'))
+```
+```{r}
+DotPlot(seuratobj, features = c('IL17A', 'IL17F', 'IL23A', 'IL23R', 'ZFP36L2', 'ZFP36'))
+```
+
+## Session Info
+```{r}
+sessionInfo()
+```
+
+
+
