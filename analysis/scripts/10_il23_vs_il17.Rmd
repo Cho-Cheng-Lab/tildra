@@ -480,13 +480,7 @@ expression_table_il17_subset <- expression_table_il17 %>%
 expression_table_il23 %>% head()
 ```
 
-```{r}
-de_compare %>% mutate(significant_il23 = ifelse(padj_il23 < 0.05, TRUE, FALSE),
-                      significant_il17 = ifelse(padj_il17 < 0.05, TRUE, FALSE),
-                      radar_gene = ifelse(gene_name %in% radar_genes, TRUE, FALSE),
-                      pv50_gene = ifelse(gene_name %in% pv50_genes, TRUE, FALSE)) %>% 
-  write_tsv(here(output_dir, 'deg_comparison.tsv'))
-```
+
 
 ```{r}
 expression_table_merge <- 
@@ -684,6 +678,43 @@ waterfall_plots <- map(expression_table_long$SubjectId %>% unique(), function(i)
   
 ```
 
+
+### Export tables of interest
+```{r}
+de_compare %>% mutate(significant_il23 = ifelse(padj_il23 < 0.05, TRUE, FALSE),
+                      significant_il17 = ifelse(padj_il17 < 0.05, TRUE, FALSE),
+                      radar_gene = ifelse(gene_name %in% radar_genes, TRUE, FALSE),
+                      pv50_gene = ifelse(gene_name %in% pv50_genes, TRUE, FALSE)) %>% 
+  write_tsv(here(output_dir, 'deg_comparison.tsv'))
+```
+
+### Comparison with Trms
+```{r}
+de_pre_vs_mid_response <- read_tsv(here('analysis/output/08_de', which_cluster, 'de_pre_vs_mid_responder.tsv.gz'))
+
+de_compare_trm <- inner_join(de_pre_vs_mid_response %>% 
+                               filter(cluster == 'Trm1') %>% 
+                               select(gene, avg_log2FC_Trm1 = avg_log2FC, p_val_adj_Trm1 = p_val_adj),
+                             
+                               
+                               
+  
+  
+                             de_il17 %>% 
+                               select(CellType,
+                                      gene = gene_name,
+                                      log2FoldChange,
+                                      padj) %>% 
+                               group_by(CellType, gene) %>% 
+                               slice_max(abs(log2FoldChange)) %>% 
+                               slice_min(padj) %>% 
+                               ungroup() %>% 
+                               pivot_wider(names_from = 'CellType',
+                                           values_from = c('log2FoldChange', 'padj')))
+
+de_compare_trm %>% write_tsv(here(output_dir, 'trm_compare.tsv'))
+
+```
 
 ## Session Info
 ```{r}
