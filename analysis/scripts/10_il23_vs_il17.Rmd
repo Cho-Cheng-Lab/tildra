@@ -134,34 +134,15 @@ pseudobulk_matrix <- function(seuratobj,
   # Ensure identical cell ordering
   metadata_groups <- metadata_groups[cells, ]
   expression_matrix <- t(seuratobj@assays$RNA@counts[, cells])
-  
-  rownames(expression_matrix) <- metadata_groups$identifier
-  
-  aggregated_matrix <- sapply(by(expression_matrix, rownames(expression_matrix), colSums), identity)
-  
-  aggregated_matrix
-}
-
-aggregate_matrix <- function(input_matrix, 
-                             rows = NULL,
-                             cols = NULL) {
-  
-  if(!is.null(rows)) {
-    
-    rownames(input_matrix) <- rows
-    
-    aggregated_matrix <- t(sapply(by(input_matrix, rownames(input_matrix), colSums), identity))
-  }
-  
-  if(!is.null(cols)) {
-    
-    input_matrix <- t(input_matrix)
-    rownames(input_matrix) <- cols
-    aggregated_matrix <- sapply(by(input_matrix, rownames(input_matrix), colSums), identity)
-  }
+  aggregated_matrix <- sapply(by(expression_matrix, metadata_groups$identifier, colSums), identity)
+   
+  # slower for unknown reason:
+  # tic()
+  # expression_matrix <- seuratobj@assays$RNA@counts[, cells]
+  # aggregated_matrix <- aggregate_matrix(expression_matrix, cols = metadata_groups$identifier)
+  # toc()
   
   aggregated_matrix
-  
 }
 
 de_function <- function(counts,
@@ -529,8 +510,10 @@ genes_of_interest
 
 ```{r}
 radar_genes <- il23_genes_table %>% filter(Status == 'Strict', cluster == 'Trm1') %>% pull(gene)
+ray_genes <- c("CBLB", "CHN1", "CXCL13", "DAPK2", "GNLY", "GZMB", "LAG3", "LAYN", "PTPN13", "IL17A", "IL17F", "IL26", "IFNG")
 
-genes_for_plotting <- c(genes_of_interest$gene, radar_genes) %>% unique()
+genes_for_plotting <- c(genes_of_interest$gene, radar_genes, ray_genes) %>% unique()
+
 expression_table_il23 <- pseudobulk(seuratobj = seuratobj, 
                                     genes = genes_for_plotting,
                                     cells = tildra_barcodes,
@@ -589,6 +572,24 @@ p <- expression_table_merge %>%
 
 p
 ```
+#### Ray genes
+```{r}
+p <- expression_table_merge %>% 
+  filter(gene %in% ray_genes,
+         CellType == 'CD8') %>% 
+  ggplot(aes(x = therapy,
+             y = log10cpm,
+             fill = treatment)) +
+  geom_boxplot() +
+  facet_wrap(~combination, scales = 'free_y', nrow = 3) +
+  theme(legend.position = 'top') +
+  scale_fill_few() +
+  labs(y = 'log10 counts per million',
+       x = 'Biologic Therapy')
+
+p
+```
+
 ```{r}
 intersect(radar_genes, genes_of_interest$gene)
 ```
@@ -596,6 +597,9 @@ intersect(radar_genes, genes_of_interest$gene)
 
 ```{r}
 intersect(pv50_genes, genes_of_interest$gene)
+```
+```{r}
+
 ```
 
 
