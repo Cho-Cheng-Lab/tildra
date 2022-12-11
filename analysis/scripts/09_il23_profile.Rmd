@@ -72,7 +72,7 @@ visium_meta <- read_tsv(here('analysis/output/10_visium/visium_meta.tsv.gz')) %>
 
 ### Use global or local identities and set as cluster/supercluster in the object
 ```{r}
-which_identity <- 'global'
+which_identity <- 'local'
 which_cluster <- paste0(which_identity, '_cluster')
 which_supercluster <- paste0(which_identity, '_supercluster')
 
@@ -527,10 +527,11 @@ test_pre_vs_mid <- function(pseudo,
 ```{r}
 tildra_barcodes <- metadata %>% filter(treatment %in% c('Pre', 'Mid')) %>% pull(rowname)
 genes_core <- c('IL17A', 'IL17F', 'IL26', 'IFNG')
+gene_set <- c('IL17A', 'IL17F', 'IL26', 'TNF', 'IFNG', 'IL23R')
 
 pseudo <- pseudobulk(seuratobj,
                      cells = tildra_barcodes,
-                     genes = c(genes_core, il23_genes_all %>% unlist()) %>% unique(),
+                     genes = c(genes_core, gene_set, il23_genes_all %>% unlist()) %>% unique(),
                      group_by = c('cluster', 'id')) %>% 
   left_join(metadata_sample %>% select(id, patient, treatment, group, sample_label, patient_label))
 
@@ -540,6 +541,7 @@ pseudo
 ### Radar plot
 
 ```{r}
+
 p <- plot_radar_patient(pseudo = pseudo,
                    cluster = 'Mac1',
                    patient = 'P1',
@@ -556,6 +558,27 @@ p <- plot_radar_patient(pseudo = pseudo,
 p
 ```
 
+#### Limited set
+```{r}
+p <- map(pseudo$patient %>% unique() %>% sort() %>% as.character(), function(which_patient) {
+  plot_radar_patient(pseudo = pseudo,
+                     cluster = 'Trm1',
+                     patient = which_patient,
+                     genes = gene_set,
+                     scale = 'within')
+}) %>% wrap_plots(ncol = 3)
+
+# ggsave(plot = p,
+#        h = 10,
+#        w = 10,
+#        device = cairo_pdf,
+#        path = output_dir,
+#        filename = 'test.pdf')
+
+p
+```
+
+#### Loop
 ```{r}
 update_geom_defaults('text', list(fontface = 'italic'))
 
