@@ -145,6 +145,12 @@ pseudobulk_matrix <- function(seuratobj,
   aggregated_matrix
 }
 
+aggregate_matrix <- function(input_matrix,
+                             rows = NULL) {
+  input_matrix <- as.matrix(input_matrix)
+  aggregated_matrix <- t(sapply(by(input_matrix, rows, colSums), identity))
+}
+
 de_function <- function(counts,
                         metadata,
                         design,
@@ -294,9 +300,7 @@ cluster_cd_tally
 ```
 
 ```{r}
-cd_status <- cd_status %>% 
-  select(-CD) %>% 
-  left_join(cluster_cd_tally %>% select(cluster, CD))
+cd_status <- cd_status #%>% select(-CD) %>% left_join(cluster_cd_tally %>% select(cluster, CD))
 
 tildra_cd4 <- cd_status %>% filter(CD == 'CD4', !str_detect(supercluster, 'Treg'), str_detect(cluster, 'T'), treatment %in% c('Pre', 'Mid'))
 tildra_cd8 <- cd_status %>% filter(CD == 'CD8', !str_detect(supercluster, 'Treg'), str_detect(cluster, 'T'), treatment %in% c('Pre', 'Mid'))
@@ -306,7 +310,7 @@ tildra_barcodes <- c(tildra_cd4$rowname, tildra_cd8$rowname)
 
 #### Extract counts matrix
 ```{r}
-add_cd <- seuratobj@meta.data %>% rownames_to_column() %>% left_join(cd_status)
+add_cd <- seuratobj@meta.data %>% rownames_to_column() %>% select(rowname) %>% left_join(cd_status)
 seuratobj$CD <- add_cd$CD
 counts_il23 <- pseudobulk_matrix(seuratobj,
                                  cells = tildra_barcodes,
@@ -316,13 +320,14 @@ counts_il23[1:5, 1:5]
 
 
 ```{r}
-metadata_il23_subset <- add_cd %>% 
+metadata_il23_subset <- seuratobj@meta.data %>% 
   select(id, CD, patient, treatment, group) %>% 
   unique() %>% 
   filter(CD != 'Unknown',
          treatment != 'None') %>% 
   mutate(sample = paste(id, CD, sep = ':'),
-         CellType = ifelse(CD == 'CD4', 'Teff', 'CD8')) 
+         CellType = ifelse(CD == 'CD4', 'Teff', 'CD8')) %>% 
+  as_tibble()
   
 metadata_il23_subset
 ```
@@ -353,12 +358,13 @@ de_il23 %>% drop_na() %>% filter(padj < 0.05)
 
 ### Prepare IL23 Trm1 pseudobulk
 ```{r}
-metadata_trm_subset <- add_cd %>% 
+metadata_trm_subset <- seuratobj@meta.data %>% 
   select(id, patient, treatment, group, cluster) %>% 
   unique() %>% 
   filter(cluster == 'Trm1',
          treatment != 'None') %>% 
-  mutate(sample = paste(id, cluster, sep = ':')) 
+  mutate(sample = paste(id, cluster, sep = ':')) %>% 
+  as_tibble()
   
 metadata_trm_subset
 ```
@@ -502,7 +508,8 @@ de_compare
 ```{r}
 genes_of_interest <- de_compare %>% 
   filter(padj_il23 < 0.05 & padj_il17 > 0.05 & log2FoldChange_il23 > 0) %>% 
-  mutate(combination = paste(CellType, gene, sep = ':'))
+  mutate(combination = paste(CellType, gene, sep = ':')) %>% 
+  arrange(gene)
 
 genes_of_interest
 ```
@@ -548,11 +555,19 @@ p <- expression_table_merge %>%
              y = log10cpm,
              fill = treatment)) +
   geom_boxplot() +
-  facet_wrap(~combination, scales = 'free_y', nrow = 6) +
+  facet_wrap(~combination, scales = 'free_y', nrow = 7) +
   theme(legend.position = 'top') +
   scale_fill_few() +
   labs(y = 'log10 counts per million',
        x = 'Biologic Therapy')
+
+
+ggsave(plot = p,
+       h = 10,
+       w = 10,
+       device = cairo_pdf,
+       path = output_dir,
+       filename = 'boxplot_all_sig.pdf')
 
 p
 ```
@@ -589,11 +604,92 @@ p <- expression_table_merge %>%
 
 p
 ```
+#### Figure: CD8 PV genes
+```{r}
+cd8_genes <- c(intersect(pv50_genes, 
+                         genes_of_interest$gene),'HAVCR2', 
+               'IL17A', 'IL17F', 'IL26', 'IFNG') 
+
+gene_stats <- de_compare %>% 
+  filter(gene %in% cd8_genes, CellType == 'CD8') %>% 
+  mutate(ratio = log2FoldChange_il17/log2FoldChange_il23)
+gene_stats
+```
+
+
+```{r}
+plot_input <-  expression_table_merge %>% 
+  filter(gene %in% cd8_genes,
+         CellType == 'CD8') %>% 
+  left_join(gene_stats) %>% 
+  mutate(gene = factor(gene, levels = cd8_genes)) 
+
+p <- plot_input %>% 
+  ggplot(aes(x = therapy,
+             y = log10cpm,
+             fill = treatment)) +
+  geom_boxplot() +
+  facet_wrap(~gene, scales = 'free_y', nrow = 2) +
+  theme(legend.position = 'top') +
+  scale_fill_few() +
+  labs(y = 'log10 counts per million',
+       x = 'Biologic Therapy')
+
+p
+
+```
+### individual plots
+```{r}
+library(grid)
+library(gridExtra)
+
+
+p_individual <- map(cd8_genes, function(i) {
+  
+  individual_stats <- plot_input %>% filter(gene == i) %>% select(contains('il'), ratio) %>% unique() %>% 
+    mutate(across(everything(), round, 3))
+  colnames(individual_stats) <- str_replace(colnames(individual_stats), 'log2FoldChange', 'l2FC')
+  
+  p <- plot_input %>% 
+    filter(gene == i) %>% 
+    ggplot(aes(x = therapy,
+               y = log10cpm,
+               fill = treatment)) +
+    geom_boxplot() +
+    theme(legend.position = 'top') +
+    scale_fill_few() +
+    labs(y = 'log10 counts per million',
+         x = 'Biologic Therapy') +
+    labs(title = i)
+  
+  p_params <- gridExtra::tableGrob(individual_stats %>% t())
+  p_output <- gridExtra::grid.arrange(p, p_params,
+                                      #ncol = 2, 
+                                      layout_matrix = t(as.matrix(c(1,1,2))))
+  gb <- rectGrob(height = 1, width = 1, gp = gpar(lwd = 2, col = "blue", fill = NA)) # border, no fill
+  gt <- gTree(children = gList(p_output, gb))
+  gt
+  
+}) %>% patchwork::wrap_plots()
+  
+
+```
+```{r}
+ggsave(plot = p_individual,
+       h = 10,
+       w = 14,
+       device = cairo_pdf,
+       path = output_dir,
+       filename = 'boxplot_cd8_pv50.pdf')
+```
 
 ```{r}
 intersect(radar_genes, genes_of_interest$gene)
 ```
 
+```{r}
+
+```
 
 ```{r}
 intersect(pv50_genes, genes_of_interest$gene)
@@ -604,6 +700,20 @@ intersect(pv50_genes, genes_of_interest$gene)
 
 
 #### Trm
+Venn diagram Overlap of Trm and CD8
+```{r}
+
+library(eulerr)
+p <- plot(euler(
+  list(
+    'CD8' = seuratobj@meta.data %>% filter(treatment != 'None', CD == 'CD8') %>% rownames(),
+    'CD4' = seuratobj@meta.data %>% filter(treatment != 'None', CD == 'CD4') %>% rownames(),
+    'Trm1' = seuratobj@meta.data %>% filter(treatment != 'None', cluster == 'Trm1') %>% rownames())),
+    quantities = TRUE,
+    fill = c('grey80', 'grey80', 'orangered'), alpha = 0.5)
+p
+```
+
 ```{r}
 de_compare_trm <- inner_join(de_il17 %>% select(gene, CellType, log2FoldChange, padj),
                              de_trm %>% select(gene, log2FoldChange, padj),
@@ -694,6 +804,12 @@ p <- expression_table_merge %>%
 p
 ```
 ```{r}
+ggsave(plot = p,
+       h = 10,
+       w = 10,
+       device = cairo_pdf,
+       path = output_dir,
+       filename = 'boxplot_trm_sig.pdf')
 ```
 
 

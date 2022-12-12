@@ -527,7 +527,7 @@ test_pre_vs_mid <- function(pseudo,
 ```{r}
 tildra_barcodes <- metadata %>% filter(treatment %in% c('Pre', 'Mid')) %>% pull(rowname)
 genes_core <- c('IL17A', 'IL17F', 'IL26', 'IFNG')
-gene_set <- c('IL17A', 'IL17F', 'IL26', 'TNF', 'IFNG', 'IL23R')
+gene_set <- c('IL17A', 'IL17F', 'IL26', 'TNF', 'IFNG', 'IL23R', 'IL21', 'IL22', 'IL36A', 'CXCL13')
 
 pseudo <- pseudobulk(seuratobj,
                      cells = tildra_barcodes,
@@ -568,12 +568,12 @@ p <- map(pseudo$patient %>% unique() %>% sort() %>% as.character(), function(whi
                      scale = 'within')
 }) %>% wrap_plots(ncol = 3)
 
-# ggsave(plot = p,
-#        h = 10,
-#        w = 10,
-#        device = cairo_pdf,
-#        path = output_dir,
-#        filename = 'test.pdf')
+ggsave(plot = p,
+       h = 10,
+       w = 10,
+       device = cairo_pdf,
+       path = output_dir,
+       filename = 'radar_cytokines.pdf')
 
 p
 ```
