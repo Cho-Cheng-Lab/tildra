@@ -50,7 +50,7 @@ seuratobj
 
 ### Use global or local identities and set as cluster/supercluster in the object
 ```{r}
-which_identity <- 'global'
+which_identity <- 'local'
 which_cluster <- paste0(which_identity, '_cluster')
 which_supercluster <- paste0(which_identity, '_supercluster')
 
@@ -759,6 +759,36 @@ p <- cluster_tallies %>%
 ggsave(plot = p,
        device = cairo_pdf,
        filename = 'F1F_bar_patient_trm_combined.pdf',
+       path = output_dir,
+       h = 4,
+       w = 4)
+
+p
+```
+### Mast cell
+```{r}
+p <- cluster_tallies %>% 
+  filter(str_detect(cluster, 'Mast')) %>% 
+  filter(!is.na(group)) %>% 
+  select(sample, treatment, group, celltype, n, pct) %>% 
+  pivot_longer(cols = c(n, pct),
+               names_to = 'metric',
+               values_to = 'value') %>% 
+  ggplot(aes(x = sample,
+             y = value,
+             fill = group)) +
+  geom_bar(stat = 'identity', color = 'black', alpha = 0.8) +
+  labs(x = '',
+       y = '') +
+  theme_dwu(legend.position = 'top') +
+  coord_flip() +
+  facet_wrap(~metric, nrow = 1, scales = 'free_x') +
+  scale_fill_manual(values = colors_response2) +
+  scale_x_discrete(limits = rev)
+
+ggsave(plot = p,
+       device = cairo_pdf,
+       filename = 'F1F_bar_patient_mast.pdf',
        path = output_dir,
        h = 4,
        w = 4)

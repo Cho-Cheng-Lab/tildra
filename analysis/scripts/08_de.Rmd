@@ -149,7 +149,7 @@ seuratobj
 ```
 ### Set identity
 ```{r}
-which_annotation <- 'local_supercluster'
+which_annotation <- 'local_cluster'
 seuratobj$annotation <- seuratobj[[which_annotation]]
 Idents(seuratobj) <- 'annotation'
 
@@ -461,6 +461,54 @@ de_pre_vs_mid_responder <- map(patients_per_cluster[[which_annotation]], functio
 de_pre_vs_mid_responder %>% write_tsv(here(output_dir, 'de_pre_vs_mid_responder.tsv.gz'))
 write_excel_notebook(input_table = de_pre_vs_mid_responder,
                      output_file = here(output_dir, 'de_pre_vs_mid_responder.xlsx'))
+```
+### Responders but exclude outlier patient with >40% mast cells (P6)
+```{r}
+group1_filters <- list('condition' = 'PV',
+                       'treatment' = 'Pre',
+                       'group' = 'Responder',
+                       'patient' = c('P1', 'P2', 'P3', 'P4', 'P5'))
+
+group2_filters <- list('condition' = 'PV',
+                       'treatment' = 'Mid',
+                       'group' = 'Responder',
+                       'patient' = c('P1', 'P2', 'P3', 'P4', 'P5'))
+
+data_subset <- bind_rows(
+  analyze %>% apply_filters(group1_filters) %>% mutate(group = 'group1'),
+  analyze %>% apply_filters(group2_filters) %>% mutate(group = 'group2')
+)
+
+patients_per_cluster <- data_subset %>% 
+  group_by(sample, group, across(all_of(which_annotation))) %>% 
+  tally() %>% 
+  filter(n > cell_threshold) %>% 
+  group_by(group, across(all_of(which_annotation))) %>% 
+  tally() %>% 
+  pivot_wider(names_from = group,
+              values_from = n,
+              values_fill = 0) %>% 
+  filter(group1 > responder_threshold,
+         group2 > responder_threshold) 
+
+de_pre_vs_mid_responder <- map(patients_per_cluster[[which_annotation]], function(i) {
+  
+  print2(i)
+  
+  de_pipeline(seuratobj = seuratobj,
+              cluster_col = which_annotation,
+              cluster = i, 
+              group1_id = 'Responder Pre',
+              group2_id = 'Responder Mid',
+              group1_filters = group1_filters,
+              group2_filters = group2_filters)
+  
+}) %>% bind_rows() %>% 
+  mutate(group = 'Responder')
+
+de_pre_vs_mid_responder %>% write_tsv(here(output_dir, 'de_pre_vs_mid_responder_filtered.tsv.gz'))
+write_excel_notebook(input_table = de_pre_vs_mid_responder,
+                     output_file = here(output_dir, 'de_pre_vs_mid_responder_filtered.xlsx'))
 ```
 
 ### Pre vs Mid, Non-responders

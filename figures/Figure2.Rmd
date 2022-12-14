@@ -162,6 +162,9 @@ ggsave(plot = p,
        w = 8)
 p
 ```
+```{r}
+
+```
 
 ```{r}
 p <- de_subset %>% 
@@ -189,6 +192,125 @@ ggsave(plot = p,
        h = 3,
        w = 7)
 p
+```
+#### Up and down DEGs
+
+```{r}
+plot_input <- de_subset %>% 
+  filter(p_val_adj < p_adj_cutoff) %>% 
+  mutate(comparison = factor(comparison, levels = which_comparison),
+         direction = ifelse(avg_log2FC > 0, 'up', 'down')) %>% 
+  filter(comparison %in% c('Responder Pre vs Responder Mid',
+                           'Non-responder Pre vs Non-responder Mid')) %>% 
+  group_by(cluster, comparison, direction) %>% 
+  tally() %>% 
+  mutate(n = ifelse(direction == 'up', -n, n)) 
+
+max_limit <- max(abs(plot_input$n))
+  
+
+p <- plot_input %>% 
+  ggplot(aes(y = factor(cluster, levels = rev(levels(cluster))),
+             x = n,
+             fill = comparison)) +
+  geom_col(color = 'black') +
+  geom_vline(xintercept = 0) +
+  facet_wrap(~comparison, 
+             #scales = 'free_x', 
+             nrow = 1) +
+  scale_x_continuous(limits = c(-max_limit, max_limit),
+                     breaks = c(-500, 0, 500),
+                     labels = c('500 \n(Higher in Pre)', 0, '500 \n(Higher in Mid)')) + 
+  scale_y_discrete(drop = FALSE) +
+  ggthemes::scale_fill_few(drop = FALSE) +
+  labs(x = '# of DEGs',
+       y = '')  
+
+p
+```
+
+
+#### P6 excluded
+```{r}
+de_filtered <- read_tsv(here('analysis/output/08_de/', which_cluster, 'de_pre_vs_mid_responder_filtered.tsv.gz'))
+
+p <- bind_rows(de_subset %>% 
+            filter(comparison %in% c('Responder Pre vs Responder Mid')) %>% 
+            mutate(comparison = 'All Patients'),
+          de_filtered %>% mutate(comparison = 'Excluding P6')) %>% 
+  mutate(cluster = factor(cluster, levels = levels(seuratobj$cluster))) %>% 
+  filter(p_val_adj < p_adj_cutoff) %>% 
+  group_by(cluster, comparison) %>% 
+  tally() %>% 
+  ggplot(aes(x = cluster,
+             y = n,
+             fill = comparison)) +
+  geom_col(color = 'black') +
+  facet_wrap(~comparison) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  scale_x_discrete(drop = FALSE) +
+  ggthemes::scale_fill_few(drop = FALSE) +
+  labs(x = '',
+       y = '# of DEGs')  
+
+p
+```
+
+
+#### DEG per cluster
+```{r}
+de_filtered %>% 
+  filter(p_val_adj < p_adj_cutoff) %>% 
+  group_by(cluster, n_group1, n_group2) %>% 
+  tally() %>% 
+  ggplot(aes(x = n_group1 + n_group2,
+             y = n)) +
+  geom_point() +
+  geom_text_repel(aes(label = cluster)) +
+  labs(x = '# of Cells in DE comparison',
+       y = '# of DEGs')
+```
+```{r}
+p <- de_subset %>% 
+  filter(comparison %in% c('Responder Pre vs Responder Mid',
+                           'Non-responder Pre vs Non-responder Mid')) %>% 
+  mutate(display = ifelse(str_detect(comparison, 'Non'), 'Non-responder', 'Responder')) %>% 
+  filter(p_val_adj < p_adj_cutoff) %>% 
+  group_by(cluster, display, n_group1, n_group2) %>% 
+  tally() %>% 
+  ggplot(aes(x = n_group1 + n_group2,
+             y = n,
+             label = display)) +
+  facet_wrap(~cluster, scales = 'free') +
+  geom_point() +
+  geom_text_repel() +
+  labs(x = '# of Cells in DE comparison',
+       y = '# of DEGs')
+
+p
+```
+### Heatmaps
+```{r}
+heatmap_genes <- de_combined_supercluster %>% 
+  filter(comparison %in% c('PV vs HC',
+                           'Responder Pre vs Responder Mid')) %>% 
+  filter(p_val_adj < p_adj_cutoff,
+         avg_log2FC > 0) %>% 
+  group_by(gene, comparison) %>% 
+  tally() %>% 
+  pivot_wider(names_from = comparison,
+              values_from = n,
+              values_fill = 0) %>% 
+  mutate(both = ifelse(`PV vs HC` * `Responder Pre vs Responder Mid` > 1, TRUE, FALSE),
+         total = `PV vs HC` + `Responder Pre vs Responder Mid`) %>% 
+  filter(total > 15, both) %>% 
+  arrange(-total)
+
+heatmap_genes
+```
+```{r}
+library(pheatmap)
+pseudobulk
 ```
 
 ### Figure 2B
@@ -638,9 +760,7 @@ summarized_table %>%
   labs(x = '',
        y = 'Average Expression in Trm Cells')
 ```
-```{r}
 
-```
 
 
 ## Session Info
