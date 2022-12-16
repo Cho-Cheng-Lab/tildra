@@ -294,8 +294,7 @@ p
 heatmap_genes <- de_combined_supercluster %>% 
   filter(comparison %in% c('PV vs HC',
                            'Responder Pre vs Responder Mid')) %>% 
-  filter(p_val_adj < p_adj_cutoff,
-         avg_log2FC > 0) %>% 
+  filter(p_val_adj < p_adj_cutoff) %>% 
   group_by(gene, comparison) %>% 
   tally() %>% 
   pivot_wider(names_from = comparison,
@@ -303,15 +302,156 @@ heatmap_genes <- de_combined_supercluster %>%
               values_fill = 0) %>% 
   mutate(both = ifelse(`PV vs HC` * `Responder Pre vs Responder Mid` > 1, TRUE, FALSE),
          total = `PV vs HC` + `Responder Pre vs Responder Mid`) %>% 
-  filter(total > 15, both) %>% 
+  filter(total > 20, both) %>% 
   arrange(-total)
 
 heatmap_genes
 ```
 ```{r}
-library(pheatmap)
-pseudobulk
+heatmap_genes <- de_combined_supercluster %>% 
+  filter(comparison %in% c('PV vs HC')) %>% 
+  filter(p_val_adj < p_adj_cutoff) %>% 
+  group_by(cluster) %>% 
+  slice_max(abs(avg_log2FC), n = 20)
+
+heatmap_genes
 ```
+
+### heatmap of log fold-changes
+```{r}
+heatmap_genes
+```
+
+```{r}
+which_cluster <- 'Trm1'
+de_choice <- de_combined_cluster %>% 
+  filter(cluster == which_cluster,
+         comparison %in% c('PV vs HC',
+                           'Responder Pre vs Responder Mid'),
+         gene %in% heatmap_genes$gene)
+
+pheatmap_input <- de_choice %>% 
+  select(comparison, gene, avg_log2FC) %>% 
+  pivot_wider(names_from = comparison,
+              values_from = avg_log2FC) %>% 
+  column_to_rownames('gene') %>% 
+  drop_na()
+pheatmap_input
+```
+```{r}
+pheatmap(pheatmap_input, 
+         cluster_cols = FALSE, 
+         scale = 'none', 
+         angle_col = 0)
+```
+
+```{r}
+library(pheatmap)
+heatmap_cells <- seuratobj@meta.data %>% filter(condition != 'AD') %>% rownames()
+heatmap_data <- pseudobulk(seuratobj,
+                           cells = heatmap_cells,
+                           genes = heatmap_genes$gene %>% unique(),
+                           group_by = c('supercluster', 'condition', 'treatment', 'group'))
+
+# heatmap_matrix <- pseudobulk_matrix(seuratobj, 
+#                                     cells = heatmap_cells,
+#                                     group_by = c('cluster', 'condition', 'treatment', 'group'))
+
+heatmap_data %>% head()
+```
+
+```{r}
+which_cluster <- 'Trm'
+
+map(heatmap_genes$cluster %>% unique, function(which_cluster) {
+  
+  cluster_genes <- heatmap_genes %>% filter(cluster == which_cluster) %>% pull(gene) %>% unique()
+  
+  heatmap_subset <- heatmap_data %>% 
+    filter(supercluster == which_cluster,
+           gene %in% cluster_genes) %>% 
+    mutate(description = paste(condition, group, treatment)) %>% 
+    mutate(description = description %>% str_remove(' NA None') %>% str_remove('PV ')) %>% 
+    filter(description %in% c('HC', 'PV', 'Responder Mid')) %>% 
+    select(gene, description, cpm) %>% 
+    pivot_wider(names_from = description,
+                values_from = cpm) %>% 
+    mutate(PV = log2(PV / HC),
+           Mid = log2(`Responder Mid` / HC)) %>% 
+    select(gene, PV, Mid) %>% 
+    arrange(-PV) %>% 
+    column_to_rownames('gene')
+  
+  pheatmap_input <- heatmap_subset
+  
+  pheatmap(pheatmap_input,
+           colorRampPalette(rev(RColorBrewer::brewer.pal(n = 7, name = "RdBu")))(100),
+           breaks = seq(-3, 3, length.out = 101),
+           #scale = 'row',
+           cluster_cols = FALSE,
+           cluster_rows = FALSE,
+           angle_col = 0,
+           display_numbers = TRUE,
+           main = which_cluster)
+  
+  
+  
+})
+
+
+
+```
+
+```{r}
+which_cluster <- 'Trm'
+
+plot_clusters <- c('Trm', 'Tcm', 'eTreg', 'LC', 'Mono')
+
+p <- map(plot_clusters %>% unique, function(which_cluster) {
+  
+  cluster_genes <- heatmap_genes %>% filter(cluster == which_cluster) %>% pull(gene) %>% unique()
+  
+  heatmap_subset <- heatmap_data %>% 
+    filter(supercluster == which_cluster,
+           gene %in% cluster_genes) %>% 
+    mutate(description = paste(condition, group, treatment)) %>% 
+    mutate(description = description %>% str_remove(' NA None') %>% str_remove('PV ')) %>% 
+    filter(description %in% c('HC', 'PV', 'Responder Mid')) %>% 
+    select(gene, description, cpm) %>% 
+    pivot_wider(names_from = description,
+                values_from = cpm) %>% 
+    mutate(PV = log2(PV / HC),
+           Mid = log2(`Responder Mid` / HC)) %>% 
+    select(gene, PV, Mid) %>% 
+    pivot_longer(cols = -gene,
+                 names_to = 'condition',
+                 values_to = 'value') %>% 
+    arrange(-value)
+  
+  heatmap_subset %>% 
+    ggplot(aes(x = factor(condition, levels = c('PV', 'Mid')),
+               y = reorder(gene, value),
+               fill = value)) +
+    geom_tile(color = 'black', linewidth = 0.25) +
+    scale_fill_gradientn(colors = colorRampPalette(rev(RColorBrewer::brewer.pal(n = 7, name = "RdBu")))(100),
+                         limits = c(-4, 4),
+                         breaks = seq(-4, 4, length.out = 5),
+                         oob = scales::squish,
+                         guide = guide_colorbar(frame.colour = 'black', ticks = FALSE, nbin = 50)) +
+    labs(x = '',
+         y = '',
+         title = which_cluster) +
+    theme(legend.position = 'top',
+          axis.ticks = element_blank(),
+          plot.background = element_rect(color = 'white', fill = 'white'),
+          panel.border = element_rect(color = NA),
+          axis.line = element_blank())
+  
+  
+
+}) %>% patchwork::wrap_plots(nrow = 1)
+```
+
 
 ### Figure 2B
 #### Volcano PV vs HC
