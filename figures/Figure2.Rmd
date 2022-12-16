@@ -308,11 +308,11 @@ heatmap_genes <- de_combined_supercluster %>%
 heatmap_genes
 ```
 ```{r}
-heatmap_genes <- de_combined_supercluster %>% 
+heatmap_genes <- de_combined_cluster %>% 
   filter(comparison %in% c('PV vs HC')) %>% 
   filter(p_val_adj < p_adj_cutoff) %>% 
   group_by(cluster) %>% 
-  slice_max(abs(avg_log2FC), n = 20)
+  slice_max((avg_log2FC), n = 100)
 
 heatmap_genes
 ```
@@ -338,26 +338,54 @@ pheatmap_input <- de_choice %>%
   drop_na()
 pheatmap_input
 ```
+
 ```{r}
-pheatmap(pheatmap_input, 
-         cluster_cols = FALSE, 
-         scale = 'none', 
-         angle_col = 0)
+consolidate_rows <- function(input_matrix) {
+  
+  library(data.table)
+  DT <- as.data.table(input_matrix)
+  DT[, 'row':=rownames(input_matrix)]
+  
+  # which columns are numeric 
+  tic()
+  DT_sum <- DT[, lapply(.SD, sum), by = row] %>% as.data.frame() %>% column_to_rownames('row') %>% as.matrix()
+  toc()
+  
+  sparse_mat <- Matrix::Matrix(DT_sum, sparse = TRUE)
+  sparse_mat
+  
+}
+```
+
+```{r}
+
 ```
 
 ```{r}
 library(pheatmap)
 heatmap_cells <- seuratobj@meta.data %>% filter(condition != 'AD') %>% rownames()
-heatmap_data <- pseudobulk(seuratobj,
-                           cells = heatmap_cells,
-                           genes = heatmap_genes$gene %>% unique(),
-                           group_by = c('supercluster', 'condition', 'treatment', 'group'))
+# heatmap_data <- pseudobulk(seuratobj,
+#                            cells = heatmap_cells,
+#                            genes = heatmap_genes$gene %>% unique(),
+#                            group_by = c('cluster', 'condition', 'treatment', 'group'))
 
-# heatmap_matrix <- pseudobulk_matrix(seuratobj, 
+# heatmap_matrix <- pseudobulk_matrix(seuratobj,
 #                                     cells = heatmap_cells,
 #                                     group_by = c('cluster', 'condition', 'treatment', 'group'))
 
-heatmap_data %>% head()
+cells = heatmap_cells
+group_by = c('cluster', 'condition', 'treatment', 'group')
+metadata_groups <- FetchData(seuratobj, vars = group_by, cells = cells) 
+metadata_groups$identifier <- apply(metadata_groups[ , group_by ] , 1 , paste , collapse = ':')
+metadata_groups <- metadata_groups[cells, ]
+
+input_matrix <- expression_matrix <- Matrix::t(seuratobj@assays$RNA@counts[, cells])
+
+test <- aggregate(input_matrix, by = metadata_groups$identifier)
+
+```
+```{r}
+
 ```
 
 ```{r}
@@ -403,11 +431,11 @@ map(heatmap_genes$cluster %>% unique, function(which_cluster) {
 ```
 
 ```{r}
-which_cluster <- 'Trm'
+#which_cluster <- 'Trm'
 
-plot_clusters <- c('Trm', 'Tcm', 'eTreg', 'LC', 'Mono')
+plot_clusters <- intersect(levels(seuratobj$cluster), heatmap_genes$cluster)
 
-p <- map(plot_clusters %>% unique, function(which_cluster) {
+p <- map(plot_clusters, function(which_cluster) {
   
   cluster_genes <- heatmap_genes %>% filter(cluster == which_cluster) %>% pull(gene) %>% unique()
   
@@ -449,7 +477,7 @@ p <- map(plot_clusters %>% unique, function(which_cluster) {
   
   
 
-}) %>% patchwork::wrap_plots(nrow = 1)
+}) %>% patchwork::wrap_plots(nrow = 3)
 ```
 
 
