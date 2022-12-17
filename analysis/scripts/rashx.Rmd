@@ -58,23 +58,31 @@ duplicates
 to_remove <- duplicates %>% filter(celltype == 'Cell cycle') %>% pull(rowname)
 ```
 
-#### Prepare clustering data and add supercluster
+#### Prepare clustering data and add supercluster + ultraclustert
 ```{r}
 rashx_clusters <- metadata %>% 
   filter(!(rowname %in% to_remove)) %>% 
   separate(rowname, sep = '_', into = c('celltype', 'barcode', 'sample', 'sample_id'), remove = FALSE) %>% 
   mutate(id = str_remove(ident, 'kin'),
-         supercluster = str_remove(Ident2, '[:digit:]|-c')) %>% # add supercluster
+         supercluster = str_remove(Ident2, '[:digit:]|-c'), # add supercluster
+         ultracluster = case_when(
+           supercluster %in% c('B', 'Plasma') ~ 'B + Plasma',
+           str_detect(supercluster, 'CTL') ~ 'CTL',
+           str_detect(supercluster, 'Treg') ~ 'Treg',
+           str_detect(supercluster, 'ILC|NK') ~ 'ILC + NK',
+           str_detect(supercluster, 'Mono') ~ 'Mono',
+           TRUE ~ supercluster)) %>% 
   select(barcode, 
          id,
          cluster = Ident2, 
-         supercluster) 
+         supercluster,
+         ultracluster) 
 
 rashx_clusters 
 ```
 
 ```{r}
-rashx_clusters %>% select(cluster, supercluster) %>% unique() %>% arrange(supercluster)
+rashx_clusters %>% select(cluster, supercluster, ultracluster) %>% unique() %>% arrange(ultracluster, supercluster, cluster)
 ```
 
 ## Export

@@ -364,24 +364,25 @@ consolidate_rows <- function(input_matrix) {
 ```{r}
 library(pheatmap)
 heatmap_cells <- seuratobj@meta.data %>% filter(condition != 'AD') %>% rownames()
-# heatmap_data <- pseudobulk(seuratobj,
-#                            cells = heatmap_cells,
-#                            genes = heatmap_genes$gene %>% unique(),
-#                            group_by = c('cluster', 'condition', 'treatment', 'group'))
+heatmap_data <- pseudobulk(seuratobj,
+                           cells = heatmap_cells,
+                           genes = heatmap_genes$gene %>% unique(),
+                           group_by = c('cluster', 'condition', 'treatment', 'group'))
 
+heatmap_data
 # heatmap_matrix <- pseudobulk_matrix(seuratobj,
 #                                     cells = heatmap_cells,
 #                                     group_by = c('cluster', 'condition', 'treatment', 'group'))
 
-cells = heatmap_cells
-group_by = c('cluster', 'condition', 'treatment', 'group')
-metadata_groups <- FetchData(seuratobj, vars = group_by, cells = cells) 
-metadata_groups$identifier <- apply(metadata_groups[ , group_by ] , 1 , paste , collapse = ':')
-metadata_groups <- metadata_groups[cells, ]
-
-input_matrix <- expression_matrix <- Matrix::t(seuratobj@assays$RNA@counts[, cells])
-
-test <- aggregate(input_matrix, by = metadata_groups$identifier)
+# cells = heatmap_cells
+# group_by = c('cluster', 'condition', 'treatment', 'group')
+# metadata_groups <- FetchData(seuratobj, vars = group_by, cells = cells) 
+# metadata_groups$identifier <- apply(metadata_groups[ , group_by ] , 1 , paste , collapse = ':')
+# metadata_groups <- metadata_groups[cells, ]
+# 
+# input_matrix <- expression_matrix <- Matrix::t(seuratobj@assays$RNA@counts[, cells])
+# 
+# test <- aggregate(input_matrix, by = metadata_groups$identifier)
 
 ```
 ```{r}
@@ -440,7 +441,7 @@ p <- map(plot_clusters, function(which_cluster) {
   cluster_genes <- heatmap_genes %>% filter(cluster == which_cluster) %>% pull(gene) %>% unique()
   
   heatmap_subset <- heatmap_data %>% 
-    filter(supercluster == which_cluster,
+    filter(cluster == which_cluster,
            gene %in% cluster_genes) %>% 
     mutate(description = paste(condition, group, treatment)) %>% 
     mutate(description = description %>% str_remove(' NA None') %>% str_remove('PV ')) %>% 
@@ -473,7 +474,8 @@ p <- map(plot_clusters, function(which_cluster) {
           axis.ticks = element_blank(),
           plot.background = element_rect(color = 'white', fill = 'white'),
           panel.border = element_rect(color = NA),
-          axis.line = element_blank())
+          axis.line = element_blank(),
+          axis.text.y = element_text(size = 5))
   
   
 

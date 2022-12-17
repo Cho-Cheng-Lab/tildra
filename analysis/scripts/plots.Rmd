@@ -1,0 +1,54 @@
+---
+title: "Annotation"
+author: "David Wu"
+---
+
+### Use the here package for robust relative paths
+```{r}
+library(here)
+```
+
+### Optionally convert this Rmd to R script 
+```{r eval=FALSE, message=FALSE}
+current_file <- rstudioapi::getActiveDocumentContext()$path
+output_file <- stringr::str_replace(current_file, '.Rmd', '.R')
+knitr::purl(current_file, output = output_file)
+file.edit(output_file)
+```
+
+### Directories
+```{r, message=FALSE}
+output_dir <- 'analysis/output/07_annotate' # analysis file output directory
+data_dir <- 'data/derived/tildra' # data file output directory
+
+dir.create(output_dir, showWarnings = FALSE)
+dir.create(data_dir, showWarnings = FALSE)
+```
+
+### Loading the libraries
+```{r, message=FALSE}
+library(Seurat) 
+library(tidyverse)
+library(ggExtra)
+library(SeuratWrappers)
+library(wutilities) # devtools::install_github('symbiologist/wutilities')
+library(tictoc)
+library(ggsankey)
+theme_set(wutilities::theme_dwu())
+```
+
+### Import
+#### Clustered object
+```{r}
+seuratobj <- read_rds(here(data_dir, 'seuratobj_subcluster.rds'))
+metadata <- seuratobj@meta.data %>% rownames_to_column()
+seuratobj
+```
+```{r}
+seurat_feature(seuratobj = seuratobj,
+               features = 'global')
+```
+```{r}
+seurat
+```
+
