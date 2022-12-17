@@ -142,14 +142,13 @@ write_excel_notebook <- function(input_table,
 ```
 
 ### Import
-
 ```{r}
 seuratobj <- read_rds(here(data_dir, 'seuratobj_annotated.rds'))
 seuratobj
 ```
 ### Set identity
 ```{r}
-which_annotation <- 'local_cluster'
+which_annotation <- 'local_ultracluster'
 seuratobj$annotation <- seuratobj[[which_annotation]]
 Idents(seuratobj) <- 'annotation'
 

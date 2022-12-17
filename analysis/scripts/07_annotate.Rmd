@@ -48,7 +48,7 @@ seuratobj
 
 #### Import annotations from RashX paper
 ```{r}
-rashx <- read_rds('data/external/rashx_clean.rds')
+rashx <- read_rds(here('data/external/rashx_clean.rds'))
 rashx_clusters <- read_tsv(here('analysis/output/rashx/rashx_clusters.tsv.gz'))
 rashx_clusters %>% head()
 ```
@@ -334,10 +334,10 @@ supercluster_order <- c('Tcm',
                         'LC',
                         'Mast')
 
-annotation_order <- rashx_clusters %>% select(cluster, supercluster) %>% 
+annotation_order <- rashx_clusters %>% select(cluster, supercluster, ultracluster) %>% 
   unique() %>% 
   mutate(supercluster = factor(supercluster, levels = supercluster_order)) %>% 
-  arrange(supercluster, cluster) %>% 
+  arrange(supercluster, cluster, ultracluster) %>% 
   mutate(order = 1:n(),
          supercluster = as.character(supercluster))
 
@@ -751,6 +751,7 @@ annotation_local_final <- annotation_local_curated %>%
   select(local, 
          local_cluster = cluster, 
          local_supercluster = supercluster, 
+         local_ultracluster = ultracluster,
          local_order = order) 
 
 annotation_global_final <- annotation_global_curated %>% 
@@ -760,6 +761,7 @@ annotation_global_final <- annotation_global_curated %>%
   select(global, 
          global_cluster = cluster, 
          global_supercluster = supercluster, 
+         global_ultracluster = ultracluster,
          global_order = order) 
 
 annotation_local_final
@@ -768,12 +770,12 @@ annotation_local_final
 
 ```{r}
 annotation_local_levels <- annotation_local_final %>% 
-  select(local_order, local_cluster, local_supercluster) %>% 
+  select(local_order, local_cluster, local_supercluster, local_ultracluster) %>% 
   unique() %>% 
   arrange(local_order)
 
 annotation_global_levels <- annotation_global_final %>% 
-  select(global_order, global_cluster, global_supercluster) %>% 
+  select(global_order, global_cluster, global_supercluster, global_ultracluster) %>% 
   unique() %>% 
   arrange(global_order)
 
@@ -789,8 +791,10 @@ new_annotations <- seuratobj@meta.data %>%
   left_join(annotation_global_final) %>% 
   mutate(local_cluster = factor(local_cluster, levels = annotation_local_levels$local_cluster),
          local_supercluster = factor(local_supercluster, levels = unique(annotation_local_levels$local_supercluster)),
+         local_ultracluster = factor(local_ultracluster, levels = unique(annotation_local_levels$local_ultracluster)),
          global_cluster = factor(global_cluster, levels = annotation_global_levels$global_cluster),
-         global_supercluster = factor(global_supercluster, levels = unique(annotation_global_levels$global_supercluster))) %>% 
+         global_supercluster = factor(global_supercluster, levels = unique(annotation_global_levels$global_supercluster)),
+         global_ultracluster = factor(global_ultracluster, levels = unique(annotation_global_levels$global_ultracluster))) %>% 
   column_to_rownames()
 
 new_annotations 
@@ -823,9 +827,11 @@ Here we will set global as the default
 which_identity <- 'local'
 which_cluster <- paste0(which_identity, '_cluster')
 which_supercluster <- paste0(which_identity, '_supercluster')
+which_ultracluster <- paste0(which_identity, '_ultracluster')
 
 seuratobj$cluster <- seuratobj[[which_cluster]] 
 seuratobj$supercluster <- seuratobj[[which_supercluster]] 
+seuratobj$ultracluster <- seuratobj[[which_ultracluster]] 
 
 seuratobj$annotation <- seuratobj$cluster # set cluster as main annotation
 Idents(seuratobj) <- 'annotation'

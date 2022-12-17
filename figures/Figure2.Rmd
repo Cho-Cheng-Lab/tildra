@@ -53,10 +53,12 @@ seuratobj
 which_identity <- 'local'
 which_cluster <- paste0(which_identity, '_cluster')
 which_supercluster <- paste0(which_identity, '_supercluster')
+which_ultracluster <- paste0(which_identity, '_ultracluster')
 
-seuratobj$cluster <- seuratobj[[which_cluster]] # set cluster as main annotation
-seuratobj$supercluster <- seuratobj[[which_supercluster]] # set cluster as main annotation
-Idents(seuratobj) <- 'cluster'
+seuratobj$cluster <- seuratobj[[which_cluster]] 
+seuratobj$supercluster <- seuratobj[[which_supercluster]] 
+seuratobj$ultracluster <- seuratobj[[which_ultracluster]] 
+Idents(seuratobj) <- 'cluster' # set cluster as main annotation
 
 output_dir <- here(output_dir, which_identity)
 dir.create(output_dir)
@@ -69,6 +71,7 @@ dir.create(output_dir)
 metadata <- seuratobj@meta.data %>% rownames_to_column() 
 de_combined_cluster <- read_tsv(here('analysis/output/08_de/', which_cluster, 'de_combined.tsv.gz'))
 de_combined_supercluster <- read_tsv(here('analysis/output/08_de/', which_supercluster, 'de_combined.tsv.gz'))
+de_combined_ultracluster <- read_tsv(here('analysis/output/08_de/', which_ultracluster, 'de_combined.tsv.gz'))
 ```
 
 ```{r}
@@ -83,7 +86,7 @@ patient_meta
 ```
 ```{r}
 analyze <- metadata %>% 
-  select(rowname, id, sample, patient, condition, treatment, cluster, supercluster, sample_label, group) %>% 
+  select(rowname, id, sample, patient, condition, treatment, cluster, supercluster, ultracluster, sample_label, group) %>% 
   mutate(description = factor(paste(condition, treatment) %>% str_remove(' None'),
                               levels = c('PV Pre',
                                          'PV Mid',
@@ -99,7 +102,7 @@ analyze
 
 ```{r}
 tallies <- analyze %>% 
-  group_by(patient, condition, treatment, cluster, supercluster) %>% 
+  group_by(patient, condition, treatment, cluster, supercluster, ultracluster) %>% 
   tally()
 
 tallies %>%
@@ -161,9 +164,6 @@ ggsave(plot = p,
        h = 8,
        w = 8)
 p
-```
-```{r}
-
 ```
 
 ```{r}
@@ -289,7 +289,66 @@ p <- de_subset %>%
 
 p
 ```
-### Heatmaps
+### Heatmaps at each cluster level
+#### Ultracluster
+
+```{r}
+heatmap_cells <- seuratobj@meta.data %>% filter(condition != 'AD') %>% rownames()
+heatmap_data <- pseudobulk(seuratobj,
+                           cells = heatmap_cells,
+                           genes = heatmap_genes$gene %>% unique(),
+                           group_by = c('ultracluster', 'condition', 'treatment', 'group'))
+
+
+plot_clusters <- intersect(levels(seuratobj$cluster), heatmap_genes$cluster)
+
+p <- map(plot_clusters, function(which_cluster) {
+  
+  cluster_genes <- heatmap_genes %>% filter(cluster == which_cluster) %>% pull(gene) %>% unique()
+  
+  heatmap_subset <- heatmap_data %>% 
+    filter(cluster == which_cluster,
+           gene %in% cluster_genes) %>% 
+    mutate(description = paste(condition, group, treatment)) %>% 
+    mutate(description = description %>% str_remove(' NA None') %>% str_remove('PV ')) %>% 
+    filter(description %in% c('HC', 'PV', 'Responder Mid')) %>% 
+    select(gene, description, cpm) %>% 
+    pivot_wider(names_from = description,
+                values_from = cpm) %>% 
+    mutate(PV = log2(PV / HC),
+           Mid = log2(`Responder Mid` / HC)) %>% 
+    select(gene, PV, Mid) %>% 
+    pivot_longer(cols = -gene,
+                 names_to = 'condition',
+                 values_to = 'value') %>% 
+    arrange(-value)
+  
+  heatmap_subset %>% 
+    ggplot(aes(x = factor(condition, levels = c('PV', 'Mid')),
+               y = reorder(gene, value),
+               fill = value)) +
+    geom_tile(color = 'black', linewidth = 0.25) +
+    scale_fill_gradientn(colors = colorRampPalette(rev(RColorBrewer::brewer.pal(n = 7, name = "RdBu")))(100),
+                         limits = c(-4, 4),
+                         breaks = seq(-4, 4, length.out = 5),
+                         oob = scales::squish,
+                         guide = guide_colorbar(frame.colour = 'black', ticks = FALSE, nbin = 50)) +
+    labs(x = '',
+         y = '',
+         title = which_cluster) +
+    theme(legend.position = 'top',
+          axis.ticks = element_blank(),
+          plot.background = element_rect(color = 'white', fill = 'white'),
+          panel.border = element_rect(color = NA),
+          axis.line = element_blank(),
+          axis.text.y = element_text(size = 5))
+  
+  
+
+}) %>% patchwork::wrap_plots(nrow = 3)
+```
+
+
 ```{r}
 heatmap_genes <- de_combined_supercluster %>% 
   filter(comparison %in% c('PV vs HC',
@@ -336,33 +395,11 @@ pheatmap_input <- de_choice %>%
               values_from = avg_log2FC) %>% 
   column_to_rownames('gene') %>% 
   drop_na()
+
 pheatmap_input
 ```
 
 ```{r}
-consolidate_rows <- function(input_matrix) {
-  
-  library(data.table)
-  DT <- as.data.table(input_matrix)
-  DT[, 'row':=rownames(input_matrix)]
-  
-  # which columns are numeric 
-  tic()
-  DT_sum <- DT[, lapply(.SD, sum), by = row] %>% as.data.frame() %>% column_to_rownames('row') %>% as.matrix()
-  toc()
-  
-  sparse_mat <- Matrix::Matrix(DT_sum, sparse = TRUE)
-  sparse_mat
-  
-}
-```
-
-```{r}
-
-```
-
-```{r}
-library(pheatmap)
 heatmap_cells <- seuratobj@meta.data %>% filter(condition != 'AD') %>% rownames()
 heatmap_data <- pseudobulk(seuratobj,
                            cells = heatmap_cells,
