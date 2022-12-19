@@ -1,0 +1,223 @@
+---
+title: "Origin of Cytokines"
+author: "David Wu"
+---
+
+## Setup
+### Use the here package for robust relative paths
+```{r}
+library(here)
+```
+
+### Optionally convert this Rmd to R script 
+```{r eval=FALSE, message=FALSE}
+current_file <- rstudioapi::getActiveDocumentContext()$path
+output_file <- stringr::str_replace(current_file, '.Rmd', '.R')
+knitr::purl(current_file, output = output_file)
+file.edit(output_file)
+```
+
+### Directories
+```{r, message=FALSE}
+output_dir <- here('analysis/output/11_cytokines') # analysis file output directory
+data_dir <- here('data/derived/tildra') # data file output directory
+
+dir.create(output_dir, showWarnings = FALSE)
+dir.create(data_dir, showWarnings = FALSE)
+```
+
+### Loading the libraries
+```{r, message=FALSE}
+library(Seurat) 
+library(tidyverse)
+library(patchwork)
+library(SeuratWrappers) # devtools::install_github('satijalab/seurat-wrappers')
+library(wutilities) # devtools::install_github('symbiologist/wutilities')
+library(tictoc)
+library(extrafont)
+loadfonts()
+theme_set(theme_dwu()) # set default theme
+```
+
+
+
+### Import
+```{r}
+seuratobj <- read_rds(here(data_dir, 'seuratobj_annotated.rds'))
+seuratobj
+```
+### Use global or local identities and set as cluster/supercluster in the object
+```{r}
+which_identity <- 'local'
+which_cluster <- paste0(which_identity, '_cluster')
+which_supercluster <- paste0(which_identity, '_supercluster')
+which_ultracluster <- paste0(which_identity, '_ultracluster')
+
+seuratobj$cluster <- seuratobj[[which_cluster]] 
+seuratobj$supercluster <- seuratobj[[which_supercluster]] 
+seuratobj$ultracluster <- seuratobj[[which_ultracluster]] 
+Idents(seuratobj) <- 'cluster' # set cluster as main annotation
+
+output_dir <- here(output_dir, which_identity)
+dir.create(output_dir)
+```
+
+### Prepare metadata subset
+```{r}
+cytokines <- c("IFNG",
+               "TNF",
+               "IL17A",
+               "IL17F",
+               "IL21",
+               "IL22",
+               "IL26",
+               "IL36A",
+               'IL36B',
+               'IL36G',
+               "CXCL13")
+
+cells <- seuratobj@meta.data %>% filter(condition != 'AD') %>% rownames()
+
+pseudo <- pseudobulk(seuratobj,
+                     genes = cytokines,
+                     cells = cells,
+                     group_by = c('patient', 'ultracluster', 'condition', 'treatment', 'group'))
+
+pseudo %>% head()
+```
+
+```{r}
+sample_total <- pseudo %>% 
+  group_by(patient, treatment) %>% 
+  summarize(sample_total = sum(total))
+sample_total
+```
+```{r}
+cytokine_total <- pseudo %>% 
+  group_by(patient, treatment, gene) %>% 
+  summarize(cytokine_total = sum(counts))
+
+cytokine_total
+```
+
+
+```{r}
+cytokine_source <- pseudo %>% 
+  left_join(cytokine_total) %>% 
+  left_join(sample_total) %>% 
+  mutate(cytokine_pct = round(100 * counts / cytokine_total, 2),
+         sample_cpm = round(counts / sample_total * 1e6, 3))
+
+cytokine_source
+```
+```{r}
+which_patient <- 'P2'
+which_treatment <- 'Pre'
+
+cytokine_source %>% 
+  filter(patient == which_patient,
+         treatment == which_treatment) %>% 
+  ggplot(aes(x = gene,
+             y = cytokine_pct,
+             fill = ultracluster)) +
+  geom_col(color = 'black') +
+  labs(x = 'Cytokine',
+       y = '% Produced by Cell Type',
+       title = paste('Patient', which_patient)) +
+  theme(legend.position = 'right') +
+  ggthemes::scale_fill_tableau(palette = 'Tableau 20')
+
+
+```
+### Loop
+```{r}
+tildra_patients <- cytokine_source %>% filter(treatment != 'None') %>% pull(patient) %>% unique() %>% sort()
+
+p <- map(tildra_patients %>% unique(), function(which_patient) {
+
+  p_pre <- cytokine_source %>% 
+    filter(patient == which_patient,
+           treatment == 'Pre') %>% 
+    ggplot(aes(x = gene,
+               y = cytokine_pct,
+               fill = ultracluster)) +
+    geom_col(color = 'black') +
+    labs(x = 'Cytokine',
+         y = '% Produced by Cell Type',
+         title = paste(which_patient, 'Pre')) +
+    theme(legend.position = 'none') +
+    ggthemes::scale_fill_tableau(palette = 'Tableau 20')
+  
+  p_mid <- cytokine_source %>% 
+    filter(patient == which_patient,
+           treatment == 'Mid') %>% 
+    ggplot(aes(x = gene,
+               y = cytokine_pct,
+               fill = ultracluster)) +
+    geom_col(color = 'black') +
+    labs(x = 'Cytokine',
+         y = '% Produced by Cell Type',
+         title = paste(which_patient, 'Mid')) +
+    theme(legend.position = 'right') +
+    ggthemes::scale_fill_tableau(palette = 'Tableau 20')
+  
+  p <- p_pre + p_mid
+  
+}) %>% wrap_plots()
+
+
+```
+#### Facets
+```{r}
+tildra_patients <- cytokine_source %>% filter(treatment != 'None') %>% pull(patient) %>% unique() %>% sort()
+
+p <- map(tildra_patients %>% unique(), function(which_patient) {
+
+  p <- cytokine_source %>% 
+    filter(patient == which_patient) %>% 
+    ggplot(aes(x = gene,
+               y = cytokine_pct,
+               fill = ultracluster)) +
+    geom_col(color = 'black') +
+    labs(x = 'Cytokine',
+         y = '% Produced by Cell Type',
+         title = paste(which_patient)) +
+    facet_wrap(~treatment) +
+    theme(legend.position = 'right',
+          axis.text.x = element_text(angle = 45, hjust = 1),
+          plot.background = element_rect(color = 'black')) +
+    ggthemes::scale_fill_tableau(palette = 'Tableau 20')
+  
+}) %>% wrap_plots()
+```
+
+```{r}
+cytokine_source %>% 
+  filter(patient == which_patient,
+         treatment == which_treatment) %>% 
+  ggplot(aes(x = gene,
+             y = cpm,
+             fill = ultracluster)) +
+  geom_col(color = 'black') +
+  labs(x = 'Cytokine',
+       y = '% Produced by Cell Type',
+       title = paste('Patient', which_patient)) +
+  theme(legend.position = 'right') +
+  ggthemes::scale_fill_tableau(palette = 'Tableau 20') 
+```
+### Group
+```{r}
+cytokine_source %>% 
+  ggplot(aes(x = ultracluster,
+             y = cytokine_pct)) +
+  geom_boxplot() +
+  facet_wrap(~gene)
+```
+
+## Session Info
+```{r}
+sessionInfo()
+```
+
+
+

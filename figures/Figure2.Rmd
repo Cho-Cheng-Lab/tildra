@@ -139,10 +139,13 @@ de_subset <- de_combined_cluster %>%
 
 ### Figure 2A
 #### How many DE genes?
-#### Facet
-
+##### Cluster
 ```{r}
-p <- de_subset %>% 
+p <- de_combined_cluster %>% 
+  filter(comparison %in% which_comparison) %>% 
+  mutate(comparison = factor(comparison, levels = which_comparison),
+         sig = ifelse(p_val_adj < p_adj_cutoff, TRUE, FALSE),
+         cluster = factor(cluster, levels = levels(seuratobj$cluster))) %>% 
   filter(p_val_adj < p_adj_cutoff) %>% 
   mutate(comparison = factor(comparison, levels = which_comparison)) %>% 
   group_by(cluster, comparison) %>% 
@@ -159,7 +162,65 @@ p <- de_subset %>%
   scale_x_discrete(drop = FALSE)
 
 ggsave(plot = p,
-       filename = 'F2A_de_tally.pdf',
+       filename = 'F2A_de_tally_cluster.pdf',
+       path = output_dir, 
+       h = 8,
+       w = 8)
+p
+```
+```{r}
+p <- de_combined_supercluster %>% 
+  filter(comparison %in% which_comparison) %>% 
+  mutate(comparison = factor(comparison, levels = which_comparison),
+         sig = ifelse(p_val_adj < p_adj_cutoff, TRUE, FALSE),
+         supercluster = factor(cluster, levels = levels(seuratobj$supercluster))) %>% 
+  filter(p_val_adj < p_adj_cutoff) %>% 
+  mutate(comparison = factor(comparison, levels = which_comparison)) %>% 
+  group_by(supercluster, comparison) %>% 
+  tally() %>% 
+  ggplot(aes(x = supercluster,
+             y = n,
+             fill = comparison)) +
+  geom_col(color = 'black') +
+  facet_wrap(~comparison, scales = 'free_y', nrow = 3) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  labs(x = '',
+       y = '# of DEGs') +
+  scale_fill_carto_d(drop = FALSE) +
+  scale_x_discrete(drop = FALSE)
+
+ggsave(plot = p,
+       filename = 'F2A_de_tally_supercluster.pdf',
+       path = output_dir, 
+       h = 8,
+       w = 8)
+p
+```
+
+#### Ultracluster
+```{r}
+p <- de_combined_ultracluster %>% 
+  filter(comparison %in% which_comparison) %>% 
+  mutate(comparison = factor(comparison, levels = which_comparison),
+         sig = ifelse(p_val_adj < p_adj_cutoff, TRUE, FALSE),
+         ultracluster = factor(cluster, levels = levels(seuratobj$ultracluster))) %>% 
+  filter(p_val_adj < p_adj_cutoff) %>% 
+  mutate(comparison = factor(comparison, levels = which_comparison)) %>% 
+  group_by(ultracluster, comparison) %>% 
+  tally() %>% 
+  ggplot(aes(x = ultracluster,
+             y = n,
+             fill = comparison)) +
+  geom_col(color = 'black') +
+  facet_wrap(~comparison, scales = 'free_y', nrow = 3) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  labs(x = '',
+       y = '# of DEGs') +
+  scale_fill_carto_d(drop = FALSE) +
+  scale_x_discrete(drop = FALSE)
+
+ggsave(plot = p,
+       filename = 'F2A_de_tally_ultracluster.pdf',
        path = output_dir, 
        h = 8,
        w = 8)
@@ -290,24 +351,41 @@ p <- de_subset %>%
 p
 ```
 ### Heatmaps at each cluster level
-#### Ultracluster
-
+#### Global
 ```{r}
 heatmap_cells <- seuratobj@meta.data %>% filter(condition != 'AD') %>% rownames()
+dir.create(here(output_dir, 'heatmaps'))
+```
+
+#### Ultracluster
+```{r}
+heatmap_genes <- de_combined_ultracluster %>% 
+  filter(comparison %in% c('PV vs HC'),
+         !str_detect(gene, '^MT-|^RP[SL]|^MRP[SL]')) %>% 
+  filter(p_val_adj < p_adj_cutoff) %>% 
+  group_by(cluster) %>% 
+  slice_max((avg_log2FC), n = 100)
+
+heatmap_genes
+```
+
+```{r}
 heatmap_data <- pseudobulk(seuratobj,
                            cells = heatmap_cells,
                            genes = heatmap_genes$gene %>% unique(),
                            group_by = c('ultracluster', 'condition', 'treatment', 'group'))
+```
 
 
-plot_clusters <- intersect(levels(seuratobj$cluster), heatmap_genes$cluster)
+```{r}
+plot_clusters <- intersect(levels(seuratobj$ultracluster), heatmap_genes$cluster)
 
 p <- map(plot_clusters, function(which_cluster) {
   
   cluster_genes <- heatmap_genes %>% filter(cluster == which_cluster) %>% pull(gene) %>% unique()
   
   heatmap_subset <- heatmap_data %>% 
-    filter(cluster == which_cluster,
+    filter(ultracluster == which_cluster,
            gene %in% cluster_genes) %>% 
     mutate(description = paste(condition, group, treatment)) %>% 
     mutate(description = description %>% str_remove(' NA None') %>% str_remove('PV ')) %>% 
@@ -321,31 +399,45 @@ p <- map(plot_clusters, function(which_cluster) {
     pivot_longer(cols = -gene,
                  names_to = 'condition',
                  values_to = 'value') %>% 
-    arrange(-value)
+    arrange(value)
+  
+  gene_order <- heatmap_subset %>% filter(condition == 'PV') %>% pull(gene)
   
   heatmap_subset %>% 
     ggplot(aes(x = factor(condition, levels = c('PV', 'Mid')),
-               y = reorder(gene, value),
+               y = factor(gene, levels = gene_order),
                fill = value)) +
     geom_tile(color = 'black', linewidth = 0.25) +
     scale_fill_gradientn(colors = colorRampPalette(rev(RColorBrewer::brewer.pal(n = 7, name = "RdBu")))(100),
                          limits = c(-4, 4),
                          breaks = seq(-4, 4, length.out = 5),
                          oob = scales::squish,
-                         guide = guide_colorbar(frame.colour = 'black', ticks = FALSE, nbin = 50)) +
+                         guide = guide_colorbar(frame.colour = 'black', 
+                                                ticks = FALSE, 
+                                                nbin = 50,
+                                                barwidth = 2,
+                                                barheight = 0.2)) +
     labs(x = '',
          y = '',
          title = which_cluster) +
     theme(legend.position = 'top',
           axis.ticks = element_blank(),
-          plot.background = element_rect(color = 'white', fill = 'white'),
+          legend.text = element_text(size = 5),
           panel.border = element_rect(color = NA),
           axis.line = element_blank(),
-          axis.text.y = element_text(size = 5))
+          axis.text.y = element_text(size = 5),
+          plot.title = element_text(size = 8))
   
   
 
 }) %>% patchwork::wrap_plots(nrow = 3)
+
+ggsave(plot = p,
+       device = cairo_pdf,
+       path = here(output_dir, 'heatmaps'),
+       w = 8,
+       h = 20,
+       filename = 'ultracluster.pdf')
 ```
 
 
