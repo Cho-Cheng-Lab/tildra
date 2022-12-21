@@ -490,7 +490,7 @@ patients_per_cluster <- data_subset %>%
   filter(group1 > responder_threshold,
          group2 > responder_threshold) 
 
-de_pre_vs_mid_responder <- map(patients_per_cluster[[which_annotation]], function(i) {
+de_pre_vs_mid_responder_filtered <- map(patients_per_cluster[[which_annotation]], function(i) {
   
   print2(i)
   
@@ -505,7 +505,7 @@ de_pre_vs_mid_responder <- map(patients_per_cluster[[which_annotation]], functio
 }) %>% bind_rows() %>% 
   mutate(group = 'Responder')
 
-de_pre_vs_mid_responder %>% write_tsv(here(output_dir, 'de_pre_vs_mid_responder_filtered.tsv.gz'))
+de_pre_vs_mid_responder_filtered %>% write_tsv(here(output_dir, 'de_pre_vs_mid_responder_filtered.tsv.gz'))
 write_excel_notebook(input_table = de_pre_vs_mid_responder,
                      output_file = here(output_dir, 'de_pre_vs_mid_responder_filtered.xlsx'))
 ```
@@ -556,6 +556,63 @@ de_pre_vs_mid_nonresponder %>% write_tsv(here(output_dir, 'de_pre_vs_mid_nonresp
 write_excel_notebook(input_table = de_pre_vs_mid_nonresponder,
                      output_file = here(output_dir, 'de_pre_vs_mid_nonresponder.xlsx'))
 ```
+
+### Pre vs Mid, Non-responders excluding P9
+```{r}
+group1_filters <- list('condition' = 'PV',
+                       'treatment' = 'Pre',
+                       'group' = 'Non-responder')
+
+group2_filters <- list('condition' = 'PV',
+                       'treatment' = 'Mid',
+                       'group' = 'Non-responder',
+                       'patient' = c('P7', 'P8'))
+
+data_subset <- bind_rows(
+  analyze %>% apply_filters(group1_filters) %>% mutate(group = 'group1'),
+  analyze %>% apply_filters(group2_filters) %>% mutate(group = 'group2')
+)
+
+patients_per_cluster <- data_subset %>% 
+  group_by(sample, group, across(all_of(which_annotation))) %>% 
+  tally() %>% 
+  filter(n > cell_threshold) %>% 
+  group_by(group, across(all_of(which_annotation))) %>% 
+  tally() %>% 
+  pivot_wider(names_from = group,
+              values_from = n,
+              values_fill = 0) %>% 
+  filter(group1 > responder_threshold,
+         group2 > responder_threshold) 
+
+de_pre_vs_mid_nonresponder_filtered <- map(patients_per_cluster[[which_annotation]], function(i) {
+  
+  print2(i)
+  
+  de_pipeline(seuratobj = seuratobj,
+              cluster_col = which_annotation,
+              cluster = i, 
+              group1_id = 'Non-responder Pre',
+              group2_id = 'Non-responder Mid',
+              group1_filters = group1_filters,
+              group2_filters = group2_filters)
+  
+}) %>% bind_rows() %>% 
+  mutate(group = 'Non-responder')
+
+de_pre_vs_mid_nonresponder_filtered %>% write_tsv(here(output_dir, 'de_pre_vs_mid_nonresponder_filtered.tsv.gz'))
+write_excel_notebook(input_table = de_pre_vs_mid_nonresponder_filtered,
+                     output_file = here(output_dir, 'de_pre_vs_mid_nonresponder_filtered.xlsx'))
+```
+```{r}
+data_subset %>% 
+  group_by(sample, group, annotation) %>% 
+  tally() %>% 
+  filter(annotation %in% c('Mac', 'Mono', 'DC', 'moDC', 'LC')) %>% 
+  group_by(sample, group) %>% 
+  summarize(n = sum(n))
+```
+
 ### Responders vs non-responders in Pre samples (all clusters)
 ```{r}
 group1_filters <- list('condition' = 'PV',

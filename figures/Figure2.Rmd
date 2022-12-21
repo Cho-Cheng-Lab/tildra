@@ -122,9 +122,7 @@ dpi <- 600
 which_comparison <- c('PV vs HC',
                       'Pre vs Mid',
                       'Responder Pre vs Responder Mid',
-                      'Non-responder Pre vs Non-responder Mid',
-                      'Responder Pre vs Non-responder Pre',
-                      'Responder Mid vs Non-responder Mid')
+                      'Non-responder Pre vs Non-responder Mid')
 
 p_adj_cutoff <- 0.05
 
@@ -227,33 +225,7 @@ ggsave(plot = p,
 p
 ```
 
-```{r}
-p <- de_subset %>% 
-  filter(p_val_adj < p_adj_cutoff) %>% 
-  mutate(comparison = factor(comparison, levels = which_comparison)) %>% 
-  filter(comparison %in% c('Pre vs Mid',
-                           'Responder Mid vs Non-responder Mid')) %>% 
-  group_by(cluster, comparison) %>% 
-  tally() %>% 
-  ggplot(aes(x = cluster,
-             y = n,
-             fill = comparison)) +
-  geom_col(color = 'black') +
-  facet_wrap(~comparison, scales = 'free_y', nrow = 1) +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
-  scale_x_discrete(drop = FALSE) +
-  ggthemes::scale_fill_few(drop = FALSE) +
-  labs(x = '',
-       y = '# of DEGs')  
-  
 
-ggsave(plot = p,
-       filename = 'F2A_de_tally_subset.pdf',
-       path = output_dir, 
-       h = 3,
-       w = 7)
-p
-```
 #### Up and down DEGs
 
 ```{r}
@@ -307,7 +279,7 @@ p <- bind_rows(de_subset %>%
              y = n,
              fill = comparison)) +
   geom_col(color = 'black') +
-  facet_wrap(~comparison) +
+  facet_wrap(~comparison, nrow = 2) +
   theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
   scale_x_discrete(drop = FALSE) +
   ggthemes::scale_fill_few(drop = FALSE) +
@@ -317,7 +289,31 @@ p <- bind_rows(de_subset %>%
 p
 ```
 
+#### P9 excluded
+```{r}
+de_nonresponder_filtered <- read_tsv(here('analysis/output/08_de/', 
+                                          which_ultracluster, 'de_pre_vs_mid_nonresponder_filtered.tsv.gz'))
 
+p <- bind_rows(de_combined_ultracluster %>% 
+                 filter(comparison %in% c('Non-responder Pre vs Non-responder Mid')),
+               de_nonresponder_filtered %>% mutate(comparison = 'Remove P9')) %>% 
+  mutate(cluster = factor(cluster, levels = levels(seuratobj$ultracluster))) %>% 
+  filter(p_val_adj < p_adj_cutoff) %>% 
+  group_by(cluster, comparison) %>% 
+  tally() %>% 
+  ggplot(aes(x = cluster,
+             y = n,
+             fill = comparison)) +
+  geom_col(color = 'black') +
+  facet_wrap(~comparison) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  scale_x_discrete(drop = FALSE) +
+  ggthemes::scale_fill_few(drop = FALSE) +
+  labs(x = '',
+       y = '# of DEGs')  
+
+p
+```
 #### DEG per cluster
 ```{r}
 de_filtered %>% 

@@ -71,8 +71,8 @@ cytokines <- c("IFNG",
                "IL21",
                "IL22",
                "IL26",
-               "IL36A",
-               'IL36B',
+               #"IL36A",
+               #'IL36B',
                'IL36G',
                "CXCL13")
 
@@ -108,11 +108,23 @@ cytokine_source <- pseudo %>%
   mutate(cytokine_pct = round(100 * counts / cytokine_total, 2),
          sample_cpm = round(counts / sample_total * 1e6, 3))
 
+gene_counts <- cytokine_source %>% 
+  group_by(gene, patient, treatment) %>% 
+  summarize(gene_total = sum(counts))
+
+cytokine_source <- cytokine_source %>% left_join(gene_counts)
 cytokine_source
 ```
 ```{r}
 which_patient <- 'P2'
 which_treatment <- 'Pre'
+
+annotation <- levels(cytokine_source$ultracluster)
+color_scale <- c(RColorBrewer::brewer.pal(n = sum(str_detect(annotation, 'T|B|ILC')),
+                                          name = 'Blues'),
+                 RColorBrewer::brewer.pal(n = sum(!str_detect(annotation, 'T|B|ILC')),
+                                          name = 'Reds'))
+                 
 
 cytokine_source %>% 
   filter(patient == which_patient,
@@ -125,7 +137,8 @@ cytokine_source %>%
        y = '% Produced by Cell Type',
        title = paste('Patient', which_patient)) +
   theme(legend.position = 'right') +
-  ggthemes::scale_fill_tableau(palette = 'Tableau 20')
+  #ggthemes::scale_fill_tableau(palette = 'Tableau 20') +
+  scale_fill_manual(values = color_scale)
 
 
 ```
@@ -146,7 +159,7 @@ p <- map(tildra_patients %>% unique(), function(which_patient) {
          y = '% Produced by Cell Type',
          title = paste(which_patient, 'Pre')) +
     theme(legend.position = 'none') +
-    ggthemes::scale_fill_tableau(palette = 'Tableau 20')
+    scale_fill_manual(values = color_scale)
   
   p_mid <- cytokine_source %>% 
     filter(patient == which_patient,
@@ -159,7 +172,7 @@ p <- map(tildra_patients %>% unique(), function(which_patient) {
          y = '% Produced by Cell Type',
          title = paste(which_patient, 'Mid')) +
     theme(legend.position = 'right') +
-    ggthemes::scale_fill_tableau(palette = 'Tableau 20')
+    scale_fill_manual(values = color_scale)
   
   p <- p_pre + p_mid
   
@@ -173,38 +186,69 @@ tildra_patients <- cytokine_source %>% filter(treatment != 'None') %>% pull(pati
 
 p <- map(tildra_patients %>% unique(), function(which_patient) {
 
-  p <- cytokine_source %>% 
+  cytokine_source %>% 
     filter(patient == which_patient) %>% 
     ggplot(aes(x = gene,
-               y = cytokine_pct,
-               fill = ultracluster)) +
-    geom_col(color = 'black') +
+               y = cytokine_pct)) +
+    geom_col(color = 'black', aes(fill = ultracluster)) +
+    geom_text(data = cytokine_source %>% filter(patient == which_patient) %>% 
+                select(gene, treatment, gene_total) %>% unique(),
+              aes(x = gene,
+                  y = 106,
+                  label = gene_total),
+              size = 3) +
     labs(x = 'Cytokine',
          y = '% Produced by Cell Type',
          title = paste(which_patient)) +
-    facet_wrap(~treatment) +
+    facet_wrap(~treatment, nrow = 2) +
     theme(legend.position = 'right',
           axis.text.x = element_text(angle = 45, hjust = 1),
           plot.background = element_rect(color = 'black')) +
-    ggthemes::scale_fill_tableau(palette = 'Tableau 20')
+    scale_fill_manual(values = color_scale) +
+    scale_y_continuous(breaks = c(0, 25, 50, 75, 100))
   
 }) %>% wrap_plots()
 ```
 
+
+### Absolute scale
 ```{r}
 cytokine_source %>% 
-  filter(patient == which_patient,
-         treatment == which_treatment) %>% 
+  filter(patient == which_patient, treatment == 'Pre') %>% 
   ggplot(aes(x = gene,
              y = cpm,
              fill = ultracluster)) +
-  geom_col(color = 'black') +
+  geom_bar(color = 'black', stat = 'identity') +
+  # geom_text(data = cytokine_source %>% filter(patient == which_patient) %>% select(treatment, gene, cpm, gene_total) %>% unique(),
+  #           aes(x = gene, y = cpm + 1, label = gene_total),
+  #           inherit.aes = FALSE) +
   labs(x = 'Cytokine',
-       y = '% Produced by Cell Type',
+       y = 'Counts per Million by Cell Type',
        title = paste('Patient', which_patient)) +
   theme(legend.position = 'right') +
-  ggthemes::scale_fill_tableau(palette = 'Tableau 20') 
+  scale_fill_manual(values = color_scale)
 ```
+```{r}
+cytokine_source %>% 
+  filter(patient == which_patient, treatment == 'Pre') %>% 
+  ggplot(aes(x = gene,
+             y = cpm + 1,
+             fill = ultracluster)) +
+  geom_bar(color = 'black', stat = 'identity') +
+  # geom_text(data = cytokine_source %>% filter(patient == which_patient) %>% select(treatment, gene, cpm, gene_total) %>% unique(),
+  #           aes(x = gene, y = cpm + 1, label = gene_total),
+  #           inherit.aes = FALSE) +
+  labs(x = 'Cytokine',
+       y = 'Counts per Million by Cell Type',
+       title = paste('Patient', which_patient)) +
+  theme(legend.position = 'right') +
+  scale_fill_manual(values = color_scale) 
+```
+
+```{r}
+cytokine_source %>% filter(patient == which_patient, gene == 'CXCL13', treatment == 'Pre') %>% pull(cpm)
+```
+
 ### Group
 ```{r}
 cytokine_source %>% 
@@ -212,6 +256,13 @@ cytokine_source %>%
              y = cytokine_pct)) +
   geom_boxplot() +
   facet_wrap(~gene)
+```
+```{r}
+cytokine_source %>% filter(patient == which_patient) %>% select(treatment, gene, cpm, gene_total
+```
+
+```{r}
+
 ```
 
 ## Session Info
