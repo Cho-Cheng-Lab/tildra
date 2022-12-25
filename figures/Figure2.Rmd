@@ -349,7 +349,9 @@ p
 ### Heatmaps at each cluster level
 #### Global
 ```{r}
-heatmap_cells <- seuratobj@meta.data %>% filter(condition != 'AD') %>% rownames()
+heatmap_cells <- seuratobj@meta.data %>% 
+  #filter(condition != 'AD') %>% 
+  rownames()
 dir.create(here(output_dir, 'heatmaps'))
 ```
 
@@ -358,11 +360,23 @@ dir.create(here(output_dir, 'heatmaps'))
 heatmap_genes <- de_combined_ultracluster %>% 
   filter(comparison %in% c('PV vs HC'),
          !str_detect(gene, '^MT-|^RP[SL]|^MRP[SL]')) %>% 
-  filter(p_val_adj < p_adj_cutoff) %>% 
+  filter(p_val_adj < p_adj_cutoff,
+         avg_log2FC > 0) %>% 
   group_by(cluster) %>% 
-  slice_max((avg_log2FC), n = 100)
+  slice_max((avg_log2FC), n = 1000)
 
 heatmap_genes
+```
+```{r}
+de_tally <- de_combined_ultracluster %>% 
+  filter(comparison %in% c('PV vs HC'),
+         !str_detect(gene, '^MT-|^RP[SL]|^MRP[SL]')) %>% 
+  filter(p_val_adj < p_adj_cutoff,
+         avg_log2FC > 0) %>% 
+  group_by(cluster) %>% 
+  tally()
+
+de_tally
 ```
 
 ```{r}
@@ -372,7 +386,95 @@ heatmap_data <- pseudobulk(seuratobj,
                            group_by = c('ultracluster', 'condition', 'treatment', 'group'))
 ```
 
+### Fold-change
+```{r}
+#plot_clusters <- intersect(levels(seuratobj$ultracluster), heatmap_genes$cluster)
+plot_clusters <- c('Mac', 'LC', 'Mast', 'Trm', 'CTL')
 
+p <- map(plot_clusters, function(which_cluster) {
+  
+  cluster_genes <- heatmap_genes %>% filter(cluster == which_cluster) %>% pull(gene) %>% unique()
+  
+  heatmap_subset <- heatmap_data %>% 
+    filter(ultracluster == which_cluster,
+           gene %in% cluster_genes) %>% 
+    mutate(description = paste(condition, group, treatment)) %>% 
+    mutate(description = description %>% str_remove(' NA None') %>% str_remove('PV ')) %>% 
+    filter(description %in% c('HC', 'PV', 'Responder Mid', 'AD')) %>% 
+    select(gene, description, cpm) %>% 
+    pivot_wider(names_from = description,
+                values_from = cpm) %>% 
+    mutate(PV = log2(PV / HC),
+           Mid = log2(`Responder Mid` / HC),
+           AD = log2(AD / HC)) %>% 
+    filter(!is.infinite(PV),
+           !is.infinite(Mid)) %>% 
+    filter(PV > 0) %>% 
+    slice_max(PV, n = 500) %>% 
+    select(gene, PV, Mid, AD) %>% 
+    pivot_longer(cols = -gene,
+                 names_to = 'condition',
+                 values_to = 'value') %>% 
+    arrange(value)
+  
+  cor_subset <-  heatmap_subset %>% 
+    pivot_wider(names_from = condition,
+                values_from = value)
+  
+  pv_mid_cor <- cor(cor_subset$Mid,
+                    cor_subset$PV, 
+                    method = 'pearson')
+  
+  average_l2fc <- cor_subset$Mid %>% abs() %>% mean()
+  n_deg <- de_tally %>% filter(cluster == which_cluster) %>% pull(n)
+    
+  gene_order <- heatmap_subset %>% filter(condition == 'PV') %>% pull(gene)
+  
+  heatmap_subset %>% 
+    ggplot(aes(x = factor(condition, levels = c('PV', 'Mid', 'AD')),
+               y = factor(gene, levels = gene_order),
+               fill = value)) +
+    #geom_tile(color = 'black', linewidth = 0.25) +
+    geom_tile(color = NA) +
+    scale_fill_gradientn(colors = colorRampPalette(rev(RColorBrewer::brewer.pal(n = 7, name = "RdBu")))(100),
+                         limits = c(-4, 4),
+                         breaks = seq(-4, 4, length.out = 5),
+                         oob = scales::squish,
+                         guide = guide_colorbar(frame.colour = 'black', 
+                                                ticks = FALSE, 
+                                                nbin = 50,
+                                                barwidth = 2,
+                                                title = NULL,
+                                                barheight = 0.2)) +
+    labs(x = '',
+         y = '',
+         title = which_cluster,
+         subtitle = paste('R = ', round(pv_mid_cor, 3), 
+                          '\n DEGs: ', n_deg, 
+                          '\n Avg log2FC: ', round(average_l2fc, 3))) +
+    theme(legend.position = 'top',
+          axis.ticks = element_blank(),
+          legend.text = element_text(size = 5),
+          panel.border = element_rect(color = NA),
+          axis.line = element_blank(),
+          #axis.text.y = element_text(size = 5),
+          axis.text.y = element_blank(),
+          plot.title = element_text(size = 8),
+          plot.subtitle = element_text(size = 7, hjust = 0.5))
+  
+  
+
+}) %>% patchwork::wrap_plots(nrow = 1)
+
+ggsave(plot = p,
+       device = cairo_pdf,
+       path = here(output_dir, 'heatmaps'),
+       w = 8,
+       h = 8,
+       filename = 'ultracluster_500_fc.pdf')
+```
+
+### LogCPM
 ```{r}
 plot_clusters <- intersect(levels(seuratobj$ultracluster), heatmap_genes$cluster)
 
@@ -386,12 +488,11 @@ p <- map(plot_clusters, function(which_cluster) {
     mutate(description = paste(condition, group, treatment)) %>% 
     mutate(description = description %>% str_remove(' NA None') %>% str_remove('PV ')) %>% 
     filter(description %in% c('HC', 'PV', 'Responder Mid')) %>% 
-    select(gene, description, cpm) %>% 
+    mutate(description = ifelse(description == 'Responder Mid', 'Mid', description)) %>% 
+    select(gene, description, log10cpm) %>% 
     pivot_wider(names_from = description,
-                values_from = cpm) %>% 
-    mutate(PV = log2(PV / HC),
-           Mid = log2(`Responder Mid` / HC)) %>% 
-    select(gene, PV, Mid) %>% 
+                values_from = log10cpm) %>% 
+    select(gene, PV, HC, Mid) %>% 
     pivot_longer(cols = -gene,
                  names_to = 'condition',
                  values_to = 'value') %>% 
@@ -400,13 +501,14 @@ p <- map(plot_clusters, function(which_cluster) {
   gene_order <- heatmap_subset %>% filter(condition == 'PV') %>% pull(gene)
   
   heatmap_subset %>% 
-    ggplot(aes(x = factor(condition, levels = c('PV', 'Mid')),
+    ggplot(aes(x = factor(condition, levels = c('PV', 'HC', 'Mid')),
                y = factor(gene, levels = gene_order),
                fill = value)) +
-    geom_tile(color = 'black', linewidth = 0.25) +
+    #geom_tile(color = 'black', linewidth = 0.25) +
+    geom_tile(color = NA) +
     scale_fill_gradientn(colors = colorRampPalette(rev(RColorBrewer::brewer.pal(n = 7, name = "RdBu")))(100),
-                         limits = c(-4, 4),
-                         breaks = seq(-4, 4, length.out = 5),
+                         limits = c(0, 4),
+                         breaks = seq(0, 4, length.out = 4),
                          oob = scales::squish,
                          guide = guide_colorbar(frame.colour = 'black', 
                                                 ticks = FALSE, 
@@ -418,10 +520,11 @@ p <- map(plot_clusters, function(which_cluster) {
          title = which_cluster) +
     theme(legend.position = 'top',
           axis.ticks = element_blank(),
-          legend.text = element_text(size = 5),
+          legend.text = element_blank(),
           panel.border = element_rect(color = NA),
           axis.line = element_blank(),
-          axis.text.y = element_text(size = 5),
+          #axis.text.y = element_text(size = 5),
+          axis.text.y = element_blank(),
           plot.title = element_text(size = 8))
   
   
@@ -431,11 +534,10 @@ p <- map(plot_clusters, function(which_cluster) {
 ggsave(plot = p,
        device = cairo_pdf,
        path = here(output_dir, 'heatmaps'),
-       w = 8,
-       h = 20,
-       filename = 'ultracluster.pdf')
+       w = 10,
+       h = 24,
+       filename = 'ultracluster_1k_expression.pdf')
 ```
-
 
 ```{r}
 heatmap_genes <- de_combined_supercluster %>% 
@@ -459,7 +561,7 @@ heatmap_genes <- de_combined_cluster %>%
   filter(comparison %in% c('PV vs HC')) %>% 
   filter(p_val_adj < p_adj_cutoff) %>% 
   group_by(cluster) %>% 
-  slice_max((avg_log2FC), n = 100)
+  slice_max((avg_log2FC), n = 200)
 
 heatmap_genes
 ```
@@ -467,6 +569,9 @@ heatmap_genes
 ### heatmap of log fold-changes
 ```{r}
 heatmap_genes
+```
+```{r}
+heatmap_genes$gene %>% n_distinct()
 ```
 
 ```{r}
@@ -487,12 +592,14 @@ pheatmap_input <- de_choice %>%
 pheatmap_input
 ```
 
+
+
 ```{r}
 heatmap_cells <- seuratobj@meta.data %>% filter(condition != 'AD') %>% rownames()
 heatmap_data <- pseudobulk(seuratobj,
                            cells = heatmap_cells,
                            genes = heatmap_genes$gene %>% unique(),
-                           group_by = c('cluster', 'condition', 'treatment', 'group'))
+                           group_by = c('ultracluster', 'condition', 'treatment', 'group'))
 
 heatmap_data
 # heatmap_matrix <- pseudobulk_matrix(seuratobj,
@@ -510,11 +617,12 @@ heatmap_data
 # test <- aggregate(input_matrix, by = metadata_groups$identifier)
 
 ```
+
 ```{r}
 
 ```
 
-```{r}
+```{r eval=FALSE}
 which_cluster <- 'Trm'
 
 map(heatmap_genes$cluster %>% unique, function(which_cluster) {
@@ -599,14 +707,24 @@ p <- map(plot_clusters, function(which_cluster) {
           axis.ticks = element_blank(),
           plot.background = element_rect(color = 'white', fill = 'white'),
           panel.border = element_rect(color = NA),
-          axis.line = element_blank(),
-          axis.text.y = element_text(size = 5))
+          #axis.text.y = element_text(size = 5),
+          axis.text.y = element_blank(),
+          axis.line = element_blank())
   
   
 
 }) %>% patchwork::wrap_plots(nrow = 3)
+
+ggsave(plot = p,
+       path = output_dir,
+       h = 20,
+       w = 20,
+       filename = 'ultracluster_heatmap.png')
 ```
 
+```{r}
+
+```
 
 ### Figure 2B
 #### Volcano PV vs HC
@@ -1063,5 +1181,68 @@ summarized_table %>%
 sessionInfo()
 ```
 
+```{r}
+cells <- heatmap_cells[1:10000]
+genes <- heatmap_genes$gene %>% unique()
+group_by <- c('ultracluster', 'condition', 'treatment', 'group')
 
+tic()
+heatmap_data <- pseudobulk(seuratobj,
+                           cells = cells,
+                           genes = genes,
+                           group_by = group_by)
+toc()
+
+heatmap_data %>% arrange(gene, ultracluster)
+```
+```{r}
+tic()
+heatmap_data <- pseudobulk2(seuratobj,
+                            cells = cells,
+                            genes = genes,
+                            group_by = group_by)
+toc()
+
+heatmap_data %>% arrange(gene, ultracluster)
+```
+
+```{r}
+pseudobulk <- function(seuratobj,
+                       genes,
+                       cells = NULL,
+                       group_by = 'ident',
+                       pseudocount = 1,
+                       rounding = 3,
+                       assay = 'RNA',
+                       slot = 'count')
+{
+  metadata_groups <- Seurat::FetchData(seuratobj, vars = c(group_by, 'nCount_RNA'), cells = cells) 
+  metadata_groups$identifier <- apply(metadata_groups[ , group_by ] , 1 , paste , collapse = ':')
+  
+  total_counts <- metadata_groups %>% 
+    dplyr::group_by(across(all_of(c(group_by, 'identifier')))) %>% 
+    dplyr::summarize(total = sum(nCount_RNA))
+  
+  if(is.null(cells)) {
+    cells <- colnames(seuratobj)
+  }
+  
+  # Ensure identical cell ordering
+  metadata_groups <- metadata_groups[cells, ]
+  expression_matrix <- Matrix::t(seuratobj@assays$RNA@counts[genes, cells])
+  aggregated_matrix <- sapply(by(expression_matrix, metadata_groups$identifier, colSums), identity)
+  
+  aggregated_matrix %>% 
+    as.data.frame() %>% 
+    rownames_to_column('gene') %>% 
+    tidyr::pivot_longer(cols = -gene,
+                 names_to = 'identifier',
+                 values_to = 'counts') %>% 
+    dplyr::left_join(total_counts) %>% 
+    dplyr::mutate(cpm = round(counts / total * 1e6, rounding),
+           log10cpm = round(log10(cpm + pseudocount), rounding)) %>% 
+    dplyr::select(gene, all_of(group_by), counts, total, cpm, log10cpm)
+  
+}
+```
 
