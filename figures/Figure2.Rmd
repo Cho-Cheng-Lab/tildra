@@ -388,10 +388,6 @@ heatmap_data <- pseudobulk(seuratobj,
 
 ### Fold-change
 ```{r}
-plot_clusters <- intersect(levels(seuratobj$ultracluster), heatmap_genes$cluster)
-#plot_clusters <- c('Mac', 'LC', 'Mast', 'Trm', 'CTL')
-
-
 plot_input <- heatmap_data %>% 
   inner_join(heatmap_genes %>% select(ultracluster = cluster, gene)) %>% 
   mutate(description = paste(condition, group, treatment)) %>% 
@@ -407,7 +403,7 @@ plot_input <- heatmap_data %>%
          !is.infinite(PV),
          !is.infinite(Mid)) %>% 
   group_by(ultracluster) %>% 
-  slice_max(PV, n = 100) %>% 
+  #slice_max(PV, n = 300) %>% 
   select(ultracluster, gene, PV, Mid, AD) %>% 
   pivot_longer(cols = -c(ultracluster, gene),
                names_to = 'condition',
@@ -415,12 +411,13 @@ plot_input <- heatmap_data %>%
   arrange(value)
 
 l2fc <- plot_input %>% 
-  filter(condition == 'PV') %>% 
-  group_by(ultracluster) %>% 
+  group_by(ultracluster, condition) %>% 
   summarize(l2fc = mean(value)) %>% 
   arrange(-l2fc) 
 
-cor_metrics <-  map(l2fc$ultracluster, function(i) {
+plot_order <- l2fc %>% filter(condition == 'PV') %>% pull(ultracluster)
+
+cor_metrics <-  map(plot_order, function(i) {
   
   cor_subset <- plot_input %>% 
     filter(ultracluster == i) %>% 
@@ -442,7 +439,7 @@ cor_metrics <-  map(l2fc$ultracluster, function(i) {
 }) %>% bind_rows()
   
 
-p1 <- map(l2fc$ultracluster, function(which_cluster) {
+p1 <- map(plot_order, function(which_cluster) {
   
   heatmap_subset <- plot_input %>% 
     filter(ultracluster == which_cluster) %>% 
@@ -484,22 +481,25 @@ p1 <- map(l2fc$ultracluster, function(which_cluster) {
 }) %>% patchwork::wrap_plots(nrow = 1)
 
 p2 <- l2fc %>% 
+  filter(condition %in% c('PV', 'Mid')) %>% 
   ggplot(aes(x = reorder(ultracluster, -l2fc),
-             y = l2fc)) +
-  geom_point(size = 2,
-             color = 'darkorchid4') +
+             y = l2fc,
+             color = condition)) +
+  geom_point(size = 2) +
   labs(x = '',
        y = '',
        title = 'Avg log2FC PV/HC') +
   ylim(c(0, NA)) +
+  scale_color_few() +
   theme(plot.title = element_text(size = 7),
-        axis.text = element_text(size = 6)) 
+        axis.text = element_text(size = 6),
+        legend.position = 'bottom') 
 
 p3 <- cor_metrics %>% 
   pivot_longer(cols = -ultracluster,
                names_to = 'group',
                values_to = 'cor') %>% 
-  ggplot(aes(x = factor(ultracluster, levels = l2fc$ultracluster),
+  ggplot(aes(x = factor(ultracluster, levels = plot_order),
              y = cor,
              color = group)) +
   geom_point(size = 2) +
@@ -513,14 +513,28 @@ p3 <- cor_metrics %>%
         axis.text = element_text(size = 6),
         legend.position = 'bottom')
 
-p <- patchwork::wrap_plots(p1, p2, p3, nrow = 3, heights = c(8, 1, 1))
+p_table <- l2fc %>% 
+  pivot_wider(names_from = condition,
+              values_from = l2fc,
+              names_prefix = 'l2fc_') %>% 
+  left_join(cor_metrics %>% set_names(c('ultracluster', 'cor_Mid', 'cor_AD'))) %>% 
+  mutate(across(where(is.numeric), round, 3)) %>% t()
+
+table_theme <- gridExtra::ttheme_default(
+  core = list(fg_params=list(cex = 0.5)),
+  colhead = list(fg_params=list(cex = 0.5)),
+  rowhead = list(fg_params=list(cex = 0.5)))
+
+p4 <- gridExtra::tableGrob(p_table, theme = table_theme)
+
+p <- patchwork::wrap_plots(p1, p2, p3, p4, nrow = 4, heights = c(8, 1, 1, 1))
 
 ggsave(plot = p,
        device = cairo_pdf,
        path = here(output_dir, 'heatmaps'),
        w = 12,
-       h = 8,
-       filename = 'ultracluster_100_figure.pdf')
+       h = 14,
+       filename = 'ultracluster_all_figure.pdf')
 ```
 
 
