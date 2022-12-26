@@ -388,36 +388,42 @@ heatmap_data <- pseudobulk(seuratobj,
 
 ### Fold-change
 ```{r}
-#plot_clusters <- intersect(levels(seuratobj$ultracluster), heatmap_genes$cluster)
-plot_clusters <- c('Mac', 'LC', 'Mast', 'Trm', 'CTL')
+plot_clusters <- intersect(levels(seuratobj$ultracluster), heatmap_genes$cluster)
+#plot_clusters <- c('Mac', 'LC', 'Mast', 'Trm', 'CTL')
 
-p <- map(plot_clusters, function(which_cluster) {
+
+plot_input <- heatmap_data %>% 
+  inner_join(heatmap_genes %>% select(ultracluster = cluster, gene)) %>% 
+  mutate(description = paste(condition, group, treatment)) %>% 
+  mutate(description = description %>% str_remove(' NA None') %>% str_remove('PV ')) %>% 
+  filter(description %in% c('HC', 'PV', 'Responder Mid', 'AD')) %>% 
+  select(gene, ultracluster, description, cpm) %>% 
+  pivot_wider(names_from = description,
+              values_from = cpm) %>% 
+  mutate(PV = log2(PV / HC),
+         Mid = log2(`Responder Mid` / HC),
+         AD = log2(AD / HC)) %>% 
+  filter(PV > 0,
+         !is.infinite(PV),
+         !is.infinite(Mid)) %>% 
+  group_by(ultracluster) %>% 
+  slice_max(PV, n = 100) %>% 
+  select(ultracluster, gene, PV, Mid, AD) %>% 
+  pivot_longer(cols = -c(ultracluster, gene),
+               names_to = 'condition',
+               values_to = 'value') %>% 
+  arrange(value)
+
+l2fc <- plot_input %>% 
+  filter(condition == 'PV') %>% 
+  group_by(ultracluster) %>% 
+  summarize(l2fc = mean(value)) %>% 
+  arrange(-l2fc) 
+
+cor_metrics <-  map(l2fc$ultracluster, function(i) {
   
-  cluster_genes <- heatmap_genes %>% filter(cluster == which_cluster) %>% pull(gene) %>% unique()
-  
-  heatmap_subset <- heatmap_data %>% 
-    filter(ultracluster == which_cluster,
-           gene %in% cluster_genes) %>% 
-    mutate(description = paste(condition, group, treatment)) %>% 
-    mutate(description = description %>% str_remove(' NA None') %>% str_remove('PV ')) %>% 
-    filter(description %in% c('HC', 'PV', 'Responder Mid', 'AD')) %>% 
-    select(gene, description, cpm) %>% 
-    pivot_wider(names_from = description,
-                values_from = cpm) %>% 
-    mutate(PV = log2(PV / HC),
-           Mid = log2(`Responder Mid` / HC),
-           AD = log2(AD / HC)) %>% 
-    filter(!is.infinite(PV),
-           !is.infinite(Mid)) %>% 
-    filter(PV > 0) %>% 
-    slice_max(PV, n = 500) %>% 
-    select(gene, PV, Mid, AD) %>% 
-    pivot_longer(cols = -gene,
-                 names_to = 'condition',
-                 values_to = 'value') %>% 
-    arrange(value)
-  
-  cor_subset <-  heatmap_subset %>% 
+  cor_subset <- plot_input %>% 
+    filter(ultracluster == i) %>% 
     pivot_wider(names_from = condition,
                 values_from = value)
   
@@ -425,16 +431,31 @@ p <- map(plot_clusters, function(which_cluster) {
                     cor_subset$PV, 
                     method = 'pearson')
   
-  average_l2fc <- cor_subset$Mid %>% abs() %>% mean()
-  n_deg <- de_tally %>% filter(cluster == which_cluster) %>% pull(n)
-    
-  gene_order <- heatmap_subset %>% filter(condition == 'PV') %>% pull(gene)
+  pv_ad_cor <- cor(cor_subset$AD,
+                   cor_subset$PV, 
+                   method = 'pearson')
+  
+  tibble('ultracluster' = i,
+         'Mid' = pv_mid_cor,
+         'AD' = pv_ad_cor)
+  
+}) %>% bind_rows()
+  
+
+p1 <- map(l2fc$ultracluster, function(which_cluster) {
+  
+  heatmap_subset <- plot_input %>% 
+    filter(ultracluster == which_cluster) %>% 
+    arrange(value)
+  
+  
+    gene_order <- heatmap_subset %>% filter(condition == 'PV') %>% pull(gene)
   
   heatmap_subset %>% 
     ggplot(aes(x = factor(condition, levels = c('PV', 'Mid', 'AD')),
                y = factor(gene, levels = gene_order),
                fill = value)) +
-    #geom_tile(color = 'black', linewidth = 0.25) +
+    geom_tile(color = 'black', linewidth = 0.5) +
     geom_tile(color = NA) +
     scale_fill_gradientn(colors = colorRampPalette(rev(RColorBrewer::brewer.pal(n = 7, name = "RdBu")))(100),
                          limits = c(-4, 4),
@@ -448,31 +469,61 @@ p <- map(plot_clusters, function(which_cluster) {
                                                 barheight = 0.2)) +
     labs(x = '',
          y = '',
-         title = which_cluster,
-         subtitle = paste('R = ', round(pv_mid_cor, 3), 
-                          '\n DEGs: ', n_deg, 
-                          '\n Avg log2FC: ', round(average_l2fc, 3))) +
+         title = which_cluster) +
     theme(legend.position = 'top',
           axis.ticks = element_blank(),
           legend.text = element_text(size = 5),
           panel.border = element_rect(color = NA),
           axis.line = element_blank(),
-          #axis.text.y = element_text(size = 5),
           axis.text.y = element_blank(),
+          axis.text.x = element_text(size = 6, hjust = 0.5),
           plot.title = element_text(size = 8),
           plot.subtitle = element_text(size = 7, hjust = 0.5))
-  
-  
+
 
 }) %>% patchwork::wrap_plots(nrow = 1)
+
+p2 <- l2fc %>% 
+  ggplot(aes(x = reorder(ultracluster, -l2fc),
+             y = l2fc)) +
+  geom_point(size = 2,
+             color = 'darkorchid4') +
+  labs(x = '',
+       y = '',
+       title = 'Avg log2FC PV/HC') +
+  ylim(c(0, NA)) +
+  theme(plot.title = element_text(size = 7),
+        axis.text = element_text(size = 6)) 
+
+p3 <- cor_metrics %>% 
+  pivot_longer(cols = -ultracluster,
+               names_to = 'group',
+               values_to = 'cor') %>% 
+  ggplot(aes(x = factor(ultracluster, levels = l2fc$ultracluster),
+             y = cor,
+             color = group)) +
+  geom_point(size = 2) +
+  labs(x = '',
+       y = '',
+       title = 'Correlation to PV/HC') +
+  scale_y_continuous(breaks = c(0, 1),
+                     limits = c(0, 1)) +
+  scale_color_manual(values = c('orangered', 'dodgerblue4')) +
+  theme(plot.title = element_text(size = 7),
+        axis.text = element_text(size = 6),
+        legend.position = 'bottom')
+
+p <- patchwork::wrap_plots(p1, p2, p3, nrow = 3, heights = c(8, 1, 1))
 
 ggsave(plot = p,
        device = cairo_pdf,
        path = here(output_dir, 'heatmaps'),
-       w = 8,
+       w = 12,
        h = 8,
-       filename = 'ultracluster_500_fc.pdf')
+       filename = 'ultracluster_100_figure.pdf')
 ```
+
+
 
 ### LogCPM
 ```{r}
