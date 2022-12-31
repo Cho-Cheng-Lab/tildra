@@ -43,6 +43,34 @@ source(here('figures/colors.R')) # consistent color palettes
 
 ```
 
+### Functions
+```{r}
+library(openxlsx)
+write_excel_notebook <- function(input_table, 
+                                 output_file, 
+                                 tabs = 'cluster', 
+                                 prefix = 'cluster_') {
+  OUT <- createWorkbook()
+  
+  input_table$tabs <- input_table[[tabs]]
+  tabs <- input_table[[tabs]] %>% unique()
+  
+  
+  for(i in tabs){
+    tryCatch({
+      table_subset <- input_table %>% filter(tabs == i) %>% select(-tabs)
+      
+      sheet_name <- paste0(prefix, i) %>% str_remove('[\\?/]') %>% str_remove('[\\/]') %>% str_remove('[\\:/]') 
+      addWorksheet(OUT, sheet_name)
+      writeData(OUT, sheet = sheet_name, x = table_subset)
+      
+    }, error=function(e){message(paste0("We have an error here in ", i))})
+  }
+  
+  saveWorkbook(OUT, output_file, overwrite = TRUE)
+}
+```
+
 ### Import
 ```{r}
 seuratobj <- read_rds(here(data_dir, 'seuratobj_annotated.rds'))
@@ -73,13 +101,19 @@ de_combined_cluster <- read_tsv(here('analysis/output/08_de/', which_cluster, 'd
 de_combined_supercluster <- read_tsv(here('analysis/output/08_de/', which_supercluster, 'de_combined.tsv.gz'))
 de_combined_ultracluster <- read_tsv(here('analysis/output/08_de/', which_ultracluster, 'de_combined.tsv.gz'))
 ```
-
+```{r}
+signatures <- read_tsv(here('analysis/input/pseudobulk_signatures.tsv')) %>% 
+  mutate(combo = paste0(ultracluster, ': ', gene)) %>% 
+  mutate(combo = factor(combo, levels = combo))
+signatures
+```
 ```{r}
 patient_meta <- metadata %>% 
   select(id, patient, treatment, condition, response, group, patient_label) %>% 
   unique() %>% 
-  pivot_wider(names_from = treatment,
-              values_from = id) %>% 
+  mutate(tcellgroup = case_when(
+    (group %in% 'Responder') | (patient == 'P9') ~ 'Tcell Responder',
+    patient %in% c('P7', 'P8') ~ 'Tcell Non-responder')) %>% 
   arrange(patient_label)
 
 patient_meta
@@ -93,7 +127,7 @@ analyze <- metadata %>%
                                          'PV',
                                          'AD',
                                          'HC'))) %>% 
-  left_join(patient_meta %>% select(patient, patient_label))
+  left_join(patient_meta %>% select(patient, patient_label) %>% unique())
 
 analyze
 
@@ -380,19 +414,30 @@ de_tally
 ```
 
 ```{r}
+
 heatmap_data <- pseudobulk(seuratobj,
                            cells = heatmap_cells,
                            genes = heatmap_genes$gene %>% unique(),
-                           group_by = c('ultracluster', 'condition', 'treatment', 'group'))
+                           group_by = c('ultracluster', 'condition', 'treatment', 'group')) 
+
+heatmap_data
 ```
+
+
+
 
 ### Fold-change
 ```{r}
 plot_input <- heatmap_data %>% 
   inner_join(heatmap_genes %>% select(ultracluster = cluster, gene)) %>% 
-  mutate(description = paste(condition, group, treatment)) %>% 
-  mutate(description = description %>% str_remove(' NA None') %>% str_remove('PV ')) %>% 
+  mutate(description = paste(condition, group, treatment) %>% str_remove(' NA None') %>% str_remove('PV ')) %>% 
+  mutate(description = ifelse(treatment == 'Pre', 'PV', description)) %>% 
   filter(description %in% c('HC', 'PV', 'Responder Mid', 'AD')) %>% 
+  group_by(gene, ultracluster, description) %>% 
+  summarize(counts = sum(counts),
+            total = sum(total),
+            cpm = counts/total * 1e6) %>% 
+  ungroup() %>% 
   select(gene, ultracluster, description, cpm) %>% 
   pivot_wider(names_from = description,
               values_from = cpm) %>% 
@@ -401,9 +446,11 @@ plot_input <- heatmap_data %>%
          AD = log2(AD / HC)) %>% 
   filter(PV > 0,
          !is.infinite(PV),
-         !is.infinite(Mid)) %>% 
+         !is.infinite(Mid),
+         !is.infinite(AD)) %>% 
   group_by(ultracluster) %>% 
-  #slice_max(PV, n = 300) %>% 
+  slice_max(PV, n = 50) %>% 
+  ungroup() %>% 
   select(ultracluster, gene, PV, Mid, AD) %>% 
   pivot_longer(cols = -c(ultracluster, gene),
                names_to = 'condition',
@@ -445,7 +492,6 @@ p1 <- map(plot_order, function(which_cluster) {
     filter(ultracluster == which_cluster) %>% 
     arrange(value)
   
-  
     gene_order <- heatmap_subset %>% filter(condition == 'PV') %>% pull(gene)
   
   heatmap_subset %>% 
@@ -482,7 +528,7 @@ p1 <- map(plot_order, function(which_cluster) {
 
 p2 <- l2fc %>% 
   filter(condition %in% c('PV', 'Mid')) %>% 
-  ggplot(aes(x = reorder(ultracluster, -l2fc),
+  ggplot(aes(x = factor(ultracluster, levels = plot_order),
              y = l2fc,
              color = condition)) +
   geom_point(size = 2) +
@@ -534,9 +580,243 @@ ggsave(plot = p,
        path = here(output_dir, 'heatmaps'),
        w = 12,
        h = 14,
-       filename = 'ultracluster_all_figure.pdf')
+       filename = 'ultracluster_50_figure.pdf')
+
+# table of genes
+plot_input %>% 
+  pivot_wider(names_from = condition,
+              values_from = value) %>% 
+  arrange(ultracluster, -PV) %>% 
+  write_excel_notebook(output_file = here(output_dir, 'ultracluster_50_gene_l2fc.xlsx'), 
+                       tabs = 'ultracluster', 
+                       prefix = '')
+
+l2fc %>% 
+  pivot_wider(names_from = condition,
+              values_from = l2fc) %>% 
+  write_tsv(file = here(output_dir, 'l2fc_50.tsv'))
+
+cor_metrics %>% 
+  write_tsv(file = here(output_dir, 'cor_50.tsv'))
 ```
 
+### Fold-change and correlation for different groups
+```{r}
+patient_cluster_pseudobulk <- pseudobulk(seuratobj,
+                                         cells = heatmap_cells,
+                                         genes = heatmap_genes$gene %>% unique(),
+                                         group_by = c('id', 'ultracluster')) 
+
+gene_subset <- patient_cluster_pseudobulk %>% 
+  left_join(patient_meta) %>% 
+  inner_join(heatmap_genes %>% select(ultracluster = cluster, gene))
+```
+
+#### PV (PV + tildra pre), AD, Responder Mid, Non-responder mid
+```{r}
+main_groups <- gene_subset %>% 
+  mutate(description = paste(condition, group, treatment) %>% str_remove(' NA None') %>% str_remove('PV ')) %>% 
+  mutate(description = ifelse(treatment == 'Pre', 'PV', description)) %>% 
+  group_by(gene, ultracluster, description) %>% 
+  summarize(counts = sum(counts),
+            total = sum(total),
+            cpm = counts/total * 1e6) %>% 
+  ungroup() %>% 
+  select(gene, ultracluster, description, cpm) %>% 
+  pivot_wider(names_from = description,
+              values_from = cpm) %>% 
+  mutate(PV = log2(PV / HC),
+         ResponderMid = log2(`Responder Mid` / HC),
+         NonresponderMid = log2(`Non-responder Mid` / HC),
+         AD = log2(AD / HC)) %>% 
+  select(gene, ultracluster, PV, ResponderMid, NonresponderMid, AD)
+  
+main_groups
+  
+```
+
+#### Tcell response
+```{r}
+tcell_groups <- gene_subset %>% 
+  mutate(description = paste(condition, tcellgroup, treatment) %>% str_remove(' NA None') %>% str_remove('PV ')) %>% 
+  group_by(gene, ultracluster, description) %>% 
+  summarize(counts = sum(counts),
+            total = sum(total),
+            cpm = counts/total * 1e6) %>% 
+  ungroup() %>% 
+  select(gene, ultracluster, description, cpm) %>% 
+  pivot_wider(names_from = description,
+              values_from = cpm) %>% 
+  mutate(TResponderMid = log2(`Tcell Responder Mid` / HC),
+         TNonresponderMid = log2(`Tcell Non-responder Mid` / HC)) %>% 
+  select(gene, ultracluster, contains('ponderMid'))
+  
+tcell_groups
+```
+#### Merge
+```{r}
+merged_groups <- main_groups %>% 
+  left_join(tcell_groups) %>% 
+  mutate(across(where(is.numeric), round, 3)) %>% 
+  filter(!is.infinite(PV)) %>% 
+#  filter_all(all_vars(!is.infinite(.))) %>% 
+
+  group_by(ultracluster, gene) %>% 
+  arrange(ultracluster, -PV)
+merged_groups
+```
+### Avg log2fc
+```{r}
+top50 <- merged_groups %>% 
+  group_by(ultracluster) %>% 
+  slice_max(PV, n = 50)
+
+top50_l2fc <- top50 %>% 
+  group_by(ultracluster) %>% 
+  summarize(across(where(is.numeric), mean)) %>% 
+  arrange(-PV)
+
+top50_l2fc
+```
+```{r}
+merged_groups %>% write_excel_notebook(output_file = here(output_dir, 'l2fc_by_group.xlsx'), tabs = 'ultracluster', prefix = '')
+```
+
+
+### Boxplot signatures
+#### CPM
+```{r}
+plot_input <- patient_cluster_pseudobulk %>% 
+  inner_join(signatures %>% select(ultracluster, gene, combo)) %>% 
+  left_join(patient_meta) %>% 
+  mutate(description = paste(condition, group, treatment)) %>% 
+  mutate(description = description %>% str_remove(' NA None') %>% str_remove('PV ')) %>% 
+  mutate(description = ifelse(treatment == 'Pre', 'PV', description)) %>% 
+  mutate(description = factor(description, levels = c('HC', 'PV', 'AD', 'Responder Mid', 'Non-responder Mid')))
+
+p <- map(signatures$ultracluster %>% unique(), function(which_ultracluster) {
+
+  
+  plot_input %>% 
+    filter(ultracluster == which_ultracluster) %>% 
+    ggplot(aes(x = description, 
+               y = cpm,
+               fill = description)) +
+    geom_boxplot() +
+    facet_wrap(~combo, scales = 'free_y', nrow = 1) +
+    labs(y = 'Counts per Million',
+         x = '',
+         title = which_ultracluster) + 
+    scale_fill_few() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+}) %>% patchwork::wrap_plots(nrow = 3)
+
+ggsave(plot = p,
+       device = cairo_pdf,
+       path = output_dir,
+       filename = 'boxplot_signature_cpm.pdf',
+       w = 20,
+       h = 10)
+```
+### Stats
+```{r}
+comparisons <- crossing('group1' = as.character(plot_input$description),
+                        'group2' = as.character(plot_input$description),
+                        'combo' = plot_input$combo) %>% 
+  rowwise() %>% 
+  mutate(comparison = ifelse(group1 < group2, 
+                             paste0(group1, ':', group2),
+                             paste0(group2, ':', group1))) %>% 
+  unique() %>% 
+  filter(group1 != group2,
+         group2 > group1) 
+
+comparisons
+
+boxplot_stats <- map(1:nrow(comparisons), function(i) {
+  
+  parameters <- comparisons[i, ]
+  
+  group1_values <- plot_input %>% filter(description == parameters$group1, combo == parameters$combo) %>% pull(cpm)
+  group2_values <- plot_input %>% filter(description == parameters$group2, combo == parameters$combo) %>% pull(cpm)
+  
+  res <- wilcox.test(group1_values,
+                     group2_values)
+  
+  tibble(combo = parameters$combo,
+         comparison = parameters$comparison,
+         pval = res$p.value)
+  
+}) %>% bind_rows()
+
+boxplot_stats %>% 
+  #mutate(sig = ifelse(pval < 0.05, TRUE, FALSE)) %>% 
+  mutate(pval = round(pval, 3)) %>% 
+  filter(comparison %in% 
+           c('PV:Responder Mid',
+             'Non-responder Mid:PV',
+             'HC:Responder Mid',
+             'HC:Non-responder Mid',
+             'HC:PV')) %>% 
+  pivot_wider(names_from = comparison,
+              values_from = pval) %>% 
+  separate(col = combo,
+           into = c('ultracluster', 'gene'),
+           sep = ':') %>% 
+  write_excel_notebook(output_file = here(output_dir, 'boxplot_stats.xlsx'),
+                       tabs = 'ultracluster',
+                       prefix = '')
+```
+
+#### L2FC
+```{r}
+data_prep <- patient_cluster_pseudobulk %>% 
+  inner_join(signatures %>% select(ultracluster, gene, combo)) %>% 
+  left_join(patient_meta) %>% 
+  mutate(description = paste(condition, group, treatment)) %>% 
+  mutate(description = description %>% str_remove(' NA None') %>% str_remove('PV ')) %>% 
+  mutate(description = ifelse(treatment == 'Pre', 'PV', description))
+
+hc_avg <- data_prep %>% 
+  filter(description == 'HC') %>% 
+  group_by(ultracluster, gene) %>% 
+  summarize(counts = sum(counts),
+            total = sum(total),
+            cpm = counts/total * 1e6) %>% 
+  ungroup() 
+
+plot_input <- data_prep %>% 
+  filter(description != 'HC') %>% 
+  left_join(hc_avg %>% select(ultracluster, gene, hc_cpm = cpm)) %>% 
+  mutate(l2fc = log2(cpm / hc_cpm)) %>% 
+  mutate(description = factor(description, levels = c('PV', 'AD', 'Responder Mid', 'Non-responder Mid')))
+
+p <- map(signatures$ultracluster %>% unique(), function(which_ultracluster) {
+
+  
+  plot_input %>% 
+    filter(ultracluster == which_ultracluster) %>% 
+    ggplot(aes(x = description, 
+               y = l2fc,
+               fill = description)) +
+    geom_boxplot() +
+    facet_wrap(~combo, scales = 'free_y', nrow = 1) +
+    labs(y = 'log2 FC vs HC',
+         x = '',
+         title = which_ultracluster) + 
+    scale_fill_few() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+}) %>% patchwork::wrap_plots(nrow = 3)
+
+ggsave(plot = p,
+       device = cairo_pdf,
+       path = output_dir,
+       filename = 'boxplot_signature_l2fc.pdf',
+       w = 20,
+       h = 10)
+```
 
 
 ### LogCPM
@@ -683,9 +963,6 @@ heatmap_data
 
 ```
 
-```{r}
-
-```
 
 ```{r eval=FALSE}
 which_cluster <- 'Trm'

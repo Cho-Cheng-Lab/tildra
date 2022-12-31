@@ -1,0 +1,187 @@
+---
+title: "Fold change"
+author: "David Wu"
+---
+
+### Use the here package for robust relative paths
+```{r}
+library(here)
+```
+
+### Optionally convert this Rmd to R script 
+```{r eval=FALSE, message=FALSE}
+current_file <- rstudioapi::getActiveDocumentContext()$path
+output_file <- stringr::str_replace(current_file, '.Rmd', '.R')
+knitr::purl(current_file, output = output_file)
+file.edit(output_file)
+```
+
+### Directories
+```{r, message=FALSE}
+output_dir <- here('analysis/output/foldchange') # analysis file output directory
+data_dir <- here('data/derived/tildra') # data file output directory
+
+dir.create(output_dir, showWarnings = FALSE)
+dir.create(data_dir, showWarnings = FALSE)
+```
+
+### Loading the libraries
+```{r, message=FALSE}
+library(Seurat) 
+library(tidyverse)
+library(ggExtra)
+library(ggthemes)
+library(ggforce)
+library(wutilities) # devtools::install_github('symbiologist/wutilities')
+library(tictoc)
+library(rcartocolor)
+library(ggrepel)
+library(extrafont)
+loadfonts()
+theme_set(theme_dwu()) # set default theme
+source(here('figures/colors.R')) # consistent color palettes
+```
+
+### Import
+```{r}
+seuratobj <- read_rds(here(data_dir, 'seuratobj_annotated.rds'))
+seuratobj
+```
+
+
+### Use global or local identities and set as cluster/supercluster in the object
+```{r}
+which_identity <- 'local'
+which_cluster <- paste0(which_identity, '_cluster')
+which_supercluster <- paste0(which_identity, '_supercluster')
+which_ultracluster <- paste0(which_identity, '_ultracluster')
+
+seuratobj$cluster <- seuratobj[[which_cluster]] 
+seuratobj$supercluster <- seuratobj[[which_supercluster]] 
+seuratobj$ultracluster <- seuratobj[[which_ultracluster]] 
+Idents(seuratobj) <- 'cluster' # set cluster as main annotation
+
+output_dir <- here(output_dir, which_identity)
+dir.create(output_dir)
+```
+
+
+
+### Analysis
+```{r}
+metadata <- seuratobj@meta.data %>% rownames_to_column() 
+de_combined_cluster <- read_tsv(here('analysis/output/08_de/', which_cluster, 'de_combined.tsv.gz'))
+de_combined_supercluster <- read_tsv(here('analysis/output/08_de/', which_supercluster, 'de_combined.tsv.gz'))
+de_combined_ultracluster <- read_tsv(here('analysis/output/08_de/', which_ultracluster, 'de_combined.tsv.gz'))
+```
+
+```{r}
+patient_meta <- metadata %>% 
+  select(id, patient, treatment, condition, response, group, patient_label) %>% 
+  unique() %>% 
+  pivot_wider(names_from = treatment,
+              values_from = id) %>% 
+  arrange(patient_label)
+
+patient_meta
+```
+```{r}
+analyze <- metadata %>% 
+  select(rowname, id, sample, patient, condition, treatment, cluster, supercluster, ultracluster, sample_label, group) %>% 
+  mutate(description = factor(paste(condition, treatment) %>% str_remove(' None'),
+                              levels = c('PV Pre',
+                                         'PV Mid',
+                                         'PV',
+                                         'AD',
+                                         'HC'))) %>% 
+  left_join(patient_meta %>% select(patient, patient_label))
+
+analyze
+
+```
+#### Global
+```{r}
+which_comparison <- c('PV vs HC',
+                      'Pre vs Mid',
+                      'Responder Pre vs Responder Mid',
+                      'Non-responder Pre vs Non-responder Mid')
+
+p_adj_cutoff <- 0.05
+
+cluster_levels <- seuratobj$cluster
+
+de_subset <- de_combined_cluster %>% 
+  filter(comparison %in% which_comparison) %>% 
+  mutate(comparison = factor(comparison, levels = which_comparison),
+         sig = ifelse(p_val_adj < p_adj_cutoff, TRUE, FALSE),
+         cluster = factor(cluster, levels = levels(seuratobj$cluster)))
+```
+
+
+#### Ultracluster
+#### Test case
+```{r}
+which_ultracluster <- 'Mac'
+which_gene <- 'S100P'
+
+barcodes1 <- metadata %>% filter(condition == 'PV', treatment %in% c('None', 'Pre'), ultracluster == which_ultracluster) %>% pull(rowname)
+barcodes2 <- metadata %>% filter(condition == 'HC', ultracluster == which_ultracluster) %>% pull(rowname)
+
+```
+
+```{r}
+#heatmap_cells <- seuratobj@meta.data %>% rownames()
+heatmap_cells <- union(barcodes1, barcodes2) 
+
+heatmap_genes <- de_combined_ultracluster %>% 
+  filter(comparison %in% c('PV vs HC'),
+         !str_detect(gene, '^MT-|^RP[SL]|^MRP[SL]')) %>% 
+  filter(p_val_adj < p_adj_cutoff,
+         avg_log2FC > 0) %>% 
+  group_by(cluster) %>% 
+  slice_max((avg_log2FC), n = 1000)
+
+heatmap_genes
+```
+
+
+```{r}
+heatmap_data <- pseudobulk(seuratobj,
+                           cells = heatmap_cells,
+                           genes = c('S100P', 'GAPDH', 'ACTB'),
+                           group_by = c('ultracluster', 'condition'))
+
+heatmap_data
+```
+
+### Fold-change
+```{r}
+plot_input <- heatmap_data %>% 
+  inner_join(heatmap_genes %>% select(ultracluster = cluster, gene)) %>% 
+  mutate(description = condition) %>% 
+  select(gene, ultracluster, description, cpm) %>% 
+  pivot_wider(names_from = description,
+              values_from = cpm) %>% 
+  mutate(PV = log2(PV / HC)) %>% 
+  filter(PV > 0,
+         !is.infinite(PV)) %>% 
+  group_by(ultracluster) %>% 
+  slice_max(PV, n = 50) %>% 
+  select(ultracluster, gene, PV) %>% 
+  pivot_longer(cols = -c(ultracluster, gene),
+               names_to = 'condition',
+               values_to = 'value') %>% 
+  arrange(value)
+
+plot_input
+```
+
+```{r}
+l2fc <- plot_input %>% 
+  group_by(ultracluster, condition) %>% 
+  summarize(l2fc = mean(value)) %>% 
+  arrange(-l2fc) 
+```
+
+
+
