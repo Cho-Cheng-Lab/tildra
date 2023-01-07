@@ -1,0 +1,360 @@
+---
+title: "Visium Analysis"
+author: "David Wu"
+---
+
+
+### Use the here package for robust relative paths
+```{r}
+library(here)
+```
+
+### Optionally convert this Rmd to R script 
+```{r eval=FALSE, message=FALSE}
+current_file <- rstudioapi::getActiveDocumentContext()$path
+output_file <- stringr::str_replace(current_file, '.Rmd', '.R')
+knitr::purl(current_file, output = output_file)
+file.edit(output_file)
+```
+
+### Directories
+```{r, message=FALSE}
+output_dir <- here('analysis/output/11_visium_analysis') # analysis file output directory
+data_dir <- here('data/derived/tildra') # data file output directory
+
+dir.create(output_dir, showWarnings = FALSE)
+dir.create(data_dir, showWarnings = FALSE)
+```
+
+### Loading the libraries
+```{r, message=FALSE}
+library(Seurat) 
+library(SeuratWrappers)
+
+library(tidyverse)
+library(ggthemes)
+library(patchwork)
+library(ggforce)
+library(ggExtra)
+
+library(tictoc)
+library(wutilities) # devtools::install_github('symbiologist/wutilities')
+theme_set(theme_dwu())
+```
+
+### Import Visium object and add metadata
+```{r}
+seuratobj <- read_rds(here(data_dir, 'visium_integrated.rds'))
+seuratobj
+```
+
+```{r}
+DefaultAssay(seuratobj)
+```
+
+### Organize patient metadata
+```{r}
+patient_metadata <- seuratobj@meta.data %>% 
+  select(id, sample, patient, treatment, response, group, ends_with('label')) %>% unique() %>% as_tibble() %>% 
+  mutate(treatment = factor(treatment, levels = c('Pre', 'Mid'))) %>% 
+  arrange(patient, treatment)
+
+seuratobj$sample <- factor(seuratobj$sample, 
+                           levels = patient_metadata$sample)
+```
+
+```{r fig.height = 12, fig.width = 12}
+p <- SpatialDimPlot(seuratobj, 
+                    ncol = 4, 
+                    image.alpha = 0) 
+p
+```
+
+### Markers
+```{r}
+markers <- RunPrestoAll(seuratobj) %>% mutate(pct.diff = pct.1 - pct.2)
+```
+```{r}
+markers %>% 
+  filter(cluster == 0) %>% 
+  arrange(-pct.diff)
+```
+
+```{r}
+markers %>% 
+  filter(cluster == 1) %>% 
+  arrange(-pct.diff)
+```
+```{r}
+markers %>% 
+  filter(cluster == 2) %>% 
+  arrange(-pct.diff)
+```
+
+```{r}
+markers %>% 
+  filter(cluster == 3) %>% 
+  arrange(-pct.diff)
+```
+```{r}
+seurat_feature(seuratobj)
+```
+```{r}
+seurat_feature(seuratobj, features = c('KRT1','KRT2', 'KRT10'))
+```
+```{r}
+VlnPlot(seuratobj, features = c('KRT1', 'KRT2', 'KRT10'))
+```
+```{r fig.height = 12, fig.width = 16}
+p <- SpatialFeaturePlot(seuratobj,
+                        features = 'KRT10',
+                        image.alpha = 0,
+                        ncol = 4)
+p
+```
+
+
+```{r fig.height = 12, fig.width = 16}
+p <- SpatialFeaturePlot(seuratobj,
+                        features = 'MCAM',
+                        ncol = 4)
+
+p
+```
+```{r fig.height = 12, fig.width = 16}
+p <- SpatialFeaturePlot(seuratobj,
+                        features = 'COL1A1',
+                        ncol = 4, image.alpha = 0)
+
+p
+```
+```{r fig.height=12, fig.width=14}
+p <- SpatialFeaturePlot(seuratobj,
+                        features = 'CD3D',
+                        ncol = 4)
+
+p
+```
+
+
+### Gene matrix
+Keratinocytes = cluster 3
+Fibroblasts = cluster 0
+```{r}
+metadata <- FetchData(seuratobj,
+                      vars = c('id', 'treatment', 'ident')) %>% 
+  rownames_to_column() %>% 
+  mutate(cluster = case_when(
+    ident == 0 ~ 'fibroblast',
+    ident == 3 ~ 'keratinocyte')) %>% 
+  select(rowname, id, treatment, cluster)
+
+metadata
+```
+
+## Counts analysis
+```{r}
+gene_set <- c('IL13', 'IL17A', 'IL17F', 'IL26', 'IL21', 'IL22', 'IL23A', 'IL23R', 'IL36A', 'CXCL13', 'TNF', 'IFNG')
+genes_of_interest <- c('CD3D', 'CD4', 'CD8A', 'CD8B')
+
+genes_keratinocyte <- c('DEFB4A',
+                        'CXCL1',
+                        'PI3',
+                        'S100A7A',
+                        'SPRR2B',
+                        'SERPINB3',
+                        'IL36G',
+                        'SERPINB4',
+                        'RHCG',
+                        'SLC6A14',
+                        'PLAT',
+                        'ZC3H12A',
+                        'LCN2',
+                        'IL19',
+                        'DEFB103B',
+                        'SPRR2E',
+                        'CCL3',
+                        'SPRR2A',
+                        'PRSS22',
+                        'SPRR2F',
+                        'SPRR2D')
+
+genes_il17 <- rownames(seuratobj) %>% str_subset('IL17')
+```
+
+
+```{r}
+counts_table <- FetchData(seuratobj,
+                          vars = c('id', paste0('spatial_', c(gene_set, genes_of_interest, genes_keratinocyte, genes_il17)) %>% unique), 
+                          slot = 'counts') %>% 
+  rownames_to_column() %>% 
+  as_tibble() 
+
+counts_table
+```
+
+```{r}
+spot_count <- counts_table %>% 
+  mutate(across(where(is.numeric), function(i) { as.integer(i > 0)})) %>% 
+  add_count(id, name = 'total_spots') %>% 
+  pivot_longer(cols = starts_with('spatial'),
+               names_to = 'gene',
+               values_to = 'positive_spots') %>% 
+  group_by(id, gene) %>% 
+  summarize(positive_spots = sum(positive_spots),
+            total_spots = unique(total_spots)) %>% 
+  mutate(gene = str_remove(gene, 'spatial_'),
+         pct_spots = round(100 * positive_spots/total_spots, 2))
+
+spot_count
+  
+```
+
+
+```{r}
+total_counts <- counts_table %>% 
+  group_by(id) %>% 
+  summarize(across(where(is.numeric), sum))
+
+total_counts
+```
+
+```{r}
+total_long <- total_counts %>% 
+  pivot_longer(cols = starts_with('spatial'),
+               names_to = 'gene',
+               values_to = 'counts') %>% 
+  mutate(gene = str_remove(gene, 'spatial_')) %>% 
+  left_join(spot_count) %>% 
+  left_join(seuratobj@meta.data %>% 
+              select(id, sample, patient, treatment, response, group) %>% unique()) %>% 
+  mutate(treatment_group = factor(paste(group, treatment),
+                                  levels = c('Responder Pre',
+                                             'Responder Mid',
+                                             'Non-responder Pre',
+                                             'Non-responder Mid')),
+         group = factor(group, levels = c('Responder', 'Non-responder')))
+
+total_long
+```
+#### Analyze counts
+```{r}
+total_long %>% 
+  filter(gene %in% gene_set) %>% 
+  ggplot(aes(x = treatment_group,
+             y = counts,
+             fill = group)) +
+  geom_boxplot() +
+  facet_wrap(~gene, scales = 'free_y', nrow = 2) +
+  theme_dwu(legend.position = 'top') +
+  ggthemes::scale_fill_few() +
+  scale_x_discrete(labels = c('Pre', 'Mid', 'Pre', 'Mid')) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(y = 'Total UMI / biopsy',
+       x = '')
+```
+```{r}
+total_long %>% 
+  filter(gene %in% gene_set) %>% 
+  ggplot(aes(x = treatment_group,
+             y = positive_spots,
+             fill = group)) +
+  geom_boxplot() +
+  facet_wrap(~gene, scales = 'free_y', nrow = 2) +
+  theme_dwu(legend.position = 'top') +
+  ggthemes::scale_fill_few() +
+  scale_x_discrete(labels = c('Pre', 'Mid', 'Pre', 'Mid')) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(y = 'Positive Spots / biopsy',
+       x = '')
+```
+```{r}
+total_long %>% 
+  filter(gene %in% gene_set) %>% 
+  ggplot(aes(x = treatment_group,
+             y = pct_spots,
+             fill = group)) +
+  geom_boxplot() +
+  facet_wrap(~gene, scales = 'free_y', nrow = 2) +
+  theme_dwu(legend.position = 'top') +
+  ggthemes::scale_fill_few() +
+  scale_x_discrete(labels = c('Pre', 'Mid', 'Pre', 'Mid')) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(y = '% Positive Spots / biopsy',
+       x = '')
+```
+
+### Patient level
+```{r}
+p <- total_long %>% 
+  filter(!(gene %in% genes_keratinocyte)) %>% 
+  ggplot(aes(x = sample,
+             y = counts,
+             fill = group)) +
+  geom_col(color = 'black') +
+  facet_wrap(~gene, scales = 'free_y', nrow = 2) +
+  theme_dwu(legend.position = 'top') +
+  ggthemes::scale_fill_few() +
+  #scale_x_discrete(labels = c('Pre', 'Mid', 'Pre', 'Mid')) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(y = 'Total UMI / biopsy',
+       x = '')
+p
+```
+### Keratinocyte IL17 response
+https://www.nature.com/articles/s41467-022-35319-w#MOESM1
+```{r}
+p <- total_long %>% 
+  filter(gene %in% genes_keratinocyte) %>% 
+  ggplot(aes(x = sample,
+             y = counts,
+             fill = group)) +
+  geom_col(color = 'black') +
+  facet_wrap(~gene, scales = 'free_y', nrow = 2) +
+  theme_dwu(legend.position = 'top') +
+  ggthemes::scale_fill_few() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(y = 'Total UMI / biopsy',
+       x = '')
+p
+```
+
+#### All IL17 genes
+```{r}
+p <- total_long %>% 
+  filter(gene %in% genes_il17) %>% 
+  ggplot(aes(x = sample,
+             y = counts,
+             fill = group)) +
+  geom_col(color = 'black') +
+  facet_wrap(~gene, scales = 'free_y', nrow = 2) +
+  theme_dwu(legend.position = 'top') +
+  ggthemes::scale_fill_few() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(y = 'Total UMI / biopsy',
+       x = '')
+p
+```
+```{r}
+p <- total_long %>% 
+  filter(gene %in% genes_il17) %>% 
+  ggplot(aes(x = sample,
+             y = pct_spots,
+             fill = group)) +
+  geom_col(color = 'black') +
+  facet_wrap(~gene, scales = 'free_y', nrow = 2) +
+  theme_dwu(legend.position = 'top') +
+  ggthemes::scale_fill_few() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(y = 'Total UMI / biopsy',
+       x = '')
+p
+```
+
+### Export
+```{r}
+
+```
+
+
+

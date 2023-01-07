@@ -1,0 +1,190 @@
+---
+title: "Visium Data Processing"
+author: "David Wu"
+---
+
+
+### Use the here package for robust relative paths
+```{r}
+library(here)
+```
+
+### Optionally convert this Rmd to R script 
+```{r eval=FALSE, message=FALSE}
+current_file <- rstudioapi::getActiveDocumentContext()$path
+output_file <- stringr::str_replace(current_file, '.Rmd', '.R')
+knitr::purl(current_file, output = output_file)
+file.edit(output_file)
+```
+
+### Loading the libraries
+```{r, message=FALSE}
+library(Seurat) 
+library(tidyverse)
+library(ggExtra)
+library(SeuratWrappers)
+library(wutilities) # devtools::install_github('symbiologist/wutilities')
+library(tictoc)
+library(ggforce)
+library(patchwork)
+```
+### Directories
+```{r, message=FALSE}
+output_dir <- here('analysis/output/10_visium_process') # analysis file output directory
+data_dir <- here('data/derived/tildra') # data file output directory
+sample_dir <- here("analysis/input/visium_samples/")
+
+dir.create(output_dir, showWarnings = FALSE)
+dir.create(data_dir, showWarnings = FALSE)
+```
+### Main metadata
+```{r}
+patient_metadata <- read_tsv(here('analysis/output/00_process/metadata_subset.tsv'))
+patient_metadata
+```
+### Visium metadata
+```{r}
+visium_metadata <- read_tsv(here('analysis/input/visium_sample_data.tsv')) %>% 
+  drop_na() %>% 
+  mutate(id = ifelse(id == 'skin234', 'skin277', id)) %>% 
+  dplyr::rename(dir = id) %>% 
+  mutate(id = dir %>% str_replace('skin', 'S'))
+visium_metadata
+```
+#### Unify metadata
+```{r}
+metadata <- patient_metadata %>% 
+  inner_join(visium_metadata) %>% 
+  arrange(patient)
+
+metadata
+```
+
+### Load data
+```{r}
+seurat_list <- map(metadata$dir %>% set_names(metadata$sample %>% str_remove('-')), function(i) {
+  
+  print2(i)
+  imported <- Load10X_Spatial(
+    data.dir = here(sample_dir, i),
+    filename = 'filtered_feature_bc_matrix.h5')
+  
+  imported <- AddMetaData(imported, imported@meta.data %>% bind_cols(metadata %>% filter(dir == i)))
+  
+  imported <- subset(imported, subset = nCount_Spatial > 0)
+	
+	imported@images$slice1@coordinates <- imported@images$slice1@coordinates %>% mutate_all(as.integer)
+	
+	imported
+})
+```
+### Log transform without normalization
+```{r}
+seurat_list <- seurat_list %>% map(function(i) {
+  
+  i@assays$Spatial@data <- as.matrix(log2(i@assays$Spatial@counts + 1))
+  
+  i
+  
+})
+```
+
+
+```{r fig.height=10, fig.width=10}
+p <- seurat_list %>% map(function(i) {
+  
+  complexity <- i$nFeature_Spatial %>% median()
+  SpatialFeaturePlot(i, features = c("KRT10"), image.alpha = 0) + 
+    labs(title = paste0(i$sample_label %>% unique(), ': ', i$CoreID %>% unique() %>% str_remove('6355-'),': ', i$id %>% unique()), 
+         subtitle = paste0('Median genes: ', complexity)) +
+    theme(plot.background = element_rect(color = 'black'))
+}) %>% wrap_plots(ncol = 4)
+
+p
+  
+```
+
+### SCT analylsis
+
+```{r}
+seurat_list <- seurat_list %>% map(SCTransform, assay = 'Spatial')
+```
+
+
+```{r fig.height=8, fig.width=8}
+p <- seurat_list %>% map(function(i) {
+  
+  complexity <- i$nFeature_Spatial %>% median()
+  spots <- ncol(i)
+  
+  SpatialFeaturePlot(i, features = c("KRT10"), image.alpha = 0.1) + 
+    labs(title = paste0(i$sample_label %>% unique(), ': ', i$CoreID %>% unique() %>% str_remove('6355-'),': ', i$id %>% unique()), 
+         subtitle = paste0('Median genes: ', complexity, ', Spots: ', spots)) +
+    theme(plot.background = element_rect(color = 'black'))
+}) %>% wrap_plots(ncol = 4)
+
+p
+```
+## skin292
+```{r}
+p_krt <- SpatialFeaturePlot(seurat_list$P8Mid, features = c("KRT10", 'COL1A1'), image.alpha = 0.1) 
+
+p_krt
+```
+
+
+
+#### Integration
+```{r}
+# need to set maxSize for PrepSCTIntegration to work
+options(future.globals.maxSize = 2000 * 1024^2)  # set allowed size to 2K MiB
+```
+
+
+```{r}
+# select integration features and run SCTIntegration
+features = SelectIntegrationFeatures(seurat_list, nfeatures = 3000, verbose = FALSE)
+seurat_list <- PrepSCTIntegration(object.list = seurat_list, anchor.features = features,
+    verbose = FALSE)
+
+# samples integration
+int.anchors <- FindIntegrationAnchors(object.list = seurat_list, normalization.method = "SCT",
+    verbose = FALSE, anchor.features = features)
+seuratobj <- IntegrateData(anchorset = int.anchors, normalization.method = "SCT",
+    verbose = FALSE)
+```
+
+### Dimensionality reduction and clustering
+```{r}
+seuratobj <- RunPCA(seuratobj, verbose = FALSE)
+seuratobj <- FindNeighbors(seuratobj, dims = 1:30)
+seuratobj <- FindClusters(seuratobj, resolution = 0.1, verbose = FALSE)
+seuratobj <- RunUMAP(seuratobj, dims = 1:30)
+```
+
+```{r}
+visium_expression <- seuratobj@assays$Spatial@counts
+```
+
+```{r}
+DefaultAssay(seuratobj) <- 'Spatial'
+Idents(seuratobj) <- 'integrated_snn_res.0.1'
+names(seuratobj@images) <- names(seurat_list)
+
+```
+```{r}
+SpatialFeaturePlot(seuratobj, features = 'KRT10', ncol = 4)
+```
+
+```{r}
+seurat_feature(seuratobj, label = FALSE)
+```
+### Export
+```{r}
+metadata %>% write_tsv(here(output_dir, 'visium_meta.tsv.gz'))
+visium_expression %>% write_rds(here(output_dir, 'visium_expression.rds'), compress = 'gz')
+seuratobj %>% write_rds(here(data_dir, 'visium_integrated.rds'))
+```
+
+
+
