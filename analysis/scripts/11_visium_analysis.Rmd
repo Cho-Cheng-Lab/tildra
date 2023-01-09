@@ -366,7 +366,7 @@ p
 https://www.nature.com/articles/s41467-022-35319-w#MOESM1
 ```{r}
 p <- total_long %>% 
-  filter(gene %in% genes_keratinocyte) %>% 
+  filter(gene %in% setdiff(genes_keratinocyte, 'CXCL1')) %>% 
     filter(cluster %in% c('Keratinocyte')) %>% 
   ggplot(aes(x = sample,
              y = counts,
@@ -379,6 +379,9 @@ p <- total_long %>%
   labs(y = 'Total UMI / biopsy',
        x = '')
 p
+```
+```{r}
+
 ```
 
 #### All IL17 genes
@@ -586,7 +589,7 @@ total_long_adjacent
 ```
 ```{r}
 p <- total_long_adjacent %>% 
-  filter(gene %in% genes_keratinocyte) %>% 
+  filter(gene %in% setdiff(genes_keratinocyte, 'CXCL1')) %>% 
   filter(cluster %in% c('Keratinocyte')) %>% 
   ggplot(aes(x = sample,
              y = counts,
@@ -729,11 +732,34 @@ stat_input
 
 
 ```
+```{r}
+
+```
 
 ```{r}
 group1 <- stat_input %>% filter(group == 'Responder') %>% pull(counts)
 group2 <- stat_input %>% filter(group == 'Non-responder') %>% pull(counts)
 wilcox.test(group1, group2, paired = TRUE)
+```
+```{r}
+stat_input <- total_long_adjacent %>% 
+  filter(gene %in% genes_keratinocyte) %>% 
+  filter(cluster %in% c('Keratinocyte')) %>% 
+  arrange(gene) %>% 
+  group_by(gene, group, treatment) %>% 
+  summarize(counts = mean(counts)) %>% 
+  pivot_wider(names_from = treatment,
+              values_from = counts) %>% 
+  mutate(ratio = Mid/Pre)
+
+stat_input
+```
+
+
+```{r}
+stat_input %>% drop_na() %>% 
+  group_by(group) %>% 
+  summarize(median = median(ratio))
 ```
 
 
