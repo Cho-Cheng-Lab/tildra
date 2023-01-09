@@ -715,4 +715,28 @@ ggsave(plot = p,
        filename = paste0('keratinocytes_il17_genes_pct_adjacent', distance, '.png'))
 p
 ```
+### Stats
+```{r}
+stat_input <- total_long_adjacent %>% 
+  filter(gene %in% genes_keratinocyte) %>% 
+  filter(cluster %in% c('Keratinocyte')) %>% 
+  filter(treatment == 'Mid') %>% 
+  arrange(gene) %>% 
+  group_by(gene, group) %>% 
+  summarize(counts = mean(counts))
+
+stat_input
+
+
+```
+
+```{r}
+group1 <- stat_input %>% filter(group == 'Responder') %>% pull(counts)
+group2 <- stat_input %>% filter(group == 'Non-responder') %>% pull(counts)
+wilcox.test(group1, group2, paired = TRUE)
+```
+
+
+```{r}
+```
 

@@ -63,11 +63,14 @@ seuratobj
 ```
 #### Visium
 ```{r}
-visiumobj <- read_rds(here(data_dir, 'integrated_samples.rds'))
+visiumobj <- read_rds(here(data_dir, 'visium_integrated.rds'))
 DefaultAssay(visiumobj) <- 'SCT'
 
-visium_meta <- read_tsv(here('analysis/output/10_visium/visium_meta.tsv.gz')) %>% 
-  mutate(id = ifelse(id == 'S234', 'S277', id))
+visium_meta <- visiumobj@meta.data %>% rownames_to_column() %>% 
+  mutate(cluster = case_when(seurat_clusters == 3 ~ 'Keratinocyte',
+                             seurat_clusters == 2 ~ 'Vascular',
+                             seurat_clusters == 1 ~ 'Fibroblast',
+                             seurat_clusters == 0 ~ 'Stromal'))
 ```
 
 ### Use global or local identities and set as cluster/supercluster in the object
@@ -578,6 +581,7 @@ ggsave(plot = p,
 p
 ```
 
+
 #### Loop
 ```{r}
 update_geom_defaults('text', list(fontface = 'italic'))
@@ -663,7 +667,38 @@ update_geom_defaults('text', list(fontface = 1))
 
 ```
 
+### Stats
+```{r}
+which_cluster <- 'Trm1'
+genes_all <- c(genes_core, il23_genes_all[[which_cluster]]) %>% unique()
+genes_strict <- c(genes_core, il23_genes_strict[[which_cluster]]) %>% unique()
+  
+stats_input <- pseudo %>% 
+  filter(cluster == which_cluster,
+         gene %in% genes_all) %>% 
+  select(gene, patient, treatment, group, cpm) %>% 
+  pivot_wider(names_from = treatment,
+              values_from = cpm) %>% 
+  mutate(ratio = (Pre - Mid)/Pre) %>% 
+  arrange(gene, patient) %>% 
+  group_by(gene, group) %>% 
+  summarize(ratio = median(ratio)) %>% 
+  pivot_wider(names_from = group,
+              values_from = ratio)
 
+stats_input
+```
+```{r}
+stats_input %>% 
+  ungroup() %>% 
+  summarize(across(where(is.numeric), median))
+```
+
+```{r}
+wilcox.test(stats_input$Responder,
+            stats_input$`Non-responder`,
+            paired = TRUE)
+```
 
 
 
