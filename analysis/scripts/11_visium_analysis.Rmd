@@ -66,18 +66,19 @@ seuratobj$sample <- factor(seuratobj$sample,
 ```{r fig.height = 12, fig.width = 12}
 p <- SpatialDimPlot(seuratobj, 
                     ncol = 4, 
-                    image.alpha = 0) 
+                    image.alpha = 0) + theme(legend.position = 'top') 
 p
 ```
 
 ### Markers
 ```{r}
-markers <- RunPrestoAll(seuratobj) %>% mutate(pct.diff = pct.1 - pct.2)
+seuratobj <- seuratobj %>% PrepSCTFindMarkers()
+markers <- RunPrestoAll(seuratobj, assay = 'SCT') %>% mutate(pct.diff = pct.1 - pct.2)
 ```
 ```{r}
 markers %>% 
   filter(cluster == 0) %>% 
-  arrange(-pct.diff)
+  arrange(p_val)
 ```
 
 ```{r}
@@ -105,6 +106,13 @@ seurat_feature(seuratobj, features = c('KRT1','KRT2', 'KRT10'))
 ```{r}
 VlnPlot(seuratobj, features = c('KRT1', 'KRT2', 'KRT10'))
 ```
+```{r}
+VlnPlot(seuratobj, features = c('MCAM', 'PECAM1', 'TAGLN'))
+```
+```{r}
+VlnPlot(seuratobj, features = c('COL1A1', 'COL6A1'))
+```
+
 ```{r fig.height = 12, fig.width = 16}
 p <- SpatialFeaturePlot(seuratobj,
                         features = 'KRT10',
@@ -136,26 +144,20 @@ p <- SpatialFeaturePlot(seuratobj,
 p
 ```
 
+```{r fig.height=12, fig.width=14}
+p <- SpatialFeaturePlot(seuratobj,
+                        features = 'PTPRC',
+                        ncol = 4, 
+                        slot = 'counts')
 
-### Gene matrix
-Keratinocytes = cluster 3
-Fibroblasts = cluster 0
-```{r}
-metadata <- FetchData(seuratobj,
-                      vars = c('id', 'treatment', 'ident')) %>% 
-  rownames_to_column() %>% 
-  mutate(cluster = case_when(
-    ident == 0 ~ 'fibroblast',
-    ident == 3 ~ 'keratinocyte')) %>% 
-  select(rowname, id, treatment, cluster)
-
-metadata
+p
 ```
+
 
 ## Counts analysis
 ```{r}
 gene_set <- c('IL13', 'IL17A', 'IL17F', 'IL26', 'IL21', 'IL22', 'IL23A', 'IL23R', 'IL36A', 'CXCL13', 'TNF', 'IFNG')
-genes_of_interest <- c('CD3D', 'CD4', 'CD8A', 'CD8B')
+genes_of_interest <- c('CD3D', 'CD4', 'CD8A', 'CD8B', 'PTPRC')
 
 genes_keratinocyte <- c('DEFB4A',
                         'CXCL1',
@@ -182,15 +184,70 @@ genes_keratinocyte <- c('DEFB4A',
 genes_il17 <- rownames(seuratobj) %>% str_subset('IL17')
 ```
 
+### Annotate
+Keratinocytes = cluster 3
+Fibroblasts = cluster 0
 
 ```{r}
+
 counts_table <- FetchData(seuratobj,
-                          vars = c('id', paste0('spatial_', c(gene_set, genes_of_interest, genes_keratinocyte, genes_il17)) %>% unique), 
+                          vars = c('id', 'sample', 'ident', paste0('spatial_', c(gene_set, genes_of_interest, genes_keratinocyte, genes_il17)) %>% unique), 
                           slot = 'counts') %>% 
   rownames_to_column() %>% 
-  as_tibble() 
+  as_tibble() %>% 
+  mutate(cluster = case_when(
+    spatial_CD3D + spatial_CD4 + spatial_CD8A + spatial_CD8B > 1 ~ 'Lymphoid',
+    spatial_PTPRC > 2 ~ 'Myeloid',
+    ident == 3 ~ 'Keratinocyte',
+    ident == 2 ~ 'Vascular',
+    ident == 1 ~ 'Fibroblast',
+    ident == 0 ~ 'Stromal'
+  ))
+
 
 counts_table
+```
+```{r}
+counts_table %>% 
+  ggplot(aes(x = spatial_PTPRC,
+             y = spatial_CD3D)) +
+  geom_jitter(alpha = 0.5) +
+  scale_y_continuous(limits = c(0,10),
+                     breaks = c(seq(0,10))) +
+  coord_equal()
+```
+```{r}
+counts_table %>% 
+  ggplot(aes(x = spatial_PTPRC)) +
+  geom_histogram(bins = 20)
+```
+
+
+```{r}
+counts_table %>% 
+  group_by(sample,
+           id,
+           cluster) %>% 
+  tally() %>% 
+  pivot_wider(names_from = 'cluster',
+              values_from = 'n',
+              values_fill = 0) %>% 
+  rowwise() %>% 
+  mutate(total = sum(across(where(is.numeric))))
+```
+```{r}
+
+```
+
+```{r}
+counts_table %>% 
+  group_by(id,
+           cluster) %>% 
+  tally() %>% 
+  pivot_wider(names_from = 'cluster',
+              values_from = 'n') %>% 
+  rowwise() %>% 
+  mutate(total = sum(across(where(is.numeric))))
 ```
 
 ```{r}
@@ -200,7 +257,7 @@ spot_count <- counts_table %>%
   pivot_longer(cols = starts_with('spatial'),
                names_to = 'gene',
                values_to = 'positive_spots') %>% 
-  group_by(id, gene) %>% 
+  group_by(id, gene, cluster) %>% 
   summarize(positive_spots = sum(positive_spots),
             total_spots = unique(total_spots)) %>% 
   mutate(gene = str_remove(gene, 'spatial_'),
@@ -213,7 +270,7 @@ spot_count
 
 ```{r}
 total_counts <- counts_table %>% 
-  group_by(id) %>% 
+  group_by(id, cluster) %>% 
   summarize(across(where(is.numeric), sum))
 
 total_counts
@@ -287,10 +344,14 @@ total_long %>%
 ### Patient level
 ```{r}
 p <- total_long %>% 
-  filter(!(gene %in% genes_keratinocyte)) %>% 
+  filter((gene %in% gene_set)) %>%
+  filter(cluster %in% c('Keratinocyte')) %>% 
   ggplot(aes(x = sample,
              y = counts,
              fill = group)) +
+  # ggplot(aes(x = sample,
+  #            y = counts,
+  #            fill = cluster)) +
   geom_col(color = 'black') +
   facet_wrap(~gene, scales = 'free_y', nrow = 2) +
   theme_dwu(legend.position = 'top') +
@@ -306,6 +367,7 @@ https://www.nature.com/articles/s41467-022-35319-w#MOESM1
 ```{r}
 p <- total_long %>% 
   filter(gene %in% genes_keratinocyte) %>% 
+    filter(cluster %in% c('Keratinocyte')) %>% 
   ggplot(aes(x = sample,
              y = counts,
              fill = group)) +
@@ -323,9 +385,11 @@ p
 ```{r}
 p <- total_long %>% 
   filter(gene %in% genes_il17) %>% 
+  filter(cluster %in% c('Keratinocyte')) %>% 
   ggplot(aes(x = sample,
              y = counts,
              fill = group)) +
+  
   geom_col(color = 'black') +
   facet_wrap(~gene, scales = 'free_y', nrow = 2) +
   theme_dwu(legend.position = 'top') +
@@ -346,15 +410,309 @@ p <- total_long %>%
   theme_dwu(legend.position = 'top') +
   ggthemes::scale_fill_few() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-  labs(y = 'Total UMI / biopsy',
+  labs(y = '% Positive Spots',
        x = '')
 p
 ```
-
-### Export
 ```{r}
-
+counts_table %>% 
+  ggplot(aes(x = spatial_CD3D,
+             y = spatial_IL17A)) +
+  geom_jitter(alpha = 0.5)
 ```
 
 
+#### Spatial coordinates
+```{r}
+spatial_neighbors <- function(seuratobj,
+                              barcode,
+                              distance = 1,
+                              neighbors_only = FALSE) {
+  
+  data_spatial <- seuratobj@meta.data %>% 
+    rownames_to_column() %>% 
+    select(rowname, id, sample, patient, treatment, group, row, col, imagerow, imagecol) %>% 
+    as_tibble() 
+  
+  data_barcode <- data_spatial %>% 
+    filter(rowname == barcode)
+  
+   data_neighbors <- data_spatial %>% 
+    filter(id == data_barcode$id) %>%
+     mutate(row_dist = imagerow - data_barcode$imagerow,
+            col_dist = imagecol - data_barcode$imagecol,
+            total_dist = sqrt(row_dist^2 + col_dist^2),
+            distance = ceiling(total_dist/327)) %>% 
+     filter(distance <= {{distance}}) %>% 
+     arrange(total_dist)
+  
+  if(neighbors_only) {
+    data_neighbors %>% filter(barcode != {{barcode}})
+  } else {
+    data_neighbors  
+  }
+}
+```
+
+## Test neighbors
+```{r}
+test_spatial <- FetchData(seuratobj, vars = c('row', 'col', 'imagerow','imagecol','patient', 'treatment', 'id', 'spatial_CD3D'), slot = 'counts') %>% rownames_to_column()
+test_spatial %>% arrange(-spatial_CD3D) %>% filter(id == 'S292')
+```
+
+
+```{r}
+barcode <- 'CAGTGTCGGCTGGCCC-1_10'
+neighbors <- spatial_neighbors(seuratobj,
+                               barcode = barcode,
+                               distance = 20)
+
+neighbors
+```
+```{r}
+poi <- neighbors %>% filter(rowname == barcode)
+plot_input <- neighbors
+plot_input %>% 
+  select(-c(id:group)) %>% 
+  mutate(total_dist = round(total_dist))
+```
+
+```{r}
+dists <- plot_input %>% 
+  mutate(total_dist = round(total_dist)) %>% 
+  group_by(total_dist, distance) %>% 
+  tally()
+  
+dists 
+```
+
+```{r}
+plot_input %>% 
+  ggplot(aes( x = imagecol, y = imagerow,
+              fill = factor(distance, levels = 1:20))) + 
+  geom_point(shape = 21,
+             size = 4) + 
+  ggthemes::scale_fill_tableau(palette = 'Tableau 20') +
+  coord_equal() +
+  theme(legend.position = 'right')
+```
+```{r}
+plot_input %>% 
+  group_by(distance) %>% 
+  summarize(min = min(total_dist),
+            med = median(total_dist),
+            max = max(total_dist)) %>% 
+  mutate(across(where(is.numeric), round))
+```
+
+### Analyze IL17 secreting sectors
+```{r fig.height = 10, fig.width=10}
+p <- SpatialFeaturePlot(seuratobj,
+                        features = 'CD3D',
+                        ncol = 4, 
+                        image.alpha = 0.1,
+                        slot = 'counts')
+
+p
+```
+
+### Lymphoid spots
+```{r}
+distance <- 1
+
+lymphoid_spots <- counts_table %>% filter(cluster == 'Lymphoid') %>% pull(rowname)
+lymphoid_adjacent_spots <- lymphoid_spots %>% map(function(i) {
+  spatial_neighbors(seuratobj = seuratobj,
+                    distance = {{distance}},
+                    barcode = i) 
+}) %>% bind_rows()
+
+lymphoid_adjacent_spots
+```
+```{r}
+counts_adjacent <- counts_table %>% 
+  left_join(lymphoid_adjacent_spots %>% 
+              select(rowname) %>% 
+              mutate(status = 'adjacent')) %>% 
+  filter(status == 'adjacent') 
+
+counts_adjacent
+```
+
+
+```{r}
+spot_count_adjacent <- counts_adjacent %>% 
+  mutate(across(where(is.numeric), function(i) { as.integer(i > 0)})) %>% 
+  add_count(id, name = 'total_spots') %>% 
+  pivot_longer(cols = starts_with('spatial'),
+               names_to = 'gene',
+               values_to = 'positive_spots') %>% 
+  group_by(id, gene, cluster) %>% 
+  summarize(positive_spots = sum(positive_spots),
+            total_spots = unique(total_spots)) %>% 
+  mutate(gene = str_remove(gene, 'spatial_'),
+         pct_spots = round(100 * positive_spots/total_spots, 2))
+
+spot_count_adjacent
+  
+```
+
+
+```{r}
+total_counts_adjacent <- counts_adjacent %>% 
+  group_by(id, cluster) %>% 
+  summarize(across(where(is.numeric), sum))
+
+total_counts_adjacent
+```
+
+```{r}
+total_long_adjacent <- total_counts_adjacent %>% 
+  pivot_longer(cols = starts_with('spatial'),
+               names_to = 'gene',
+               values_to = 'counts') %>% 
+  mutate(gene = str_remove(gene, 'spatial_')) %>% 
+  left_join(spot_count_adjacent) %>% 
+  left_join(seuratobj@meta.data %>% 
+              select(id, sample, patient, treatment, response, group) %>% unique()) %>% 
+  mutate(treatment_group = factor(paste(group, treatment),
+                                  levels = c('Responder Pre',
+                                             'Responder Mid',
+                                             'Non-responder Pre',
+                                             'Non-responder Mid')),
+         group = factor(group, levels = c('Responder', 'Non-responder')))
+
+total_long_adjacent
+```
+```{r}
+p <- total_long_adjacent %>% 
+  filter(gene %in% genes_keratinocyte) %>% 
+  filter(cluster %in% c('Keratinocyte')) %>% 
+  ggplot(aes(x = sample,
+             y = counts,
+             fill = group)) +
+  geom_bar(stat = 'summary',
+           color = 'black',
+           fun = 'sum') +
+ # geom_col() +
+  facet_wrap(~gene, scales = 'free_y', nrow = 2) +
+  theme_dwu(legend.position = 'top') +
+  ggthemes::scale_fill_few() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_x_discrete(drop = FALSE) +
+  labs(y = 'Total UMI / biopsy',
+       x = '')
+
+ggsave(plot = p,
+       path = output_dir,
+       h = 5,
+       w = 18,
+       filename = paste0('keratinocyte_genes_adjacent', distance, '.png'))
+p
+```
+```{r}
+p <- total_long_adjacent %>% 
+  filter(gene %in% genes_keratinocyte) %>% 
+  filter(cluster %in% c('Keratinocyte')) %>% 
+  ggplot(aes(x = sample,
+             y = pct_spots,
+             fill = group)) +
+  geom_bar(stat = 'summary',
+           color = 'black',
+           fun = 'sum') +
+ # geom_col() +
+  facet_wrap(~gene, scales = 'free_y', nrow = 2) +
+  theme_dwu(legend.position = 'top') +
+  ggthemes::scale_fill_few() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_x_discrete(drop = FALSE) +
+  labs(y = '% Positive Spots',
+       x = '')
+
+ggsave(plot = p,
+       path = output_dir,
+       h = 5,
+       w = 18,
+       filename = paste0('keratinocyte_genes_pct_adjacent', distance, '.png'))
+p
+```
+
+```{r}
+p <- total_long_adjacent %>% 
+  filter(gene %in% genes_il17) %>% 
+  filter(cluster == 'Keratinocyte') %>% 
+  ggplot(aes(x = sample,
+             y = counts,
+             fill = group)) +
+  geom_bar(stat = 'summary',
+           color = 'black',
+           fun = 'sum') +
+  facet_wrap(~gene, scales = 'free_y', nrow = 2) +
+  theme_dwu(legend.position = 'top') +
+  ggthemes::scale_fill_few() +
+  scale_x_discrete(drop = FALSE) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(y = 'Total UMI / biopsy',
+       x = '')
+
+ggsave(plot = p,
+       path = output_dir,
+       h = 5,
+       w = 14,
+       filename = paste0('il17_genes_adjacent', distance, '.png'))
+p
+```
+
+```{r}
+p <- total_long_adjacent %>% 
+  filter(gene %in% genes_il17) %>% 
+  filter(cluster == 'Keratinocyte') %>% 
+  ggplot(aes(x = sample,
+             y = pct_spots,
+             fill = group)) +
+  geom_bar(stat = 'summary',
+           color = 'black',
+           fun = 'sum') +
+  facet_wrap(~gene, scales = 'free_y', nrow = 2) +
+  theme_dwu(legend.position = 'top') +
+  ggthemes::scale_fill_few() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(y = '% Positive Spots',
+       x = '')
+
+
+ggsave(plot = p,
+       path = output_dir,
+       h = 5,
+       w = 14,
+       filename = paste0('il17_genes_pct_adjacent', distance, '.png'))
+p
+```
+
+```{r}
+p <- total_long_adjacent %>% 
+  filter(gene %in% c('IL17RA', 'IL17RC')) %>% 
+  filter(cluster == 'Keratinocyte') %>% 
+  ggplot(aes(x = sample,
+             y = pct_spots,
+             fill = group)) +
+  geom_bar(stat = 'summary',
+           color = 'black',
+           fun = 'sum') +
+  facet_wrap(~gene, scales = 'free_y', nrow = 1) +
+  theme_dwu(legend.position = 'top') +
+  ggthemes::scale_fill_few(drop=FALSE) +
+  scale_x_discrete(drop = FALSE) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(y = '% Positive Spots',
+       x = '')
+
+
+ggsave(plot = p,
+       path = output_dir,
+       h = 4,
+       w = 5,
+       filename = paste0('keratinocytes_il17_genes_pct_adjacent', distance, '.png'))
+p
+```
 

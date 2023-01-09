@@ -55,14 +55,15 @@ visium_metadata
 ```{r}
 metadata <- patient_metadata %>% 
   inner_join(visium_metadata) %>% 
-  arrange(patient)
+  arrange(patient) %>% 
+  mutate(image = sample %>% str_remove('-'))
 
 metadata
 ```
 
 ### Load data
 ```{r}
-seurat_list <- map(metadata$dir %>% set_names(metadata$sample %>% str_remove('-')), function(i) {
+seurat_list <- map(metadata$dir %>% set_names(metadata$image), function(i) {
   
   print2(i)
   imported <- Load10X_Spatial(
@@ -87,6 +88,8 @@ seurat_list <- seurat_list %>% map(function(i) {
   i
   
 })
+
+seurat_list
 ```
 
 
@@ -127,11 +130,37 @@ p
 ```
 ## skin292
 ```{r}
-p_krt <- SpatialFeaturePlot(seurat_list$P8Mid, features = c("KRT10", 'COL1A1'), image.alpha = 0.1) 
+p_krt <- SpatialFeaturePlot(seurat_list$P8Mid, features = c("KRT10", 'COL1A1'), image.alpha = 0.5) 
 
 p_krt
 ```
 
+```{r}
+p1 <- SpatialPlot(seurat_list$P8Mid, cells.highlight = NULL, alpha = 0) + NoLegend() + 
+  theme(plot.title = element_text(hjust = 0.5, family = 'Arial', size = 20)) + 
+          ggtitle('Skin Biopsy') 
+        
+p2 <- SpatialFeaturePlot(seurat_list$P8Mid, features = c("KRT10"), image.alpha = 0.5) + NoLegend() + 
+  theme(plot.title = element_text(hjust = 0.5, family = 'Arial', size = 20)) + 
+  ggtitle('Spatial Transcriptomics')
+
+p <- p1+p2
+
+ggsave(plot = p1 + p2 + plot_layout(nrow = 1),
+       filename = 'Spatial_Horizontal.png',
+       path = output_dir,
+       dpi = 600,
+       h = 5,
+       w = 10)
+
+ggsave(plot = p1 + p2 + plot_layout(nrow = 2),
+       filename = 'Spatial_Vertical.png',
+       path = output_dir,
+       dpi = 600,
+       h = 10,
+       w = 5)
+p
+```
 
 
 #### Integration
@@ -172,13 +201,47 @@ Idents(seuratobj) <- 'integrated_snn_res.0.1'
 names(seuratobj@images) <- names(seurat_list)
 
 ```
+
+### Add spatial coordinates to Metadata
 ```{r}
-SpatialFeaturePlot(seuratobj, features = 'KRT10', ncol = 4)
+spatial_coordinates <- names(seuratobj@images) %>% map(function(i) {
+  seuratobj@images[[i]]@coordinates %>% rownames_to_column() %>% mutate(image = i)
+}) %>% bind_rows()
+
+seuratobj <- AddMetaData(seuratobj, spatial_coordinates %>% column_to_rownames())
 ```
+
+
+```{r fig.height=10, fig.width=10}
+SpatialFeaturePlot(seuratobj, features = 'row', ncol = 4, image.alpha = 0)
+```
+
+```{r fig.height=10, fig.width=10}
+SpatialFeaturePlot(seuratobj, features = 'col', ncol = 4, image.alpha = 0)
+```
+
+```{r fig.height=10, fig.width=10}
+SpatialFeaturePlot(seuratobj, features = 'col', ncol = 4, image.alpha = 0)
+```
+```{r}
+test_spatial <- FetchData(seuratobj, vars = c('row', 'col', 'imagerow','imagecol','patient', 'treatment', 'id', 'spatial_CD3D'), slot = 'counts') %>% rownames_to_column()
+test_spatial %>% arrange(-spatial_CD3D) %>% filter(id == 'S289')
+```
+
+```{r}
+barcode <- 'TCCGAACTTGGCTTAC-1_11'
+seuratobj %>% 
+  SpatialDimPlot(cells.highlight = barcode, 
+                 images = 'P9Pre', 
+                 cols.highlight = c('blue', 'transparent'), 
+                 image.alpha = 0.2)
+```
+
 
 ```{r}
 seurat_feature(seuratobj, label = FALSE)
 ```
+
 ### Export
 ```{r}
 metadata %>% write_tsv(here(output_dir, 'visium_meta.tsv.gz'))
