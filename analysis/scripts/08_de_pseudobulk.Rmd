@@ -1,0 +1,921 @@
+---
+title: "DE analysis"
+author: "David Wu"
+---
+
+## Setup
+### Use the here package for robust relative paths
+```{r}
+library(here)
+```
+
+### Optionally convert this Rmd to R script 
+```{r eval=FALSE, message=FALSE}
+current_file <- rstudioapi::getActiveDocumentContext()$path
+output_file <- stringr::str_replace(current_file, '.Rmd', '.R')
+knitr::purl(current_file, output = output_file)
+file.edit(output_file)
+```
+
+### Directories
+```{r, message=FALSE}
+output_dir <- here('analysis/output/08_de_pseudobulk') # analysis file output directory
+data_dir <- here('data/derived/tildra') # data file output directory
+
+dir.create(output_dir, showWarnings = FALSE)
+dir.create(data_dir, showWarnings = FALSE)
+```
+
+### Loading the libraries
+```{r, message=FALSE}
+library(Seurat) 
+library(tidyverse)
+library(ggExtra)
+library(SeuratWrappers) # devtools::install_github('satijalab/seurat-wrappers')
+library(wutilities) # devtools::install_github('symbiologist/wutilities')
+library(tictoc)
+library(edgeR)
+library(openxlsx)
+```
+
+### Custom functions
+```{r}
+de_pipeline <- function(seuratobj,
+                        cluster_col = 'annotation',
+                        cluster = 'All',
+                        comparison = NULL,
+                        group1_id,
+                        group2_id,
+                        group1_barcodes = NULL,
+                        group2_barcodes = NULL,
+                        group1_filters, # named list of value pairs
+                        group2_filters,
+                        min.pct = 0.01,
+                        logfc.threshold = log2(1.1),
+                        test.use = 'Presto') {
+  
+  # Extract metadata, set cluster column, and filter columns
+  metadata <- seuratobj@meta.data %>% rownames_to_column() 
+  
+  if(cluster != 'All') {
+    
+    metadata <- metadata %>% 
+      mutate(cluster_col = .[[cluster_col]]) %>% 
+      filter(cluster_col %in% {{cluster}})
+    
+  }
+  
+  # If barcodes are NULL, apply filters 
+  if(is.null(group1_barcodes) | is.null(group2_barcodes)) {
+    
+    group1_barcodes <- wutilities::apply_filters(input = metadata,
+                                                 filters = group1_filters) %>% pull(rowname)
+    
+    group2_barcodes <- wutilities::apply_filters(input = metadata,
+                                                 filters = group2_filters) %>% pull(rowname)
+  } 
+  
+  # Filter on barcodes
+  metadata <- metadata %>% filter(rowname %in% c(group1_barcodes, group2_barcodes))
+  
+  # Run DE
+  if(test.use == 'Presto') {
+    
+    de_genes <- RunPresto(object = seuratobj, 
+                          ident.1 = group1_barcodes,
+                          ident.2 = group2_barcodes, 
+                          min.pct = min.pct,
+                          logfc.threshold = logfc.threshold)
+    
+  } else {
+    
+    de_genes <- FindMarkers(object = seuratobj, 
+                            ident.1 = group1,
+                            ident.2 = group2, 
+                            min.pct = min.pct,
+                            logfc.threshold = logfc.threshold,
+                            test.use = test.use) 
+   
+  }
+  
+  if(is.null(comparison)) {
+    
+    comparison <- paste(group1_id, 'vs', group2_id) 
+      
+  }
+  
+  de_genes %>%
+    rownames_to_column('gene') %>% 
+    mutate(pct.diff = pct.1 - pct.2,
+           comparison,
+           cluster = cluster,
+           group1 = group1_id,
+           group2 = group2_id,
+           n_group1 = length(group1_barcodes),
+           n_group2 = length(group2_barcodes)) %>% 
+    select(comparison, cluster, gene, group1, group2, n_group1, n_group2, everything())
+
+}
+
+de_pseudobulk_pipeline <- function(pseudobulk_subset,
+                                   metadata_subset,
+                                   cluster = 'All',
+                                   comparison = NULL,
+                                   paired = FALSE,
+                                   group1_id,
+                                   group2_id) {
+  
+  comparison <- paste(group1_id, 'vs', group2_id) 
+
+  metadata_table <- metadata_subset %>% 
+    filter(id %in% colnames(pseudobulk_subset)) %>% 
+    droplevels() %>% 
+    arrange(id, colnames(pseudobulk_subset))
+  
+  if(paired) {
+    design <- model.matrix(data = metadata_table, ~patient + group)  
+  } else {
+    design <- model.matrix(data = metadata_table, ~group)  
+  }
+  
+  
+  dge <- DGEList(counts = pseudobulk_subset,
+                 group = metadata_table$group)
+  
+  #keep <- filterByExpr(dge, min.count = 0, min.prop = 0)
+  
+  dge <- dge %>% calcNormFactors(method = 'TMM')
+  dge <- dge %>% estimateDisp(design = design)
+  fit <- dge %>% glmFit(design = design)
+  res <- fit %>% glmLRT()
+  
+  de_table <- topTags(res, n = Inf) %>% 
+    as.data.frame() %>% 
+    rownames_to_column('gene') %>% 
+    as_tibble() %>% 
+    mutate(logFC = -1 * logFC, # reverse sign such that group 1 is higher
+           cluster = cluster,
+           comparison = comparison,
+           group1 = group1_id,
+           group2 = group2_id,
+           n_group1 = metadata_table %>% filter(group == 'group1') %>% nrow(),
+           n_group2 = metadata_table %>% filter(group == 'group2') %>% nrow()) %>% 
+    select(comparison, cluster, gene, group1, group2, n_group1, n_group2,  avg_log2FC = logFC, p_val = PValue, p_val_adj = FDR, everything())
+}
+
+write_excel_notebook <- function(input_table, 
+                                 output_file, 
+                                 tabs = 'cluster', 
+                                 prefix = 'cluster_') {
+  OUT <- createWorkbook()
+  
+  input_table$tabs <- input_table[[tabs]]
+  tabs <- input_table[[tabs]] %>% unique()
+  
+  
+  for(i in tabs){
+    tryCatch({
+      table_subset <- input_table %>% filter(tabs == i) %>% select(-tabs)
+      
+      sheet_name <- paste0(prefix, i) %>% str_remove('[\\?/]') %>% str_remove('[\\/]') %>% str_remove('[\\:/]') 
+      addWorksheet(OUT, sheet_name)
+      writeData(OUT, sheet = sheet_name, x = table_subset)
+      
+    }, error=function(e){message(paste0("We have an error here in ", i))})
+  }
+  
+  saveWorkbook(OUT, output_file, overwrite = TRUE)
+}
+```
+
+### Import
+```{r}
+seuratobj <- read_rds(here(data_dir, 'seuratobj_annotated.rds'))
+seuratobj
+```
+### Set identity
+```{r}
+which_annotation <- 'local_cluster'
+seuratobj$annotation <- seuratobj[[which_annotation]]
+Idents(seuratobj) <- 'annotation'
+
+metadata <- seuratobj@meta.data %>% rownames_to_column()
+
+output_dir <- here(output_dir, which_annotation)
+dir.create(output_dir)
+```
+
+### Prepare metadata subset
+```{r}
+analyze <- metadata %>% 
+  select(rowname, id, sample, patient, condition, treatment, annotation, response, group) %>% 
+  as_tibble()
+
+analyze %>% head()
+```
+
+```{r}
+metadata_patient <- metadata %>% 
+  select(id, patient, sample, treatment, condition, response, group) %>% 
+  unique()
+
+metadata_patient
+```
+
+### Global parameters
+```{r}
+which_annotation <- 'annotation'
+sample_threshold <- 2 # at least 3 samples per comparison group (within a cluster)
+responder_threshold <- 1 # fewer patients
+cell_threshold <- 10 # at least 10 cells per sample (within a cluster)
+```
+
+
+### AD vs HC (11 v 11)
+```{r}
+group1_filters <- list('condition' = 'AD')
+group2_filters <- list('condition' = 'HC')
+
+data_subset <- bind_rows(
+  analyze %>% apply_filters(group1_filters) %>% mutate(group = 'group1'),
+  analyze %>% apply_filters(group2_filters) %>% mutate(group = 'group2')
+)
+
+metadata_subset <- data_subset %>% 
+  select(id, patient, group) %>% 
+  unique()
+
+patients_per_cluster <- data_subset %>% 
+  group_by(sample, group, across(all_of(which_annotation))) %>% 
+  tally() %>% 
+  filter(n > cell_threshold) %>% 
+  group_by(group, across(all_of(which_annotation))) %>% 
+  tally() %>% 
+  pivot_wider(names_from = group,
+              values_from = n,
+              values_fill = 0) %>% 
+  filter(group1 > sample_threshold,
+         group2 > sample_threshold) 
+
+de_ad_vs_hc <- map(patients_per_cluster[[which_annotation]], function(i) {
+  
+  print2(i)
+  
+  pseudobulk_subset <- pseudobulk_matrix(seuratobj,
+                                         cells = data_subset %>%
+                                           filter(annotation == i) %>%
+                                           pull(rowname),
+                                         group_by = 'id')
+  
+  de_pseudobulk_pipeline(pseudobulk_subset = pseudobulk_subset, 
+                         metadata_subset = metadata_subset,
+                         cluster = i,
+                         group1_id = 'AV',
+                         group2_id = 'HC')
+  
+}) %>% bind_rows()
+
+de_ad_vs_hc %>% write_tsv(here(output_dir, 'de_ad_vs_hc.tsv.gz'))
+
+write_excel_notebook(input_table = de_ad_vs_hc,
+                     output_file = here(output_dir, 'de_ad_vs_hc.xlsx'))
+
+de_ad_vs_hc %>% head()
+```
+### PV (13) vs HC (11)
+```{r}
+group1_filters <- list('condition' = 'PV',
+                       'treatment' = c('None', 'Pre'))
+group2_filters <- list('condition' = 'HC')
+
+data_subset <- bind_rows(
+  analyze %>% apply_filters(group1_filters) %>% mutate(group = 'group1'),
+  analyze %>% apply_filters(group2_filters) %>% mutate(group = 'group2')
+)
+
+metadata_subset <- data_subset %>% 
+  select(id, patient, group) %>% 
+  unique()
+
+patients_per_cluster <- data_subset %>% 
+  group_by(sample, group, across(all_of(which_annotation))) %>% 
+  tally() %>% 
+  filter(n > cell_threshold) %>% 
+  group_by(group, across(all_of(which_annotation))) %>% 
+  tally() %>% 
+  pivot_wider(names_from = group,
+              values_from = n,
+              values_fill = 0) %>% 
+  filter(group1 > sample_threshold,
+         group2 > sample_threshold) 
+
+
+
+de_pv_vs_hc <- map(patients_per_cluster[[which_annotation]], function(i) {
+  
+  print2(i)
+  
+  pseudobulk_subset <- pseudobulk_matrix(seuratobj,
+                                         cells = data_subset %>%
+                                           filter(annotation == i) %>%
+                                           pull(rowname),
+                                         group_by = 'id')
+
+  de_pseudobulk_pipeline(pseudobulk_subset = pseudobulk_subset, 
+                         metadata_subset = metadata_subset,
+                         cluster = i,
+                         group1_id = 'PV',
+                         group2_id = 'HC')
+  
+}) %>% bind_rows()
+
+de_pv_vs_hc %>% write_tsv(here(output_dir, 'de_pv_vs_hc.tsv.gz'))
+
+write_excel_notebook(input_table = de_pv_vs_hc,
+                     output_file = here(output_dir, 'de_pv_vs_hc.xlsx'))
+
+de_pv_vs_hc %>% head()
+```
+
+
+
+### AD+PV vs HC (24 v 11)
+```{r}
+group1_filters <- list('condition' = c('AD', 'PV'),
+                       'treatment' = c('None', 'Pre'))
+group2_filters <- list('condition' = 'HC')
+
+data_subset <- bind_rows(
+  analyze %>% apply_filters(group1_filters) %>% mutate(group = 'group1'),
+  analyze %>% apply_filters(group2_filters) %>% mutate(group = 'group2')
+)
+
+metadata_subset <- data_subset %>% 
+  select(id, patient, group) %>% 
+  unique()
+
+patients_per_cluster <- data_subset %>% 
+  group_by(sample, group, across(all_of(which_annotation))) %>% 
+  tally() %>% 
+  filter(n > cell_threshold) %>% 
+  group_by(group, across(all_of(which_annotation))) %>% 
+  tally() %>% 
+  pivot_wider(names_from = group,
+              values_from = n,
+              values_fill = 0) %>% 
+  filter(group1 > sample_threshold,
+         group2 > sample_threshold) 
+
+de_adpv_vs_hc <- map(patients_per_cluster[[which_annotation]], function(i) {
+  
+  print2(i)
+  
+  pseudobulk_subset <- pseudobulk_matrix(seuratobj,
+                                         cells = data_subset %>%
+                                           filter(annotation == i) %>%
+                                           pull(rowname),
+                                         group_by = 'id')
+  
+  de_pseudobulk_pipeline(pseudobulk_subset = pseudobulk_subset, 
+                         metadata_subset = metadata_subset,
+                         cluster = i,
+                         group1_id = 'ADPV',
+                         group2_id = 'HC')
+}) %>% bind_rows()
+
+de_adpv_vs_hc %>% write_tsv(here(output_dir, 'de_adpv_vs_hc.tsv.gz'))
+
+write_excel_notebook(input_table = de_adpv_vs_hc,
+                     output_file = here(output_dir, 'de_adpv_vs_hc.xlsx'))
+
+de_adpv_vs_hc %>% head()
+```
+
+### PV vs AD (13 v 11)
+```{r}
+group1_filters <- list('condition' = 'AD')
+
+group2_filters <- list('condition' = 'PV',
+                       'treatment' = c('None', 'Pre'))
+
+data_subset <- bind_rows(
+  analyze %>% apply_filters(group1_filters) %>% mutate(group = 'group1'),
+  analyze %>% apply_filters(group2_filters) %>% mutate(group = 'group2')
+)
+
+metadata_subset <- data_subset %>% 
+  select(id, patient, group) %>% 
+  unique()
+
+patients_per_cluster <- data_subset %>% 
+  group_by(sample, group, across(all_of(which_annotation))) %>% 
+  tally() %>% 
+  filter(n > cell_threshold) %>% 
+  group_by(group, across(all_of(which_annotation))) %>% 
+  tally() %>% 
+  pivot_wider(names_from = group,
+              values_from = n,
+              values_fill = 0) %>% 
+  filter(group1 > sample_threshold,
+         group2 > sample_threshold) 
+
+de_ad_vs_pv <- map(patients_per_cluster[[which_annotation]], function(i) {
+  
+  print2(i)
+  
+   pseudobulk_subset <- pseudobulk_matrix(seuratobj,
+                                         cells = data_subset %>%
+                                           filter(annotation == i) %>%
+                                           pull(rowname),
+                                         group_by = 'id')
+  
+  de_pseudobulk_pipeline(pseudobulk_subset = pseudobulk_subset, 
+                         metadata_subset = metadata_subset,
+                         cluster = i,
+                         group1_id = 'AD',
+                         group2_id = 'PV')
+  
+}) %>% bind_rows()
+
+de_ad_vs_pv %>% write_tsv(here(output_dir, 'de_ad_vs_pv.tsv.gz'))
+write_excel_notebook(input_table = de_ad_vs_pv,
+                     output_file = here(output_dir, 'de_ad_vs_pv.xlsx'))
+
+de_ad_vs_pv %>% head() 
+
+
+```
+
+
+### Pre vs Mid, all treatment patients, all clusters
+```{r}
+group1_filters <- list('condition' = 'PV',
+                       'treatment' = 'Pre')
+
+group2_filters <- list('condition' = 'PV',
+                       'treatment' = 'Mid')
+
+data_subset <- bind_rows(
+  analyze %>% apply_filters(group1_filters) %>% mutate(group = 'group1'),
+  analyze %>% apply_filters(group2_filters) %>% mutate(group = 'group2')
+)
+
+metadata_subset <- data_subset %>% 
+  select(id, patient, group) %>% 
+  droplevels() %>% 
+  unique()
+  
+patients_per_cluster <- data_subset %>% 
+  group_by(sample, group, across(all_of(which_annotation))) %>% 
+  tally() %>% 
+  filter(n > cell_threshold) %>% 
+  group_by(group, across(all_of(which_annotation))) %>% 
+  tally() %>% 
+  pivot_wider(names_from = group,
+              values_from = n,
+              values_fill = 0) %>% 
+  filter(group1 > sample_threshold,
+         group2 > sample_threshold) 
+
+de_pre_vs_mid <- map(patients_per_cluster[[which_annotation]], function(i) {
+  
+  print2(i)
+  
+  pseudobulk_subset <- pseudobulk_matrix(seuratobj,
+                                         cells = data_subset %>%
+                                           filter(annotation == i) %>%
+                                           pull(rowname),
+                                         group_by = 'id')
+  
+  de_pseudobulk_pipeline(pseudobulk_subset = pseudobulk_subset, 
+                         metadata_subset = metadata_subset,
+                         cluster = i,
+                         paired = TRUE,
+                         group1_id = 'Pre',
+                         group2_id = 'Mid')
+  
+}) %>% bind_rows()
+
+de_pre_vs_mid %>% write_tsv(here(output_dir, 'de_pre_vs_mid.tsv.gz'))
+write_excel_notebook(input_table = de_pre_vs_mid,
+                     output_file = here(output_dir, 'de_pre_vs_mid.xlsx'))
+
+de_pre_vs_mid %>% head()
+```
+
+### Pre vs Mid, Responders
+```{r}
+group1_filters <- list('condition' = 'PV',
+                       'treatment' = 'Pre',
+                       'group' = 'Responder')
+
+group2_filters <- list('condition' = 'PV',
+                       'treatment' = 'Mid',
+                       'group' = 'Responder')
+
+data_subset <- bind_rows(
+  analyze %>% apply_filters(group1_filters) %>% mutate(group = 'group1'),
+  analyze %>% apply_filters(group2_filters) %>% mutate(group = 'group2')
+)
+
+
+ 
+patients_per_cluster <- data_subset %>% 
+  group_by(sample, group, across(all_of(which_annotation))) %>% 
+  tally() %>% 
+  filter(n > cell_threshold) %>% 
+  group_by(group, across(all_of(which_annotation))) %>% 
+  tally() %>% 
+  pivot_wider(names_from = group,
+              values_from = n,
+              values_fill = 0) %>% 
+  filter(group1 > responder_threshold,
+         group2 > responder_threshold) 
+
+de_pre_vs_mid_responder <- map(patients_per_cluster[[which_annotation]], function(i) {
+  
+  print2(i)
+  
+  pseudobulk_subset <- pseudobulk_matrix(seuratobj,
+                                         cells = data_subset %>%
+                                           filter(annotation == i) %>%
+                                           pull(rowname),
+                                         group_by = 'id')
+  
+    de_pseudobulk_pipeline(pseudobulk_subset = pseudobulk_subset, 
+                         metadata_subset = metadata_subset,
+                         cluster = i,
+                         paired = TRUE,
+                         group1_id = 'Responder Pre',
+                         group2_id = 'Responder Mid')
+  
+}) %>% bind_rows()
+
+de_pre_vs_mid_responder %>% write_tsv(here(output_dir, 'de_pre_vs_mid_responder.tsv.gz'))
+write_excel_notebook(input_table = de_pre_vs_mid_responder,
+                     output_file = here(output_dir, 'de_pre_vs_mid_responder.xlsx'))
+```
+### Responders but exclude outlier patient with >40% mast cells (P6)
+```{r}
+group1_filters <- list('condition' = 'PV',
+                       'treatment' = 'Pre',
+                       'group' = 'Responder',
+                       'patient' = c('P1', 'P2', 'P3', 'P4', 'P5'))
+
+group2_filters <- list('condition' = 'PV',
+                       'treatment' = 'Mid',
+                       'group' = 'Responder',
+                       'patient' = c('P1', 'P2', 'P3', 'P4', 'P5'))
+
+data_subset <- bind_rows(
+  analyze %>% apply_filters(group1_filters) %>% mutate(group = 'group1'),
+  analyze %>% apply_filters(group2_filters) %>% mutate(group = 'group2')
+)
+
+ metadata_subset <- data_subset %>% 
+    select(id, patient, group) %>% 
+    unique()
+ 
+patients_per_cluster <- data_subset %>% 
+  group_by(sample, group, across(all_of(which_annotation))) %>% 
+  tally() %>% 
+  filter(n > cell_threshold) %>% 
+  group_by(group, across(all_of(which_annotation))) %>% 
+  tally() %>% 
+  pivot_wider(names_from = group,
+              values_from = n,
+              values_fill = 0) %>% 
+  filter(group1 > responder_threshold,
+         group2 > responder_threshold) 
+
+de_pre_vs_mid_responder_filtered <- map(patients_per_cluster[[which_annotation]], function(i) {
+  
+  print2(i)
+  
+  pseudobulk_subset <- pseudobulk_matrix(seuratobj,
+                                         cells = data_subset %>%
+                                           filter(annotation == i) %>%
+                                           pull(rowname),
+                                         group_by = 'id')
+  
+    de_pseudobulk_pipeline(pseudobulk_subset = pseudobulk_subset, 
+                         metadata_subset = metadata_subset,
+                         cluster = i,
+                         paired = TRUE,
+                         group1_id = 'Responder Pre',
+                         group2_id = 'Responder Mid')
+  
+  
+}) %>% bind_rows() 
+
+de_pre_vs_mid_responder_filtered %>% write_tsv(here(output_dir, 'de_pre_vs_mid_responder_filtered.tsv.gz'))
+write_excel_notebook(input_table = de_pre_vs_mid_responder,
+                     output_file = here(output_dir, 'de_pre_vs_mid_responder_filtered.xlsx'))
+```
+
+### Pre vs Mid, Non-responders
+```{r}
+group1_filters <- list('condition' = 'PV',
+                       'treatment' = 'Pre',
+                       'group' = 'Non-responder')
+
+group2_filters <- list('condition' = 'PV',
+                       'treatment' = 'Mid',
+                       'group' = 'Non-responder')
+
+data_subset <- bind_rows(
+  analyze %>% apply_filters(group1_filters) %>% mutate(group = 'group1'),
+  analyze %>% apply_filters(group2_filters) %>% mutate(group = 'group2')
+)
+
+metadata_subset <- data_subset %>% 
+  select(id, patient, group) %>% 
+  unique()
+ 
+patients_per_cluster <- data_subset %>% 
+  group_by(sample, group, across(all_of(which_annotation))) %>% 
+  tally() %>% 
+  filter(n > cell_threshold) %>% 
+  group_by(group, across(all_of(which_annotation))) %>% 
+  tally() %>% 
+  pivot_wider(names_from = group,
+              values_from = n,
+              values_fill = 0) %>% 
+  filter(group1 > responder_threshold,
+         group2 > responder_threshold) 
+
+de_pre_vs_mid_nonresponder <- map(patients_per_cluster[[which_annotation]], function(i) {
+  
+  print2(i)
+  
+pseudobulk_subset <- pseudobulk_matrix(seuratobj,
+                                         cells = data_subset %>%
+                                           filter(annotation == i) %>%
+                                           pull(rowname),
+                                         group_by = 'id')
+  
+    de_pseudobulk_pipeline(pseudobulk_subset = pseudobulk_subset, 
+                         metadata_subset = metadata_subset,
+                         cluster = i,
+                         paired = TRUE,
+                         group1_id = 'Non-responder Pre',
+                         group2_id = 'Non-responder Mid')
+  
+  
+}) %>% bind_rows()
+
+de_pre_vs_mid_nonresponder %>% write_tsv(here(output_dir, 'de_pre_vs_mid_nonresponder.tsv.gz'))
+write_excel_notebook(input_table = de_pre_vs_mid_nonresponder,
+                     output_file = here(output_dir, 'de_pre_vs_mid_nonresponder.xlsx'))
+```
+
+### Pre vs Mid, Non-responders excluding P9
+```{r}
+group1_filters <- list('condition' = 'PV',
+                       'treatment' = 'Pre',
+                       'group' = 'Non-responder')
+
+group2_filters <- list('condition' = 'PV',
+                       'treatment' = 'Mid',
+                       'group' = 'Non-responder',
+                       'patient' = c('P7', 'P8'))
+
+data_subset <- bind_rows(
+  analyze %>% apply_filters(group1_filters) %>% mutate(group = 'group1'),
+  analyze %>% apply_filters(group2_filters) %>% mutate(group = 'group2')
+)
+
+ metadata_subset <- data_subset %>% 
+    select(id, patient, group) %>% 
+    unique()
+
+patients_per_cluster <- data_subset %>% 
+  group_by(sample, group, across(all_of(which_annotation))) %>% 
+  tally() %>% 
+  filter(n > cell_threshold) %>% 
+  group_by(group, across(all_of(which_annotation))) %>% 
+  tally() %>% 
+  pivot_wider(names_from = group,
+              values_from = n,
+              values_fill = 0) %>% 
+  filter(group1 > responder_threshold,
+         group2 > responder_threshold) 
+
+de_pre_vs_mid_nonresponder_filtered <- map(patients_per_cluster[[which_annotation]], function(i) {
+  
+  print2(i)
+  
+  pseudobulk_subset <- pseudobulk_matrix(seuratobj,
+                                         cells = data_subset %>%
+                                           filter(annotation == i) %>%
+                                           pull(rowname),
+                                         group_by = 'id')
+  
+    de_pseudobulk_pipeline(pseudobulk_subset = pseudobulk_subset, 
+                         metadata_subset = metadata_subset,
+                         cluster = i,
+                         paired = TRUE,
+                         group1_id = 'Non-responder Pre',
+                         group2_id = 'Non-responder Mid')
+}) %>% bind_rows() 
+
+de_pre_vs_mid_nonresponder_filtered %>% write_tsv(here(output_dir, 'de_pre_vs_mid_nonresponder_filtered.tsv.gz'))
+write_excel_notebook(input_table = de_pre_vs_mid_nonresponder_filtered,
+                     output_file = here(output_dir, 'de_pre_vs_mid_nonresponder_filtered.xlsx'))
+```
+```{r}
+data_subset %>% 
+  group_by(sample, group, annotation) %>% 
+  tally() %>% 
+  filter(annotation %in% c('Mac', 'Mono', 'DC', 'moDC', 'LC')) %>% 
+  group_by(sample, group) %>% 
+  summarize(n = sum(n))
+```
+
+### Responders vs non-responders in Pre samples (all clusters)
+```{r}
+group1_filters <- list('condition' = 'PV',
+                       'treatment' = 'Pre',
+                       'group' = 'Responder')
+
+group2_filters <- list('condition' = 'PV',
+                       'treatment' = 'Pre',
+                       'group' = 'Non-responder')
+
+data_subset <- bind_rows(
+  analyze %>% apply_filters(group1_filters) %>% mutate(group = 'group1'),
+  analyze %>% apply_filters(group2_filters) %>% mutate(group = 'group2')
+)
+
+ metadata_subset <- data_subset %>% 
+    select(id, patient, group) %>% 
+    unique()
+
+patients_per_cluster <- data_subset %>% 
+  group_by(sample, group, across(all_of(which_annotation))) %>% 
+  tally() %>% 
+  filter(n > cell_threshold) %>% 
+  group_by(group, across(all_of(which_annotation))) %>% 
+  tally() %>% 
+  pivot_wider(names_from = group,
+              values_from = n,
+              values_fill = 0) %>% 
+  filter(group1 > responder_threshold,
+         group2 > responder_threshold) 
+
+de_responder_vs_nonresponder_pre <- map(patients_per_cluster[[which_annotation]], function(i) {
+  
+  print2(i)
+  
+    pseudobulk_subset <- pseudobulk_matrix(seuratobj,
+                                         cells = data_subset %>%
+                                           filter(annotation == i) %>%
+                                           pull(rowname),
+                                         group_by = 'id')
+  
+    de_pseudobulk_pipeline(pseudobulk_subset = pseudobulk_subset, 
+                         metadata_subset = metadata_subset,
+                         cluster = i,
+                         group1_id = 'Responder Pre',
+                         group2_id = 'Non-responder Pre')
+
+  
+}) %>% bind_rows()
+
+de_responder_vs_nonresponder_pre %>% write_tsv(here(output_dir, 'de_responder_vs_nonresponder_pre.tsv.gz'))
+write_excel_notebook(input_table = de_responder_vs_nonresponder_pre,
+                     output_file = here(output_dir, 'de_responder_vs_nonresponder_pre.xlsx'))
+```
+
+### Responders vs non-responders in mid samples (all clusters)
+```{r}
+group1_filters <- list('condition' = 'PV',
+                       'treatment' = 'Mid',
+                       'group' = 'Responder')
+
+group2_filters <- list('condition' = 'PV',
+                       'treatment' = 'Mid',
+                       'group' = 'Non-responder')
+
+data_subset <- bind_rows(
+  analyze %>% apply_filters(group1_filters) %>% mutate(group = 'group1'),
+  analyze %>% apply_filters(group2_filters) %>% mutate(group = 'group2')
+)
+
+ metadata_subset <- data_subset %>% 
+    select(id, patient, group) %>% 
+    unique()
+
+patients_per_cluster <- data_subset %>% 
+  group_by(sample, group, across(all_of(which_annotation))) %>% 
+  tally() %>% 
+  filter(n > cell_threshold) %>% 
+  group_by(group, across(all_of(which_annotation))) %>% 
+  tally() %>% 
+  pivot_wider(names_from = group,
+              values_from = n,
+              values_fill = 0) %>% 
+  filter(group1 > responder_threshold,
+         group2 > responder_threshold) 
+
+de_responder_vs_nonresponder_mid <- map(patients_per_cluster[[which_annotation]], function(i) {
+  
+  print2(i)
+  
+    pseudobulk_subset <- pseudobulk_matrix(seuratobj,
+                                         cells = data_subset %>%
+                                           filter(annotation == i) %>%
+                                           pull(rowname),
+                                         group_by = 'id')
+  
+    de_pseudobulk_pipeline(pseudobulk_subset = pseudobulk_subset, 
+                         metadata_subset = metadata_subset,
+                         cluster = i,
+                         group1_id = 'Responder Mid',
+                         group2_id = 'Non-responder Mid')
+
+  
+}) %>% bind_rows()
+
+de_responder_vs_nonresponder_mid %>% write_tsv(here(output_dir, 'de_responder_vs_nonresponder_mid.tsv.gz'))
+write_excel_notebook(input_table = de_responder_vs_nonresponder_mid,
+                     output_file = here(output_dir, 'de_responder_vs_nonresponder_mid.xlsx'))
+```
+
+### Per patient analysis across all clusters NOT applicable for pseudobulk
+```{r eval=FALSE}
+patients <- metadata_patient %>% 
+  filter(treatment != 'None') %>% 
+  select(patient, id, group, treatment) %>% 
+  pivot_wider(names_from = treatment, values_from = id)
+
+de_pre_vs_mid_per_patient <- map(patients$patient, function(which_patient) {
+  
+  single_patient <- patients %>% filter(patient == which_patient)
+  
+  cells_per_cluster <- analyze %>% 
+    filter(patient == which_patient) %>% 
+    group_by(annotation, treatment) %>% 
+    tally() %>% 
+    pivot_wider(names_from = treatment,
+                values_from = n) %>% 
+    filter(Pre > cell_threshold,
+           Mid > cell_threshold) 
+  
+  cluster_level <- map(cells_per_cluster$annotation, function(which_cluster) {
+    
+    print2(paste0(which_patient, ': ', which_cluster))
+    
+    pre_barcodes <- analyze %>% filter(id == single_patient$Pre, .[[which_annotation]] == which_cluster) %>% pull(rowname)
+    mid_barcodes <- analyze %>% filter(id == single_patient$Mid, .[[which_annotation]] == which_cluster) %>% pull(rowname)
+    
+    de_pipeline(seuratobj = seuratobj,
+                cluster_col = which_annotation,
+                cluster = which_cluster, 
+                group1_barcodes = pre_barcodes,
+                group2_barcodes = mid_barcodes,
+                group1_id = paste0(which_patient, '_Pre'),
+                group2_id = paste0(which_patient, '_Mid'), 
+                test.use = which_test) 
+  }) %>% bind_rows() %>% 
+    mutate(patient = which_patient,
+           group = single_patient$group)
+   
+}) %>% bind_rows() 
+
+de_pre_vs_mid_per_patient %>% write_tsv(here(output_dir, 'de_pre_vs_mid_per_patient.tsv.gz'))
+
+write_excel_notebook(input_table = de_pre_vs_mid_per_patient,
+                     output_file = here(output_dir, 'de_pre_vs_mid_per_patient.xlsx'),
+                     tabs = 'patient',
+                     prefix = 'patient_')
+
+
+
+```
+
+
+
+
+### Combined DE table
+```{r}
+list(de_ad_vs_hc,
+     de_pv_vs_hc,
+     #de_adpv_vs_hc,
+     de_ad_vs_pv,
+     de_pre_vs_mid,
+     de_pre_vs_mid_responder,
+     de_pre_vs_mid_nonresponder,
+     de_responder_vs_nonresponder_pre,
+     de_responder_vs_nonresponder_mid) %>% 
+  bind_rows() %>% 
+  write_tsv(here(output_dir, 'de_combined.tsv.gz'))
+```
+
+## Session Info
+```{r}
+sessionInfo()
+```
+
+
+
