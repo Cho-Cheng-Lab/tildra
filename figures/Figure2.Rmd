@@ -98,10 +98,24 @@ dir.create(output_dir)
 ```{r}
 which_de <- '08_de_pseudobulk'
 metadata <- seuratobj@meta.data %>% rownames_to_column() 
-de_combined_cluster <- read_tsv(here('analysis/output', which_de, which_cluster, 'de_combined.tsv.gz'))
-de_combined_supercluster <- read_tsv(here('analysis/output', which_de, which_supercluster, 'de_combined.tsv.gz'))
-de_combined_ultracluster <- read_tsv(here('analysis/output', which_de, which_ultracluster, 'de_combined.tsv.gz'))
+de_combined_cluster <- read_tsv(here('analysis/output', which_de, which_cluster, 'de_combined.tsv.gz')) %>% mutate(level = 'cluster')
+de_combined_supercluster <- read_tsv(here('analysis/output', which_de, which_supercluster, 'de_combined.tsv.gz')) %>% mutate(level = 'supercluster')
+de_combined_ultracluster <- read_tsv(here('analysis/output', which_de, which_ultracluster, 'de_combined.tsv.gz')) %>% mutate(level = 'ultracluster')
+
+de_combined <- bind_rows(de_combined_cluster,
+                         de_combined_supercluster,
+                         de_combined_ultracluster)
 ```
+```{r}
+de_patient_cluster <- read_tsv(here('analysis/output/08_de', which_cluster, 'de_pre_vs_mid_per_patient.tsv.gz')) %>% mutate(level = 'cluster')
+de_patient_supercluster <- read_tsv(here('analysis/output/08_de', which_supercluster, 'de_pre_vs_mid_per_patient.tsv.gz')) %>% mutate(level = 'supercluster')
+de_patient_ultracluster <- read_tsv(here('analysis/output/08_de', which_ultracluster, 'de_pre_vs_mid_per_patient.tsv.gz')) %>% mutate(level = 'ultracluster')
+
+de_patient <- bind_rows(de_patient_cluster,
+                        de_patient_supercluster,
+                        de_patient_ultracluster)
+```
+
 ```{r}
 signatures <- read_tsv(here('analysis/input/pseudobulk_signatures.tsv')) %>% 
   mutate(combo = paste0(ultracluster, ': ', gene)) %>% 
@@ -147,57 +161,162 @@ tallies %>%
               values_from = n)
 ```
 
-
 ### Heatmaps at each cluster level
+#### DE function
+```{r}
+de_tally <- function(de_table,
+                     comparisons = NULL,
+                     direction = c('all', 'up', 'dn'),
+                     exclude_mitoribo = TRUE,
+                     padj_threshold = 0.05,
+                     group_by = c('level', 'cluster', 'comparison')) {
+
+  # filters
+  ## comparison groups
+  if(!is.null(comparisons)) {
+    de_table <- de_table %>% filter(comparison %in% comparisons)
+  }
+  
+  ## pval
+  de_table <- de_table %>% filter(p_val_adj < padj_threshold)
+  
+  ## direction
+  if(direction == 'up') {
+    de_table <- de_table %>% filter(avg_log2FC > 0)
+  } else if(direction == 'dn') {
+    de_table <- de_table %>% filter(avg_log2FC < 0)
+  }
+  
+  ## mito ribo genes
+  if(exclude_mitoribo) {
+    de_table <- de_table %>% filter(!str_detect(gene, '^MT-|^RP[SL]|^MRP[SL]'))
+  }
+  
+  # grouping
+  if(!is.null(group_by)) {
+    de_table <- de_table %>% group_by(across(all_of(group_by)))   
+  }
+  
+  de_table %>% tally() %>% ungroup() %>% arrange(-n)
+}
+```
+
 #### Global settings
 ```{r}
 p_adj_cutoff <- 0.05
+comparisons_of_interest <- c('PV vs HC',
+                             #'Pre vs Mid',
+                             'Responder Pre vs Responder Mid',
+                             'Non-responder Pre vs Non-responder Mid')
 ```
 
 ```{r}
 heatmap_cells <- seuratobj@meta.data %>% rownames()
 dir.create(here(output_dir, 'heatmaps'))
 ```
+
+#### Patient-level single-cell DE
+```{r}
+patient_de_tally <- de_patient %>% de_tally()
+patient_de_tally
+```
+```{r}
+p <- patient_de_tally %>% 
+  filter(level == 'cluster') %>% 
+  mutate(comparison = str_extract(comparison, 'P[:digit:]')) %>% 
+  ggplot(aes(x = factor(cluster, levels = levels(seuratobj[[which_cluster]][[1]])),
+             y = n,
+             fill = comparison)) +
+  geom_col(color = 'black') +
+  facet_wrap(~comparison) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = '',
+       y = '# DEGs',
+       title = 'Cluster Level') 
+
+p
+```
+```{r}
+p <- patient_de_tally %>% 
+  filter(level == 'supercluster') %>% 
+  mutate(comparison = str_extract(comparison, 'P[:digit:]')) %>% 
+  ggplot(aes(x = factor(cluster, levels = levels(seuratobj[[which_supercluster]][[1]])),
+             y = n,
+             fill = comparison)) +
+  geom_col(color = 'black') +
+  facet_wrap(~comparison) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = '',
+       y = '# DEGs',
+       title = 'Supercluster Level') 
+
+p
+```
+```{r}
+p <- patient_de_tally %>% 
+  filter(level == 'ultracluster') %>% 
+  mutate(comparison = str_extract(comparison, 'P[:digit:]')) %>% 
+  ggplot(aes(x = factor(cluster, levels = levels(seuratobj[[which_ultracluster]][[1]])),
+             y = n,
+             fill = comparison)) +
+  geom_col(color = 'black') +
+  facet_wrap(~comparison) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = '',
+       y = '# DEGs',
+       title = 'Ultracluster Level') 
+
+p
+```
+
 #### Using pseudobulk DE log2FC
+```{r}
+
+```
+
 ##### Ultracluster
 ```{r}
-de_ultracluster_tally <- de_combined_ultracluster %>% 
-  filter(comparison %in% c('PV vs HC',
-                           'Pre vs Mid',
-                           'Responder Pre vs Responder Mid',
-                           'Non-responder Pre vs Non-responder Mid')) %>% 
-  #filter(!str_detect(gene, '^MT-|^RP[SL]|^MRP[SL]')) %>% 
-  filter(p_val_adj < p_adj_cutoff) %>% 
-  filter(avg_log2FC > 0) %>% 
-  group_by(cluster, comparison) %>% 
-  tally() %>% 
-  pivot_wider(names_from = comparison,
-              values_from = n,
-              values_fill = 0) %>% 
-  arrange(-`PV vs HC`)
-
-
-de_ultracluster_tally
+de_tallies <- de_combined %>% de_tally()
 ```
 ```{r}
-de_cluster_tally <- de_combined_cluster %>% 
-  filter(comparison %in% c('PV vs HC',
-                           'Pre vs Mid',
-                           'Responder Pre vs Responder Mid',
-                           'Non-responder Pre vs Non-responder Mid')) %>% 
-  #filter(!str_detect(gene, '^MT-|^RP[SL]|^MRP[SL]')) %>% 
-  filter(p_val_adj < p_adj_cutoff) %>% 
-  filter(avg_log2FC > 0) %>% 
-  group_by(cluster, comparison) %>% 
-  tally() %>% 
-  pivot_wider(names_from = comparison,
-              values_from = n,
-              values_fill = 0) %>% 
-  arrange(-`PV vs HC`)
-
-de_cluster_tally
+de_tallies %>% 
+  filter(level == 'cluster') %>% 
+  ggplot(aes(x = reorder(cluster, -n),
+             y = n,
+             fill = comparison)) +
+  geom_col(color = 'black') +
+  facet_wrap(~comparison, scales = 'free_y') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = '',
+       y = '# DEGs')
+```
+```{r}
+de_tallies %>% 
+  filter(level == 'supercluster') %>% 
+  ggplot(aes(x = reorder(cluster, -n),
+             y = n,
+             fill = comparison)) +
+  geom_col(color = 'black') +
+  facet_wrap(~comparison, scales = 'free_y') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = '',
+       y = '# DEGs')
+```
+```{r}
+de_tallies %>% 
+  filter(level == 'ultracluster') %>% 
+  ggplot(aes(x = reorder(cluster, -n),
+             y = n,
+             fill = comparison)) +
+  geom_col(color = 'black') +
+  facet_wrap(~comparison, scales = 'free_y') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = '',
+       y = '# DEGs')
 ```
 
+
+##### Heatmap
 ```{r}
 heatmap_genes <- de_combined_ultracluster %>% 
   filter(comparison %in% c('PV vs HC'),

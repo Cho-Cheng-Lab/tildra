@@ -18,7 +18,7 @@ file.edit(output_file)
 
 ### Directories
 ```{r, message=FALSE}
-output_dir <- here('figures') # analysis file output directory
+output_dir <- here('figures/figure1') # analysis file output directory
 data_dir <- here('data/derived/tildra') # data file output directory
 
 dir.create(output_dir, showWarnings = FALSE)
@@ -794,6 +794,44 @@ ggsave(plot = p,
        w = 4)
 
 p
+```
+### Loop
+```{r}
+map(levels(cluster_tallies$cluster), function(i) {
+  
+  
+  p <- cluster_tallies %>% 
+    mutate(sample = factor(sample, levels = str_subset(levels(sample), '-'))) %>% 
+    filter(cluster == i) %>% 
+    filter(!is.na(group)) %>% 
+    select(sample, treatment, group, celltype, n, pct) %>% 
+    pivot_longer(cols = c(n, pct),
+                 names_to = 'metric',
+                 values_to = 'value') %>% 
+    ggplot(aes(x = sample,
+               y = value,
+               fill = group)) +
+    geom_bar(stat = 'identity', color = 'black', alpha = 0.8) +
+    labs(x = '',
+         y = '') +
+    theme_dwu(legend.position = 'top') +
+    coord_flip() +
+    facet_wrap(~metric, nrow = 1, scales = 'free_x') +
+    scale_fill_manual(values = colors_response2) +
+    scale_x_discrete(limits = rev, drop = FALSE)
+  
+  dir.create(here(output_dir, 'patient_bar'))
+  ggsave(plot = p,
+         device = cairo_pdf,
+         filename = paste0('F1F_bar_patient_', str_replace(i, '/','+'),'.pdf'),
+         path = here(output_dir, 'patient_bar'),
+         h = 4,
+         w = 4)
+  
+  p
+  
+})
+
 ```
 
 
