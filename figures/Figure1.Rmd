@@ -518,7 +518,7 @@ metadata %>% filter(treatment %in% c('Pre', 'Mid')) %>% select(cluster, patient,
 ### Cluster size and % 
 ```{r}
 analyze <- metadata %>% 
-  select(rowname, id, patient, sample, condition, treatment, cluster, supercluster, group, celltype) 
+  select(rowname, id, patient, sample, condition, treatment, cluster, supercluster, ultracluster, group, celltype) 
 
 analyze %>% head()
 ```
@@ -533,6 +533,14 @@ cluster_tallies <- analyze %>%
 
 supercluster_tallies <- analyze %>% 
   group_by(sample, patient, condition, supercluster, celltype, treatment, group) %>% 
+  tally() %>% 
+  group_by(sample) %>% 
+  mutate(total = sum(n),
+         f = n/total,
+         pct = round(100 * f, 2))
+
+ultracluster_tallies <- analyze %>% 
+  group_by(sample, patient, condition, ultracluster, celltype, treatment, group) %>% 
   tally() %>% 
   group_by(sample) %>% 
   mutate(total = sum(n),
@@ -784,7 +792,7 @@ p <- cluster_tallies %>%
   coord_flip() +
   facet_wrap(~metric, nrow = 1, scales = 'free_x') +
   scale_fill_manual(values = colors_response2) +
-  scale_x_discrete(limits = rev)
+  scale_x_discrete(limits = rev) 
 
 ggsave(plot = p,
        device = cairo_pdf,
@@ -797,7 +805,9 @@ p
 ```
 ### Loop
 ```{r}
-map(levels(cluster_tallies$cluster), function(i) {
+dir.create(here(output_dir, 'patient_bar_cluster'))
+
+p_cluster <- map(levels(cluster_tallies$cluster), function(i) {
   
   
   p <- cluster_tallies %>% 
@@ -818,23 +828,123 @@ map(levels(cluster_tallies$cluster), function(i) {
     coord_flip() +
     facet_wrap(~metric, nrow = 1, scales = 'free_x') +
     scale_fill_manual(values = colors_response2) +
-    scale_x_discrete(limits = rev, drop = FALSE)
+    scale_x_discrete(limits = rev, drop = FALSE) +
+    ggtitle(i)
   
-  dir.create(here(output_dir, 'patient_bar'))
+  
   ggsave(plot = p,
          device = cairo_pdf,
          filename = paste0('F1F_bar_patient_', str_replace(i, '/','+'),'.pdf'),
-         path = here(output_dir, 'patient_bar'),
+         path = here(output_dir, 'patient_bar_cluster'),
          h = 4,
          w = 4)
   
   p
   
-})
+}) %>% wrap_plots()
+
+p_cluster
+```
+
+```{r}
+dir.create(here(output_dir, 'patient_bar_supercluster'))
+
+p <- map(levels(supercluster_tallies$supercluster), function(i) {
+  
+  print2(i)
+  
+  p <- supercluster_tallies %>% 
+    mutate(sample = factor(sample, levels = str_subset(levels(sample), '-'))) %>% 
+    filter(supercluster == i) %>% 
+    filter(!is.na(group)) %>% 
+    select(sample, treatment, group, celltype, n, pct) %>% 
+    pivot_longer(cols = c(n, pct),
+                 names_to = 'metric',
+                 values_to = 'value') %>% 
+    ggplot(aes(x = sample,
+               y = value,
+               fill = group)) +
+    geom_bar(stat = 'identity', color = 'black', alpha = 0.8) +
+    labs(x = '',
+         y = '') +
+    theme_dwu(legend.position = 'top') +
+    coord_flip() +
+    facet_wrap(~metric, nrow = 1, scales = 'free_x') +
+    scale_fill_manual(values = colors_response2) +
+    scale_x_discrete(limits = rev, drop = FALSE) +
+    ggtitle(i)
+  
+  
+  ggsave(plot = p,
+         device = cairo_pdf,
+         filename = paste0('F1F_bar_patient_', str_replace(i, '/','+'),'.pdf'),
+         path = here(output_dir, 'patient_bar_supercluster'),
+         h = 4,
+         w = 4)
+  
+  p
+  
+}) %>% wrap_plots()
 
 ```
 
+```{r}
+dir.create(here(output_dir, 'patient_bar_ultracluster'))
 
+p_ultracluster <- map(levels(ultracluster_tallies$ultracluster), function(i) {
+  
+  print2(i)
+  
+  p <- ultracluster_tallies %>% 
+    mutate(sample = factor(sample, levels = str_subset(levels(sample), '-'))) %>% 
+    filter(ultracluster == i) %>% 
+    filter(!is.na(group)) %>% 
+    select(sample, treatment, group, celltype, n, pct) %>% 
+    pivot_longer(cols = c(n, pct),
+                 names_to = 'metric',
+                 values_to = 'value') %>% 
+    ggplot(aes(x = sample,
+               y = value,
+               fill = group)) +
+    geom_bar(stat = 'identity', color = 'black', alpha = 0.8) +
+    labs(x = '',
+         y = '') +
+    theme_dwu(legend.position = 'top') +
+    coord_flip() +
+    facet_wrap(~metric, nrow = 1, scales = 'free_x') +
+    scale_fill_manual(values = colors_response2) +
+    scale_x_discrete(limits = rev, drop = FALSE) +
+    ggtitle(i)
+  
+  
+  ggsave(plot = p,
+         device = cairo_pdf,
+         filename = paste0('F1F_bar_patient_', str_replace(i, '/','+'),'.pdf'),
+         path = here(output_dir, 'patient_bar_ultracluster'),
+         h = 4,
+         w = 4)
+  
+  p
+  
+}) %>% wrap_plots()
+```
+
+### IL17 secreting cells
+```{r}
+il17 <- pseudobulk(seuratobj,
+                   genes = c('IL17A', 'IL17F'))
+
+il17 %>% arrange(-cpm)
+```
+```{r}
+il17 %>% 
+  ggplot(aes(y = reorder(ident, cpm),
+             x = cpm )) +
+  geom_col() +
+  facet_wrap(~gene) + 
+  labs(x = 'Counts per Million',
+       y = '') 
+```
 
 
 ## Session Info

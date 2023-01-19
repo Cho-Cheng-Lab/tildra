@@ -268,6 +268,22 @@ p <- patient_de_tally %>%
 
 p
 ```
+```{r}
+p <- patient_de_tally %>% 
+  filter(level == 'ultracluster') %>% 
+  mutate(comparison = str_extract(comparison, 'P[:digit:]')) %>% 
+  ggplot(aes(x = patient,
+             y = n,
+             fill = comparison)) +
+  geom_col(color = 'black') +
+  facet_wrap(~factor(cluster, levels = levels(seuratobj[[which_ultracluster]][[1]]))) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = '',
+       y = '# DEGs',
+       title = 'Ultracluster Level') 
+
+p
+```
 
 #### Using pseudobulk DE log2FC
 ```{r}
@@ -318,23 +334,55 @@ de_tallies %>%
 
 ##### Heatmap
 ```{r}
-heatmap_genes <- de_combined_ultracluster %>% 
+top_genes <- de_combined %>% 
   filter(comparison %in% c('PV vs HC'),
          !str_detect(gene, '^MT-|^RP[SL]|^MRP[SL]')) %>% 
   filter(p_val_adj < p_adj_cutoff,
          avg_log2FC > 0) %>% 
   group_by(cluster) %>% 
-  slice_max((avg_log2FC), n = 1000)
+  slice_max((avg_log2FC), n = 50)
 
-heatmap_genes
+top_genes
 ```
+
+```{r}
+heatmap_cells <- seuratobj@meta.data %>% rownames()
+heatmap_data <- pseudobulk(seuratobj,
+                           cells = heatmap_cells,
+                           genes = top_genes$gene %>% unique(),
+                           group_by = c('ultracluster', 'id'))
+
+heatmap_data
+```
+### Voom-normalized counts for visualization
+```{r}
+heatmap_cells <- seuratobj@meta.data %>% filter(condition != 'AD', ultracluster == 'Trm') %>% rownames()
+pseudo_matrix <- pseudobulk_matrix(seuratobj,
+                                   cells = heatmap_cells,
+                                   group_by = c('ultracluster', 'id'))
+voom <- limma::voom(pseudo_matrix)
+```
+
+```{r}
+
+```
+
+
+```{r}
+patient_level_fc %>% 
+  filter(level == 'ultracluster',
+  cluster %in% c('Trm', 'Mac', 'Mast', 'Mono')) %>% 
+  ggplot(aes(x = ))
+```
+
+
 ```{r}
 plot_input <- heatmap_data %>% 
-  inner_join(heatmap_genes %>% select(ultracluster = cluster, gene)) %>% 
+  inner_join(top_genes %>% select(ultracluster = cluster, gene)) %>% 
   mutate(description = paste(condition, group, treatment) %>% str_remove(' NA None') %>% str_remove('PV ')) %>% 
   mutate(description = ifelse(treatment == 'Pre', 'PV', description)) %>% 
   filter(description %in% c('HC', 'PV', 'Responder Mid', 'AD')) %>% 
-  group_by(gene, ultracluster, description) %>% 
+  group_by(gene, patient, ultracluster, description) %>% 
   summarize(counts = sum(counts),
             total = sum(total),
             cpm = counts/total * 1e6) %>% 
@@ -345,13 +393,13 @@ plot_input <- heatmap_data %>%
   mutate(PV = log2(PV / HC),
          Mid = log2(`Responder Mid` / HC),
          AD = log2(AD / HC)) %>% 
-  filter(PV > 0,
-         !is.infinite(PV),
-         !is.infinite(Mid),
-         !is.infinite(AD)) %>% 
-  group_by(ultracluster) %>% 
-  slice_max(PV, n = 50) %>% 
-  ungroup() %>% 
+  # filter(PV > 0,
+  #        !is.infinite(PV),
+  #        !is.infinite(Mid),
+  #        !is.infinite(AD)) %>% 
+  # group_by(ultracluster) %>% 
+  # slice_max(PV, n = 50) %>% 
+  # ungroup() %>% 
   select(ultracluster, gene, PV, Mid, AD) %>% 
   pivot_longer(cols = -c(ultracluster, gene),
                names_to = 'condition',
