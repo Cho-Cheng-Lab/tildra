@@ -1,0 +1,516 @@
+---
+title: "Figure"
+author: "David Wu"
+---
+
+### Use the here package for robust relative paths
+```{r}
+library(here)
+```
+
+### Optionally convert this Rmd to R script 
+```{r eval=FALSE, message=FALSE}
+current_file <- rstudioapi::getActiveDocumentContext()$path
+output_file <- stringr::str_replace(current_file, '.Rmd', '.R')
+knitr::purl(current_file, output = output_file)
+file.edit(output_file)
+```
+
+### Directories
+```{r, message=FALSE}
+output_dir <- here('figures/figure1') # analysis file output directory
+data_dir <- here('data/derived/tildra') # data file output directory
+
+dir.create(output_dir, showWarnings = FALSE)
+dir.create(data_dir, showWarnings = FALSE)
+```
+
+### Loading the libraries
+```{r, message=FALSE}
+library(Seurat) 
+library(tidyverse)
+library(ggExtra)
+library(ggforce)
+library(wutilities) # devtools::install_github('symbiologist/wutilities')
+library(tictoc)
+library(patchwork)
+library(rcartocolor)
+library(ggrastr)
+library(extrafont)
+theme_set(theme_dwu())
+
+source(here('figures/colors.R')) # consistent color palettes to use across figures
+```
+
+### Import seurat
+```{r}
+seuratobj <- read_rds(file.path(data_dir, 'seuratobj_annotated.rds'))
+seuratobj
+```
+
+### Use global or local identities and set as cluster/supercluster in the object
+```{r}
+which_identity <- 'local'
+which_cluster <- paste0(which_identity, '_cluster')
+which_supercluster <- paste0(which_identity, '_supercluster')
+
+seuratobj$cluster <- seuratobj[[which_cluster]] # set cluster as main annotation
+seuratobj$supercluster <- seuratobj[[which_supercluster]] # set cluster as main annotation
+Idents(seuratobj) <- 'cluster'
+
+output_dir <- here(output_dir, which_identity)
+dir.create(output_dir)
+```
+
+### Metadata
+```{r}
+metadata <- seuratobj@meta.data %>% rownames_to_column() %>% as_tibble()
+
+patient_only <- subset(seuratobj, subset = treatment %in% c('Pre', 'Mid'))
+patient_only
+```
+
+#### Plotting parameters
+```{r}
+h <- 5
+w <- 5
+dpi <- 600
+```
+
+### Figure 1A
+#### Diagram
+
+### Figure 1B
+#### UMAP of points only (PNG)
+```{r fig.height=4, fig.width=4}
+p <- seurat_feature(seuratobj, 
+                    features = 'cluster', 
+                    facet_hide = TRUE, 
+                    legend_position = 'none', 
+                    label = FALSE, 
+                    color_package = 'carto', 
+                    color_palette = 'Bold', 
+                    rasterize_dpi = dpi) 
+
+ggsave(plot = p,
+       path = output_dir,
+       height = h,
+       width = w,
+       dpi = dpi,
+       filename = 'F1B_cluster.png') 
+p
+```
+
+
+```{r fig.height=4, fig.width=4}
+p <- seurat_feature(seuratobj, 
+                    features = 'supercluster', 
+                    facet_hide = TRUE, 
+                    legend_position = 'none', 
+                    label = FALSE, 
+                    color_package = 'carto', 
+                    color_palette = 'Bold', 
+                    rasterize_dpi = dpi) 
+
+ggsave(plot = p,
+       path = output_dir,
+       height = h,
+       width = w,
+       dpi = dpi,
+       filename = 'F1B_supercluster.png') 
+
+p
+```
+#### Labels and PDF
+```{r fig.height=4, fig.width=4}
+p <- seurat_feature(seuratobj, 
+                    features = 'cluster', 
+                    facet_hide = TRUE, 
+                    legend_position = 'none', 
+                    label = TRUE, 
+                    color_package = 'carto', 
+                    color_palette = 'Bold', 
+                    label_size = 3, 
+                    rasterize_dpi = dpi) 
+
+ggsave(plot = p,
+       device = cairo_pdf,
+       path = output_dir,
+       height = h,
+       width = w,
+       dpi = dpi,
+       filename = 'F1B_cluster.pdf') 
+
+p
+```
+
+```{r fig.height=4, fig.width=4}
+p <- seurat_feature(seuratobj, 
+                    features = 'supercluster', 
+                    facet_hide = TRUE, 
+                    legend_position = 'none', 
+                    label = TRUE, 
+                    color_package = 'carto', 
+                    color_palette = 'Bold', 
+                    label_size = 3, 
+                    rasterize_dpi = dpi) 
+
+ggsave(plot = p,
+       device = cairo_pdf,
+       path = output_dir,
+       height = h,
+       width = w,
+       dpi = dpi,
+       filename = 'F1B_supercluster.pdf') 
+
+p
+```
+
+#### Legend
+```{r fig.height=4, fig.width=6}
+p <- seurat_feature(seuratobj, 
+                    features = 'cluster', 
+                    facet_hide = TRUE, 
+                    legend_position = 'right', 
+                    label = FALSE, 
+                    color_package = 'carto', 
+                    color_palette = 'Bold', 
+                    rasterize_dpi = dpi) 
+
+ggsave(plot = p,
+       device = cairo_pdf,
+       path = output_dir,
+       height = h,
+       width = w * 1.5,
+       dpi = dpi,
+       filename = 'F1B_cluster_legend.pdf') 
+
+p
+```
+
+```{r fig.height=4, fig.width=6}
+p <- seurat_feature(seuratobj, 
+                    features = 'supercluster', 
+                    facet_hide = TRUE, 
+                    legend_position = 'right', 
+                    label = FALSE, 
+                    color_package = 'carto', 
+                    color_palette = 'Bold', 
+                    rasterize_dpi = dpi) 
+
+ggsave(plot = p,
+       device = cairo_pdf,
+       path = output_dir,
+       height = h,
+       width = w * 1.5,
+       dpi = dpi,
+       filename = 'F1B_supercluster_legend.pdf') 
+
+p
+```
+### Figure 1C, Marker Dot Plot
+#### Reynolds et al markers
+
+```{r}
+markers_reynolds <- c('KRT14', 'KRT5', 
+                      'GATA3', 'KRTDAP',
+                      'CRYAB', 'TYRP1',
+                      'DKK3', 'PLEKHA4',
+                      'LUM', 'APOD',
+                      'PHLDA2', 'CCL2',
+                      'IL6', 'PDGFRA',
+                      'COL1A1', 'CXCL12',
+                      'CD82', 'CCL19', 'KCNE4', 'CPE', 'TAGLN', 'MYL9', 'HEY1', 'CCL14', 'PECAM1',
+                      'ACKR1', 'SELE', 'SNCG', 'HES1', 'MMRN1', 'XCL1' ,'XCL2', 'KLRC1', 'CCL5', 'GZMA', 
+                      'CD8A', 'CD8B', 'IL7R', 'FOXP3', 'TIGIT', 'TPSB2', 'TPSAB1', 'CD79A', 'JCHAIN', 'CD163',
+                      'C1QB', 'FCGR2A', 'MS4A6A', 'IL23A', 'CLEC9A', 'CLEC10A', 'CD1C', 'CD207', 'CD1A', 
+                      'CD14', 'IL1B', 'CCR7', 'IDO1')
+
+rashx_markers <- c("CD3D",
+                  "CCR7",
+                  "SELL",
+                  "KLF2","CD69","ITGAE","CXCR6","CD4","TIGIT","FOXP3",
+                  "IL2RA","CTLA4","CD8A","CD8B","GZMB","PDCD1","LAG3","KLRB1","PRF1","KLRD1","GNLY",
+                  "TNFRSF18","PRDM1","BATF","TRAT1","RORA","GATA3","PTGDR2",
+                  "IL7R", "HLA-DRA","HLA-DRB1",
+                  "CD83","IDO1","CD207","EPCAM","CD68","C1QB","C1QC","CD163","CLEC10A","CD1C",
+                  "THBD","XCR1","SIRPA","F13A1","IGKC","JCHAIN","CD79A","MS4A1","NR4A1","NR4A2","KLF4",
+                  "CEBPB","LYZ","MS4A7","SERPINA1","CD14","S100A9","IL23A","TPSB2","TPSAB1","MKI67","TOP2A",
+                  "ITGA4","NCR1","IL17A","IL17F","IL23R")
+
+main_markers <- c("CD3D",
+                  "CCR7",
+                  "SELL",
+                  "KLF2",
+                  "CD69",
+                  "ITGAE",
+                  "CXCR6",
+                  "CD4",
+                  "TIGIT",
+                  "FOXP3",
+                  "IL2RA",
+                  "CTLA4",
+                  "CD8A",
+                  "CD8B",
+                  "GZMB",
+                  "PDCD1",
+                  #"LAG3",
+                  "KLRB1",
+                  "PRF1",
+                  "KLRD1",
+                  "GNLY",
+                  "TNFRSF18",
+                  "PRDM1",
+                  "BATF",
+                  "TRAT1",
+                  "RORA",
+                  "GATA3",
+                  "PTGDR2",
+                  "IL7R", 
+                  "HLA-DRA",
+                  "CD83",
+                  #"IDO1",
+                  "CD207",
+                  #"EPCAM",
+                  "CD68",
+                  "C1QB",
+                  #"C1QC",
+                  "CD163",
+                  #"CLEC10A",
+                  "CD1C",
+                  "THBD",
+                  #"XCR1",
+                  "SIRPA",
+                  #"F13A1",
+                  #"IGKC",
+                  "JCHAIN",
+                  "CD79A",
+                  "MS4A1",
+                  "NR4A1",
+                  #"NR4A2",
+                  #"KLF4",
+                  "CEBPB",
+                  "LYZ",
+                  "MS4A7",
+                  #"SERPINA1",
+                  "CD14",
+                  #"S100A9",
+                  #"TPSB2",
+                  "TPSAB1",
+                  #"ITGA4"
+                  "IL23A")
+```
+
+
+#### F1C dot plot horizontal
+```{r}
+p <- DotPlot(seuratobj, 
+             features = main_markers,
+             cluster.idents = TRUE,
+             cols = RColorBrewer::brewer.pal(n = 7, 'BuPu')[c(1,7)],
+             dot.min = 0.1,
+             dot.scale = 4, 
+             scale = FALSE) + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, face = 'italic'))
+
+ggsave(plot = p,
+       path = output_dir,
+       height = 8,
+       width = 8,
+       dpi = dpi,
+       filename = 'F1C.pdf') 
+
+p
+```
+```{r}
+p <- DotPlot(seuratobj, 
+             features = main_markers, 
+             cluster.idents = TRUE,
+             cols = RColorBrewer::brewer.pal(n = 7, 'BuPu')[c(1,7)],
+             dot.min = 0.1,
+             dot.scale = 4, 
+             scale = FALSE) + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        axis.text.y = element_text(face = 'italic')) +
+  coord_flip()
+
+ggsave(plot = p,
+       path = output_dir,
+       height = 8,
+       width = 8,
+       dpi = dpi,
+       filename = 'F1C_vertical.pdf') 
+
+p
+```
+
+### Figure 1D; UMAP facets
+```{r}
+unit_height <- 2
+unit_width <- 2
+
+color_palette5 <- rcartocolor::carto_pal(n = 5, name = 'Vivid')
+view_colors(color_palette5)
+
+
+```
+
+#### By condition
+```{r}
+p <- seurat_feature(subset(seuratobj, subset = condition != 'AD'), 
+                    features = 'condition', 
+                    facets = 'condition', 
+                    facet_hide = TRUE,
+                    label = FALSE, color_package = 'custom', 
+                    color_palette = color_palette5[c(5, 4)], 
+                    legend_position = 'none', 
+                    axis_title_position = 'none', 
+                    rasterize_dpi = dpi)
+
+ggsave(plot = p,
+       path = output_dir,
+       height = unit_height,
+       width = unit_width * 2,
+       dpi = dpi,
+       filename = 'F1D_condition.png') 
+
+p
+```
+
+```{r}
+p <- seurat_feature(subset(seuratobj, subset = condition != 'AD'), 
+                    features = 'condition', 
+                    facets = 'condition', 
+                    label = FALSE, 
+                    facet_hide = TRUE,
+                    color_package = 'custom', 
+                    color_palette = color_palette5[c(5, 4)], 
+                    legend_position = 'none', 
+                    axis_title_position = 'none', 
+                    nrow = 2,
+                    rasterize_dpi = dpi)
+
+ggsave(plot = p,
+       path = output_dir,
+       height = unit_height * 1.9,
+       width = unit_width,
+       dpi = dpi,
+       filename = 'F1D_condition_vertical.png') 
+
+p
+```
+
+#### Treatment time-point
+```{r}
+p <- seurat_feature(patient_only, 
+                    features = 'treatment', 
+                    facets = 'treatment', 
+                    facet_hide = TRUE,
+                    label = FALSE, nrow = 1, 
+                    color_package = 'custom', 
+                    color_palette = color_palette5[c(2, 1)], 
+                    legend_position = 'none', 
+                    axis_title_position = 'none',
+                    rasterize_dpi = dpi)
+
+ggsave(plot = p,
+       path = output_dir,
+       height = unit_height,
+       width = unit_width * 2,
+       dpi = dpi,
+       filename = 'F1D_treatment.png') 
+
+p
+```
+
+#### By patient, mixed colors
+```{r}
+patient_colors <- carto_pal(n = 9, name = 'Prism')
+view_colors(patient_colors)
+```
+
+
+```{r}
+p1 <- seurat_feature(patient_only, 
+                     features = 'patient', 
+                     label = FALSE, 
+                     legend_position = 'none', 
+                     facet_hide = TRUE, 
+                     axis_title_position = 'none', 
+                     color_package = 'custom',
+                     color_palette = patient_colors,
+                     rasterize_dpi = dpi)
+
+ggsave(plot = p1,
+       path = output_dir,
+       height = unit_height,
+       width = unit_width,
+       dpi = dpi,
+       filename = 'F1D_patient_umap.png') 
+
+p1
+```
+
+```{r}
+p1 <- seurat_feature(patient_only, 
+                     features = 'patient', 
+                     label = FALSE, 
+                     facet_hide = TRUE, 
+                     legend_position = 'right',  
+                     axis_title_position = 'none', 
+                     color_package = 'custom',
+                     color_palette = patient_colors,
+                     rasterize_dpi = dpi)
+
+ggsave(plot = p1,
+       device = cairo_pdf,
+       path = output_dir,
+       height = unit_height,
+       width = unit_width,
+       dpi = dpi,
+       filename = 'F1D_patient_umap_legend.pdf') 
+
+p1
+```
+
+#### Patients faceted
+```{r}
+p2 <- seurat_feature(patient_only, 
+                     features = 'patient', 
+                     facets = 'patient', 
+                     label = FALSE, facet_hide = TRUE, alpha = 0.5, size = 0.2, 
+                     color_package = 'custom',
+                     color_palette = patient_colors,
+                     rasterize_dpi = dpi)
+
+ggsave(plot = p2,
+       path = output_dir,
+       height = unit_height * 2,
+       width = unit_width * 2,
+       dpi = dpi,
+       filename = 'F1D_patient_matrix.png') 
+
+p2
+```
+### Figure 1E
+#### Plotting order
+```{r}
+# patient_order <- metadata %>% select(patient, sample, condition, treatment, response, group, ends_with('label')) %>% unique()
+# 
+# 
+# tildra_order <- patient_order %>% 
+#   #filter(treatment != 'None') %>% 
+#   arrange(patient, treatment)
+# 
+# tildra_order
+```
+
+#### How many patients are represented in each cell cluster?
+```{r}
+metadata %>% filter(treatment %in% c('Pre', 'Mid')) %>% select(cluster, patient) %>% unique() %>% group_by(cluster) %>% tally() 
+```
+```{r}
+metadata %>% filter(treatment %in% c('Pre', 'Mid')) %>% select(cluster, patient, treatment) %>% unique() %>% group_by(cluster, treatment) %>% tally() %>% 
+  pivot_wider(names_from = treatment, values_from = n)
+```
+

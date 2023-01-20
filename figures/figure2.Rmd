@@ -1,0 +1,2368 @@
+---
+title: "Figrue 2"
+author: "David Wu"
+---
+
+### Use the here package for robust relative paths
+```{r}
+library(here)
+```
+
+### Optionally convert this Rmd to R script 
+```{r eval=FALSE, message=FALSE}
+current_file <- rstudioapi::getActiveDocumentContext()$path
+output_file <- stringr::str_replace(current_file, '.Rmd', '.R')
+knitr::purl(current_file, output = output_file)
+file.edit(output_file)
+```
+
+### Directories
+```{r, message=FALSE}
+figures_dir <- here('figures/figure2') # analysis file output directory
+data_dir <- here('data/derived/tildra') # data file output directory
+
+dir.create(figures_dir, showWarnings = FALSE)
+dir.create(data_dir, showWarnings = FALSE)
+```
+
+### Loading the libraries
+```{r, message=FALSE}
+library(Seurat) 
+library(tidyverse)
+library(ggExtra)
+library(ggthemes)
+library(ggforce)
+library(wutilities) # devtools::install_github('symbiologist/wutilities')
+library(tictoc)
+library(rcartocolor)
+library(ggrepel)
+library(extrafont)
+loadfonts()
+theme_set(theme_dwu()) # set default theme
+source(here('figures/colors.R')) # consistent color palettes
+
+```
+
+### Functions
+```{r}
+library(openxlsx)
+write_excel_notebook <- function(input_table, 
+                                 output_file, 
+                                 tabs = 'cluster', 
+                                 prefix = 'cluster_') {
+  OUT <- createWorkbook()
+  
+  input_table$tabs <- input_table[[tabs]]
+  tabs <- input_table[[tabs]] %>% unique()
+  
+  
+  for(i in tabs){
+    tryCatch({
+      table_subset <- input_table %>% filter(tabs == i) %>% select(-tabs)
+      
+      sheet_name <- paste0(prefix, i) %>% str_remove('[\\?/]') %>% str_remove('[\\/]') %>% str_remove('[\\:/]') 
+      addWorksheet(OUT, sheet_name)
+      writeData(OUT, sheet = sheet_name, x = table_subset)
+      
+    }, error=function(e){message(paste0("We have an error here in ", i))})
+  }
+  
+  saveWorkbook(OUT, output_file, overwrite = TRUE)
+}
+```
+
+### Import
+```{r}
+seuratobj <- read_rds(here(data_dir, 'seuratobj_annotated.rds'))
+seuratobj
+```
+### Use global or local identities and set as cluster/supercluster in the object
+```{r}
+which_identity <- 'local'
+which_cluster <- paste0(which_identity, '_cluster')
+which_supercluster <- paste0(which_identity, '_supercluster')
+which_ultracluster <- paste0(which_identity, '_ultracluster')
+
+seuratobj$cluster <- seuratobj[[which_cluster]] 
+seuratobj$supercluster <- seuratobj[[which_supercluster]] 
+seuratobj$ultracluster <- seuratobj[[which_ultracluster]] 
+Idents(seuratobj) <- 'cluster' # set cluster as main annotation
+
+output_dir <- here(figures_dir, which_identity)
+dir.create(output_dir)
+```
+
+
+
+### Analysis
+
+
+### Cluster size and % 
+```{r}
+analyze <- metadata %>% 
+  select(rowname, id, patient, sample, condition, treatment, cluster, supercluster, ultracluster, group, celltype) 
+
+analyze %>% head()
+```
+```{r}
+cluster_tallies <- analyze %>% 
+  group_by(sample, patient, condition, cluster, celltype, treatment, group) %>% 
+  tally() %>% 
+  group_by(sample) %>% 
+  mutate(total = sum(n),
+         f = n/total,
+         pct = round(100 * f, 2))
+
+supercluster_tallies <- analyze %>% 
+  group_by(sample, patient, condition, supercluster, celltype, treatment, group) %>% 
+  tally() %>% 
+  group_by(sample) %>% 
+  mutate(total = sum(n),
+         f = n/total,
+         pct = round(100 * f, 2))
+
+ultracluster_tallies <- analyze %>% 
+  group_by(sample, patient, condition, ultracluster, celltype, treatment, group) %>% 
+  tally() %>% 
+  group_by(sample) %>% 
+  mutate(total = sum(n),
+         f = n/total,
+         pct = round(100 * f, 2))
+
+cluster_tallies
+```
+
+#### Major celltypes
+
+```{r}
+four_colors <- carto_pal(n = 5, name = 'Bold')
+  
+conditions <- c('APC', 'Lymphocyte')
+
+```
+
+```{r}
+celltype_input <- cluster_tallies %>% 
+    filter(treatment %in% c('Pre', 'Mid')) %>% 
+    group_by(patient, sample, treatment, total, celltype, group) %>% 
+    summarize(n = sum(n)) %>% 
+  rowwise() %>% 
+  mutate(f = n/total, 
+         pct = 100 * f)
+  
+```
+
+#### Combined
+```{r}
+treatment_groups <- celltype_input %>% 
+  ungroup() %>% 
+  select(treatment, group) %>% 
+  unique() %>% 
+  arrange(group, treatment) %>% 
+  mutate(treatment_group = paste(treatment, group, sep = ':'),
+         treatment_group = factor(treatment_group, levels = treatment_group))
+treatment_groups
+```
+
+
+```{r}
+p <- celltype_input %>% 
+  filter(celltype %in% c('APC', 'Lymphocyte')) %>% 
+  bind_rows(cluster_tallies %>% 
+              filter(treatment %in% c('Pre', 'Mid')) %>% 
+              filter(str_detect(cluster, 'Trm')) %>% 
+              mutate(celltype = cluster)) %>% 
+  bind_rows(supercluster_tallies %>% 
+              filter(treatment %in% c('Pre', 'Mid')) %>% 
+              filter(str_detect(supercluster, 'Trm')) %>% 
+              mutate(celltype = 'Trm all')) %>%
+  select(sample, treatment, group, celltype, n, pct) %>% 
+  pivot_longer(cols = c(n, pct),
+               names_to = 'metric',
+               values_to = 'value') %>% 
+  left_join(treatment_groups) %>% 
+ggplot(aes(x = treatment_group,
+             y = value,
+             fill = group)) +
+  geom_boxplot() +
+  labs(x = '',
+       y = '# of Cells') +
+  facet_wrap(~metric + celltype, scales = 'free_y', nrow = 2) +
+  scale_fill_manual(values = colors_response2) +
+  theme_dwu(legend.position = 'top') +
+  scale_x_discrete(labels = c('Pre', 'Mid', 'Pre', 'Mid'))
+
+ggsave(plot = p,
+       device = cairo_pdf,
+       filename = 'F1E_box_combined.pdf',
+       path = output_dir,
+       h = 5,
+       w = 10)
+
+p
+```
+#### All clusters, n
+```{r}
+p <- cluster_tallies %>% 
+  filter(treatment %in% c('Pre', 'Mid')) %>% 
+  select(sample, treatment, group, cluster, n, pct) %>% 
+  pivot_longer(cols = c(n, pct),
+               names_to = 'metric',
+               values_to = 'value') %>% 
+  left_join(treatment_groups) %>% 
+  filter(metric == 'n') %>% 
+ggplot(aes(x = treatment_group,
+             y = value,
+             fill = group)) +
+  geom_boxplot() +
+  labs(x = '',
+       y = '# of Cells') +
+  facet_wrap(~cluster, scales = 'free_y') +
+  scale_fill_manual(values = colors_response2) +
+  theme_dwu(legend.position = 'top') +
+  scale_x_discrete(labels = c('Pre', 'Mid', 'Pre', 'Mid'))
+
+ggsave(plot = p,
+       device = cairo_pdf,
+       filename = 'F1E_box_all_clusters_n.pdf',
+       path = output_dir,
+       h = 8,
+       w = 8)
+
+p
+```
+#### All clusters, f
+```{r}
+p <- cluster_tallies %>% 
+  filter(treatment %in% c('Pre', 'Mid')) %>% 
+  select(sample, treatment, group, cluster, n, pct) %>% 
+  pivot_longer(cols = c(n, pct),
+               names_to = 'metric',
+               values_to = 'value') %>% 
+  left_join(treatment_groups) %>% 
+  filter(metric == 'pct') %>% 
+ggplot(aes(x = treatment_group,
+             y = value,
+             fill = group)) +
+  geom_boxplot() +
+  labs(x = '',
+       y = '% of Cells') +
+  facet_wrap(~cluster, scales = 'free_y') +
+  scale_fill_manual(values = colors_response2) +
+  theme_dwu(legend.position = 'top') +
+  scale_x_discrete(labels = c('Pre', 'Mid', 'Pre', 'Mid'))
+
+ggsave(plot = p,
+       device = cairo_pdf,
+       filename = 'F1E_box_all_clusters_f.pdf',
+       path = output_dir,
+       h = 8,
+       w = 8)
+
+p
+```
+
+#### All superclusters, n
+```{r}
+p <- supercluster_tallies %>% 
+  filter(treatment %in% c('Pre', 'Mid')) %>% 
+  select(sample, treatment, group, supercluster, n, pct) %>% 
+  pivot_longer(cols = c(n, pct),
+               names_to = 'metric',
+               values_to = 'value') %>% 
+  left_join(treatment_groups) %>% 
+  filter(metric == 'n') %>% 
+ggplot(aes(x = treatment_group,
+             y = value,
+             fill = group)) +
+  geom_boxplot() +
+  labs(x = '',
+       y = '# of Cells') +
+  facet_wrap(~supercluster, scales = 'free_y') +
+  scale_fill_manual(values = colors_response2) +
+  theme_dwu(legend.position = 'top') +
+  scale_x_discrete(labels = c('Pre', 'Mid', 'Pre', 'Mid'))
+
+ggsave(plot = p,
+       device = cairo_pdf,
+       filename = 'F1E_box_all_superclusters_n.pdf',
+       path = output_dir,
+       h = 8,
+       w = 8)
+
+p
+```
+#### All clusters, f
+```{r}
+p <- supercluster_tallies %>% 
+  filter(treatment %in% c('Pre', 'Mid')) %>% 
+  select(sample, treatment, group, supercluster, n, pct) %>% 
+  pivot_longer(cols = c(n, pct),
+               names_to = 'metric',
+               values_to = 'value') %>% 
+  left_join(treatment_groups) %>% 
+  filter(metric == 'pct') %>% 
+ggplot(aes(x = treatment_group,
+             y = value,
+             fill = group)) +
+  geom_boxplot() +
+  labs(x = '',
+       y = '% of Cells') +
+  facet_wrap(~supercluster, scales = 'free_y') +
+  scale_fill_manual(values = colors_response2) +
+  theme_dwu(legend.position = 'top') +
+  scale_x_discrete(labels = c('Pre', 'Mid', 'Pre', 'Mid'))
+
+ggsave(plot = p,
+       device = cairo_pdf,
+       filename = 'F1E_box_all_superclusters_f.pdf',
+       path = output_dir,
+       h = 8,
+       w = 8)
+
+p
+```
+
+
+### Figure 1F
+#### n
+```{r}
+p <- cluster_tallies %>% 
+  filter(str_detect(cluster, 'Trm')) %>% 
+  filter(!is.na(group)) %>% 
+  select(sample, treatment, group, celltype, n, pct) %>% 
+  pivot_longer(cols = c(n, pct),
+               names_to = 'metric',
+               values_to = 'value') %>% 
+  ggplot(aes(x = sample,
+             y = value,
+             fill = group)) +
+  geom_bar(stat = 'identity', color = 'black', alpha = 0.8) +
+  labs(x = '',
+       y = '') +
+  theme_dwu(legend.position = 'top') +
+  coord_flip() +
+  facet_wrap(~metric, nrow = 1, scales = 'free_x') +
+  scale_fill_manual(values = colors_response2) +
+  scale_x_discrete(limits = rev)
+
+ggsave(plot = p,
+       device = cairo_pdf,
+       filename = 'F1F_bar_patient_trm_combined.pdf',
+       path = output_dir,
+       h = 4,
+       w = 4)
+
+p
+```
+### Mast cell
+```{r}
+p <- cluster_tallies %>% 
+  filter(str_detect(cluster, 'Mast')) %>% 
+  filter(!is.na(group)) %>% 
+  select(sample, treatment, group, celltype, n, pct) %>% 
+  pivot_longer(cols = c(n, pct),
+               names_to = 'metric',
+               values_to = 'value') %>% 
+  ggplot(aes(x = sample,
+             y = value,
+             fill = group)) +
+  geom_bar(stat = 'identity', color = 'black', alpha = 0.8) +
+  labs(x = '',
+       y = '') +
+  theme_dwu(legend.position = 'top') +
+  coord_flip() +
+  facet_wrap(~metric, nrow = 1, scales = 'free_x') +
+  scale_fill_manual(values = colors_response2) +
+  scale_x_discrete(limits = rev) 
+
+ggsave(plot = p,
+       device = cairo_pdf,
+       filename = 'F1F_bar_patient_mast.pdf',
+       path = output_dir,
+       h = 4,
+       w = 4)
+
+p
+```
+### Loop
+```{r}
+dir.create(here(output_dir, 'patient_bar_cluster'))
+
+p_cluster <- map(levels(cluster_tallies$cluster), function(i) {
+  
+  
+  p <- cluster_tallies %>% 
+    mutate(sample = factor(sample, levels = str_subset(levels(sample), '-'))) %>% 
+    filter(cluster == i) %>% 
+    filter(!is.na(group)) %>% 
+    select(sample, treatment, group, celltype, n, pct) %>% 
+    pivot_longer(cols = c(n, pct),
+                 names_to = 'metric',
+                 values_to = 'value') %>% 
+    ggplot(aes(x = sample,
+               y = value,
+               fill = group)) +
+    geom_bar(stat = 'identity', color = 'black', alpha = 0.8) +
+    labs(x = '',
+         y = '') +
+    theme_dwu(legend.position = 'top') +
+    coord_flip() +
+    facet_wrap(~metric, nrow = 1, scales = 'free_x') +
+    scale_fill_manual(values = colors_response2) +
+    scale_x_discrete(limits = rev, drop = FALSE) +
+    ggtitle(i)
+  
+  
+  ggsave(plot = p,
+         device = cairo_pdf,
+         filename = paste0('F1F_bar_patient_', str_replace(i, '/','+'),'.pdf'),
+         path = here(output_dir, 'patient_bar_cluster'),
+         h = 4,
+         w = 4)
+  
+  p
+  
+}) %>% wrap_plots()
+
+p_cluster
+```
+
+```{r}
+dir.create(here(output_dir, 'patient_bar_supercluster'))
+
+p <- map(levels(supercluster_tallies$supercluster), function(i) {
+  
+  print2(i)
+  
+  p <- supercluster_tallies %>% 
+    mutate(sample = factor(sample, levels = str_subset(levels(sample), '-'))) %>% 
+    filter(supercluster == i) %>% 
+    filter(!is.na(group)) %>% 
+    select(sample, treatment, group, celltype, n, pct) %>% 
+    pivot_longer(cols = c(n, pct),
+                 names_to = 'metric',
+                 values_to = 'value') %>% 
+    ggplot(aes(x = sample,
+               y = value,
+               fill = group)) +
+    geom_bar(stat = 'identity', color = 'black', alpha = 0.8) +
+    labs(x = '',
+         y = '') +
+    theme_dwu(legend.position = 'top') +
+    coord_flip() +
+    facet_wrap(~metric, nrow = 1, scales = 'free_x') +
+    scale_fill_manual(values = colors_response2) +
+    scale_x_discrete(limits = rev, drop = FALSE) +
+    ggtitle(i)
+  
+  
+  ggsave(plot = p,
+         device = cairo_pdf,
+         filename = paste0('F1F_bar_patient_', str_replace(i, '/','+'),'.pdf'),
+         path = here(output_dir, 'patient_bar_supercluster'),
+         h = 4,
+         w = 4)
+  
+  p
+  
+}) %>% wrap_plots()
+
+```
+
+```{r}
+dir.create(here(output_dir, 'patient_bar_ultracluster'))
+
+p_ultracluster <- map(levels(ultracluster_tallies$ultracluster), function(i) {
+  
+  print2(i)
+  
+  p <- ultracluster_tallies %>% 
+    mutate(sample = factor(sample, levels = str_subset(levels(sample), '-'))) %>% 
+    filter(ultracluster == i) %>% 
+    filter(!is.na(group)) %>% 
+    select(sample, treatment, group, celltype, n, pct) %>% 
+    pivot_longer(cols = c(n, pct),
+                 names_to = 'metric',
+                 values_to = 'value') %>% 
+    ggplot(aes(x = sample,
+               y = value,
+               fill = group)) +
+    geom_bar(stat = 'identity', color = 'black', alpha = 0.8) +
+    labs(x = '',
+         y = '') +
+    theme_dwu(legend.position = 'top') +
+    coord_flip() +
+    facet_wrap(~metric, nrow = 1, scales = 'free_x') +
+    scale_fill_manual(values = colors_response2) +
+    scale_x_discrete(limits = rev, drop = FALSE) +
+    ggtitle(i)
+  
+  
+  ggsave(plot = p,
+         device = cairo_pdf,
+         filename = paste0('F1F_bar_patient_', str_replace(i, '/','+'),'.pdf'),
+         path = here(output_dir, 'patient_bar_ultracluster'),
+         h = 4,
+         w = 4)
+  
+  p
+  
+}) %>% wrap_plots()
+```
+
+### IL17 secreting cells
+```{r}
+il17 <- pseudobulk(seuratobj,
+                   genes = c('IL17A', 'IL17F'))
+
+il17 %>% arrange(-cpm)
+```
+```{r}
+il17 %>% 
+  ggplot(aes(y = reorder(ident, cpm),
+             x = cpm )) +
+  geom_col() +
+  facet_wrap(~gene) + 
+  labs(x = 'Counts per Million',
+       y = '') 
+```
+
+
+### DE
+
+
+
+```{r}
+which_de <- '08_de_pseudobulk'
+metadata <- seuratobj@meta.data %>% rownames_to_column() 
+de_combined_cluster <- read_tsv(here('analysis/output', which_de, which_cluster, 'de_combined.tsv.gz')) %>% mutate(level = 'cluster')
+de_combined_supercluster <- read_tsv(here('analysis/output', which_de, which_supercluster, 'de_combined.tsv.gz')) %>% mutate(level = 'supercluster')
+de_combined_ultracluster <- read_tsv(here('analysis/output', which_de, which_ultracluster, 'de_combined.tsv.gz')) %>% mutate(level = 'ultracluster')
+
+de_combined <- bind_rows(de_combined_cluster,
+                         de_combined_supercluster,
+                         de_combined_ultracluster)
+```
+```{r}
+de_patient_cluster <- read_tsv(here('analysis/output/08_de', which_cluster, 'de_pre_vs_mid_per_patient.tsv.gz')) %>% mutate(level = 'cluster')
+de_patient_supercluster <- read_tsv(here('analysis/output/08_de', which_supercluster, 'de_pre_vs_mid_per_patient.tsv.gz')) %>% mutate(level = 'supercluster')
+de_patient_ultracluster <- read_tsv(here('analysis/output/08_de', which_ultracluster, 'de_pre_vs_mid_per_patient.tsv.gz')) %>% mutate(level = 'ultracluster')
+
+de_patient <- bind_rows(de_patient_cluster,
+                        de_patient_supercluster,
+                        de_patient_ultracluster)
+```
+
+```{r}
+signatures <- read_tsv(here('analysis/input/pseudobulk_signatures.tsv')) %>% 
+  mutate(combo = paste0(ultracluster, ': ', gene)) %>% 
+  mutate(combo = factor(combo, levels = combo))
+signatures
+```
+```{r}
+patient_meta <- metadata %>% 
+  select(id, patient, treatment, condition, response, group, patient_label) %>% 
+  unique() %>% 
+  mutate(tcellgroup = case_when(
+    (group %in% 'Responder') | (patient == 'P9') ~ 'Tcell Responder',
+    patient %in% c('P7', 'P8') ~ 'Tcell Non-responder')) %>% 
+  arrange(patient_label)
+
+patient_meta
+```
+```{r}
+analyze <- metadata %>% 
+  select(rowname, id, sample, patient, condition, treatment, cluster, supercluster, ultracluster, sample_label, group) %>% 
+  mutate(description = factor(paste(condition, treatment) %>% str_remove(' None'),
+                              levels = c('PV Pre',
+                                         'PV Mid',
+                                         'PV',
+                                         'AD',
+                                         'HC'))) %>% 
+  left_join(patient_meta %>% select(patient, patient_label) %>% unique())
+
+analyze
+
+```
+
+
+```{r}
+tallies <- analyze %>% 
+  group_by(patient, condition, treatment, cluster, supercluster, ultracluster) %>% 
+  tally()
+
+tallies %>%
+  filter(condition == 'PV',
+         treatment != 'None') %>% 
+  pivot_wider(names_from = treatment,
+              values_from = n)
+```
+
+### Heatmaps at each cluster level
+#### DE function
+```{r}
+de_tally <- function(de_table,
+                     comparisons = NULL,
+                     direction = c('all', 'up', 'dn'),
+                     exclude_mitoribo = TRUE,
+                     padj_threshold = 0.05,
+                     group_by = c('level', 'cluster', 'comparison')) {
+
+  # filters
+  ## comparison groups
+  if(!is.null(comparisons)) {
+    de_table <- de_table %>% filter(comparison %in% comparisons)
+  }
+  
+  ## pval
+  de_table <- de_table %>% filter(p_val_adj < padj_threshold)
+  
+  ## direction
+  if(direction == 'up') {
+    de_table <- de_table %>% filter(avg_log2FC > 0)
+  } else if(direction == 'dn') {
+    de_table <- de_table %>% filter(avg_log2FC < 0)
+  }
+  
+  ## mito ribo genes
+  if(exclude_mitoribo) {
+    de_table <- de_table %>% filter(!str_detect(gene, '^MT-|^RP[SL]|^MRP[SL]'))
+  }
+  
+  # grouping
+  if(!is.null(group_by)) {
+    de_table <- de_table %>% group_by(across(all_of(group_by)))   
+  }
+  
+  de_table %>% tally() %>% ungroup() %>% arrange(-n)
+}
+```
+
+#### Global settings
+```{r}
+p_adj_cutoff <- 0.05
+comparisons_of_interest <- c('PV vs HC',
+                             #'Pre vs Mid',
+                             'Responder Pre vs Responder Mid',
+                             'Non-responder Pre vs Non-responder Mid')
+```
+
+```{r}
+heatmap_cells <- seuratobj@meta.data %>% rownames()
+dir.create(here(output_dir, 'heatmaps'))
+```
+
+#### Patient-level single-cell DE
+```{r}
+patient_de_tally <- de_patient %>% de_tally()
+patient_de_tally
+```
+```{r}
+p <- patient_de_tally %>% 
+  filter(level == 'cluster') %>% 
+  mutate(comparison = str_extract(comparison, 'P[:digit:]')) %>% 
+  ggplot(aes(x = factor(cluster, levels = levels(seuratobj[[which_cluster]][[1]])),
+             y = n,
+             fill = comparison)) +
+  geom_col(color = 'black') +
+  facet_wrap(~comparison) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = '',
+       y = '# DEGs',
+       title = 'Cluster Level') 
+
+p
+```
+```{r}
+p <- patient_de_tally %>% 
+  filter(level == 'supercluster') %>% 
+  mutate(comparison = str_extract(comparison, 'P[:digit:]')) %>% 
+  ggplot(aes(x = factor(cluster, levels = levels(seuratobj[[which_supercluster]][[1]])),
+             y = n,
+             fill = comparison)) +
+  geom_col(color = 'black') +
+  facet_wrap(~comparison) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = '',
+       y = '# DEGs',
+       title = 'Supercluster Level') 
+
+p
+```
+```{r}
+p <- patient_de_tally %>% 
+  filter(level == 'ultracluster') %>% 
+  mutate(comparison = str_extract(comparison, 'P[:digit:]')) %>% 
+  ggplot(aes(x = factor(cluster, levels = levels(seuratobj[[which_ultracluster]][[1]])),
+             y = n,
+             fill = comparison)) +
+  geom_col(color = 'black') +
+  facet_wrap(~comparison) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = '',
+       y = '# DEGs',
+       title = 'Ultracluster Level') 
+
+p
+```
+```{r}
+p <- patient_de_tally %>% 
+  filter(level == 'ultracluster') %>% 
+  mutate(comparison = str_extract(comparison, 'P[:digit:]')) %>% 
+  ggplot(aes(x = patient,
+             y = n,
+             fill = comparison)) +
+  geom_col(color = 'black') +
+  facet_wrap(~factor(cluster, levels = levels(seuratobj[[which_ultracluster]][[1]]))) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = '',
+       y = '# DEGs',
+       title = 'Ultracluster Level') 
+
+p
+```
+
+#### Using pseudobulk DE log2FC
+```{r}
+
+```
+
+##### Ultracluster
+```{r}
+de_tallies <- de_combined %>% de_tally()
+```
+```{r}
+de_tallies %>% 
+  filter(level == 'cluster') %>% 
+  ggplot(aes(x = reorder(cluster, -n),
+             y = n,
+             fill = comparison)) +
+  geom_col(color = 'black') +
+  facet_wrap(~comparison, scales = 'free_y') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = '',
+       y = '# DEGs')
+```
+```{r}
+de_tallies %>% 
+  filter(level == 'supercluster') %>% 
+  ggplot(aes(x = reorder(cluster, -n),
+             y = n,
+             fill = comparison)) +
+  geom_col(color = 'black') +
+  facet_wrap(~comparison, scales = 'free_y') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = '',
+       y = '# DEGs')
+```
+```{r}
+de_tallies %>% 
+  filter(level == 'ultracluster') %>% 
+  ggplot(aes(x = reorder(cluster, -n),
+             y = n,
+             fill = comparison)) +
+  geom_col(color = 'black') +
+  facet_wrap(~comparison, scales = 'free_y') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = '',
+       y = '# DEGs')
+```
+
+
+##### Heatmap
+```{r}
+top_genes <- de_combined %>% 
+  filter(comparison %in% c('PV vs HC'),
+         !str_detect(gene, '^MT-|^RP[SL]|^MRP[SL]')) %>% 
+  filter(p_val_adj < p_adj_cutoff,
+         avg_log2FC > 0) %>% 
+  group_by(cluster) %>% 
+  slice_max((avg_log2FC), n = 50)
+
+top_genes
+```
+
+```{r}
+heatmap_cells <- seuratobj@meta.data %>% rownames()
+heatmap_data <- pseudobulk(seuratobj,
+                           cells = heatmap_cells,
+                           genes = top_genes$gene %>% unique(),
+                           group_by = c('ultracluster', 'id'))
+
+heatmap_data
+```
+### Voom-normalized counts for visualization
+```{r}
+heatmap_cells <- seuratobj@meta.data %>% filter(condition != 'AD', ultracluster == 'Trm') %>% rownames()
+pseudo_matrix <- pseudobulk_matrix(seuratobj,
+                                   cells = heatmap_cells,
+                                   group_by = c('ultracluster', 'id'))
+voom <- limma::voom(pseudo_matrix)
+```
+
+```{r}
+
+```
+
+
+```{r}
+patient_level_fc %>% 
+  filter(level == 'ultracluster',
+  cluster %in% c('Trm', 'Mac', 'Mast', 'Mono')) %>% 
+  ggplot(aes(x = ))
+```
+
+
+```{r}
+plot_input <- heatmap_data %>% 
+  inner_join(top_genes %>% select(ultracluster = cluster, gene)) %>% 
+  mutate(description = paste(condition, group, treatment) %>% str_remove(' NA None') %>% str_remove('PV ')) %>% 
+  mutate(description = ifelse(treatment == 'Pre', 'PV', description)) %>% 
+  filter(description %in% c('HC', 'PV', 'Responder Mid', 'AD')) %>% 
+  group_by(gene, patient, ultracluster, description) %>% 
+  summarize(counts = sum(counts),
+            total = sum(total),
+            cpm = counts/total * 1e6) %>% 
+  ungroup() %>% 
+  select(gene, ultracluster, description, cpm) %>% 
+  pivot_wider(names_from = description,
+              values_from = cpm) %>% 
+  mutate(PV = log2(PV / HC),
+         Mid = log2(`Responder Mid` / HC),
+         AD = log2(AD / HC)) %>% 
+  # filter(PV > 0,
+  #        !is.infinite(PV),
+  #        !is.infinite(Mid),
+  #        !is.infinite(AD)) %>% 
+  # group_by(ultracluster) %>% 
+  # slice_max(PV, n = 50) %>% 
+  # ungroup() %>% 
+  select(ultracluster, gene, PV, Mid, AD) %>% 
+  pivot_longer(cols = -c(ultracluster, gene),
+               names_to = 'condition',
+               values_to = 'value') %>% 
+  arrange(value)
+
+l2fc <- plot_input %>% 
+  group_by(ultracluster, condition) %>% 
+  summarize(l2fc = mean(value)) %>% 
+  arrange(-l2fc) 
+
+plot_order <- l2fc %>% filter(condition == 'PV') %>% pull(ultracluster)
+
+cor_metrics <-  map(plot_order, function(i) {
+  
+  cor_subset <- plot_input %>% 
+    filter(ultracluster == i) %>% 
+    pivot_wider(names_from = condition,
+                values_from = value)
+  
+  pv_mid_cor <- cor(cor_subset$Mid,
+                    cor_subset$PV, 
+                    method = 'pearson')
+  
+  pv_ad_cor <- cor(cor_subset$AD,
+                   cor_subset$PV, 
+                   method = 'pearson')
+  
+  tibble('ultracluster' = i,
+         'Mid' = pv_mid_cor,
+         'AD' = pv_ad_cor)
+  
+}) %>% bind_rows()
+  
+
+p1 <- map(plot_order, function(which_cluster) {
+  
+  heatmap_subset <- plot_input %>% 
+    filter(ultracluster == which_cluster) %>% 
+    arrange(value)
+  
+    gene_order <- heatmap_subset %>% filter(condition == 'PV') %>% pull(gene)
+  
+  heatmap_subset %>% 
+    ggplot(aes(x = factor(condition, levels = c('PV', 'Mid', 'AD')),
+               y = factor(gene, levels = gene_order),
+               fill = value)) +
+    geom_tile(color = 'black', linewidth = 0.5) +
+    geom_tile(color = NA) +
+    scale_fill_gradientn(colors = colorRampPalette(rev(RColorBrewer::brewer.pal(n = 7, name = "RdBu")))(100),
+                         limits = c(-4, 4),
+                         breaks = seq(-4, 4, length.out = 5),
+                         oob = scales::squish,
+                         guide = guide_colorbar(frame.colour = 'black', 
+                                                ticks = FALSE, 
+                                                nbin = 50,
+                                                barwidth = 2,
+                                                title = NULL,
+                                                barheight = 0.2)) +
+    labs(x = '',
+         y = '',
+         title = which_cluster) +
+    theme(legend.position = 'top',
+          axis.ticks = element_blank(),
+          legend.text = element_text(size = 5),
+          panel.border = element_rect(color = NA),
+          axis.line = element_blank(),
+          axis.text.y = element_blank(),
+          axis.text.x = element_text(size = 6, hjust = 0.5),
+          plot.title = element_text(size = 8),
+          plot.subtitle = element_text(size = 7, hjust = 0.5))
+
+
+}) %>% patchwork::wrap_plots(nrow = 1)
+
+p2 <- l2fc %>% 
+  filter(condition %in% c('PV', 'Mid')) %>% 
+  ggplot(aes(x = factor(ultracluster, levels = plot_order),
+             y = l2fc,
+             color = condition)) +
+  geom_point(size = 2) +
+  labs(x = '',
+       y = '',
+       title = 'Avg log2FC PV/HC') +
+  ylim(c(0, NA)) +
+  scale_color_few() +
+  theme(plot.title = element_text(size = 7),
+        axis.text = element_text(size = 6),
+        legend.position = 'bottom') 
+
+p3 <- cor_metrics %>% 
+  pivot_longer(cols = -ultracluster,
+               names_to = 'group',
+               values_to = 'cor') %>% 
+  ggplot(aes(x = factor(ultracluster, levels = plot_order),
+             y = cor,
+             color = group)) +
+  geom_point(size = 2) +
+  labs(x = '',
+       y = '',
+       title = 'Correlation to PV/HC') +
+  scale_y_continuous(breaks = c(0, 1),
+                     limits = c(0, 1)) +
+  scale_color_manual(values = c('orangered', 'dodgerblue4')) +
+  theme(plot.title = element_text(size = 7),
+        axis.text = element_text(size = 6),
+        legend.position = 'bottom')
+
+p_table <- l2fc %>% 
+  pivot_wider(names_from = condition,
+              values_from = l2fc,
+              names_prefix = 'l2fc_') %>% 
+  left_join(cor_metrics %>% set_names(c('ultracluster', 'cor_Mid', 'cor_AD'))) %>% 
+  mutate(across(where(is.numeric), round, 3)) %>% t()
+
+table_theme <- gridExtra::ttheme_default(
+  core = list(fg_params=list(cex = 0.5)),
+  colhead = list(fg_params=list(cex = 0.5)),
+  rowhead = list(fg_params=list(cex = 0.5)))
+
+p4 <- gridExtra::tableGrob(p_table, theme = table_theme)
+
+p <- patchwork::wrap_plots(p1, p2, p3, p4, nrow = 4, heights = c(8, 1, 1, 1))
+
+ggsave(plot = p,
+       device = cairo_pdf,
+       path = here(output_dir, 'heatmaps'),
+       w = 12,
+       h = 14,
+       filename = 'ultracluster_50_figure.pdf')
+
+# table of genes
+plot_input %>% 
+  pivot_wider(names_from = condition,
+              values_from = value) %>% 
+  arrange(ultracluster, -PV) %>% 
+  write_excel_notebook(output_file = here(output_dir, 'ultracluster_50_gene_l2fc.xlsx'), 
+                       tabs = 'ultracluster', 
+                       prefix = '')
+
+l2fc %>% 
+  pivot_wider(names_from = condition,
+              values_from = l2fc) %>% 
+  write_tsv(file = here(output_dir, 'l2fc_50.tsv'))
+
+cor_metrics %>% 
+  write_tsv(file = here(output_dir, 'cor_50.tsv'))
+```
+
+##### Ultracluster
+
+```{r}
+heatmap_genes <- de_combined_ultracluster %>% 
+  filter(comparison %in% c('PV vs HC'),
+         !str_detect(gene, '^MT-|^RP[SL]|^MRP[SL]')) %>% 
+  filter(p_val_adj < p_adj_cutoff,
+         avg_log2FC > 0) %>% 
+  group_by(cluster) %>% 
+  slice_max((avg_log2FC), n = 1000)
+
+heatmap_genes
+```
+```{r}
+de_tally <- de_combined_ultracluster %>% 
+  filter(comparison %in% c('PV vs HC'),
+         !str_detect(gene, '^MT-|^RP[SL]|^MRP[SL]')) %>% 
+  filter(p_val_adj < p_adj_cutoff,
+         avg_log2FC > 0) %>% 
+  group_by(cluster) %>% 
+  tally()
+
+de_tally
+```
+
+```{r}
+heatmap_data <- pseudobulk(seuratobj,
+                           cells = heatmap_cells,
+                           genes = heatmap_genes$gene %>% unique(),
+                           group_by = c('ultracluster', 'condition', 'treatment', 'group')) 
+
+heatmap_data
+```
+### Fold-change
+```{r}
+plot_input <- heatmap_data %>% 
+  inner_join(heatmap_genes %>% select(ultracluster = cluster, gene)) %>% 
+  mutate(description = paste(condition, group, treatment) %>% str_remove(' NA None') %>% str_remove('PV ')) %>% 
+  mutate(description = ifelse(treatment == 'Pre', 'PV', description)) %>% 
+  filter(description %in% c('HC', 'PV', 'Responder Mid', 'AD')) %>% 
+  group_by(gene, ultracluster, description) %>% 
+  summarize(counts = sum(counts),
+            total = sum(total),
+            cpm = counts/total * 1e6) %>% 
+  ungroup() %>% 
+  select(gene, ultracluster, description, cpm) %>% 
+  pivot_wider(names_from = description,
+              values_from = cpm) %>% 
+  mutate(PV = log2(PV / HC),
+         Mid = log2(`Responder Mid` / HC),
+         AD = log2(AD / HC)) %>% 
+  filter(PV > 0,
+         !is.infinite(PV),
+         !is.infinite(Mid),
+         !is.infinite(AD)) %>% 
+  group_by(ultracluster) %>% 
+  slice_max(PV, n = 50) %>% 
+  ungroup() %>% 
+  select(ultracluster, gene, PV, Mid, AD) %>% 
+  pivot_longer(cols = -c(ultracluster, gene),
+               names_to = 'condition',
+               values_to = 'value') %>% 
+  arrange(value)
+
+l2fc <- plot_input %>% 
+  group_by(ultracluster, condition) %>% 
+  summarize(l2fc = mean(value)) %>% 
+  arrange(-l2fc) 
+
+plot_order <- l2fc %>% filter(condition == 'PV') %>% pull(ultracluster)
+
+cor_metrics <-  map(plot_order, function(i) {
+  
+  cor_subset <- plot_input %>% 
+    filter(ultracluster == i) %>% 
+    pivot_wider(names_from = condition,
+                values_from = value)
+  
+  pv_mid_cor <- cor(cor_subset$Mid,
+                    cor_subset$PV, 
+                    method = 'pearson')
+  
+  pv_ad_cor <- cor(cor_subset$AD,
+                   cor_subset$PV, 
+                   method = 'pearson')
+  
+  tibble('ultracluster' = i,
+         'Mid' = pv_mid_cor,
+         'AD' = pv_ad_cor)
+  
+}) %>% bind_rows()
+  
+
+p1 <- map(plot_order, function(which_cluster) {
+  
+  heatmap_subset <- plot_input %>% 
+    filter(ultracluster == which_cluster) %>% 
+    arrange(value)
+  
+    gene_order <- heatmap_subset %>% filter(condition == 'PV') %>% pull(gene)
+  
+  heatmap_subset %>% 
+    ggplot(aes(x = factor(condition, levels = c('PV', 'Mid', 'AD')),
+               y = factor(gene, levels = gene_order),
+               fill = value)) +
+    geom_tile(color = 'black', linewidth = 0.5) +
+    geom_tile(color = NA) +
+    scale_fill_gradientn(colors = colorRampPalette(rev(RColorBrewer::brewer.pal(n = 7, name = "RdBu")))(100),
+                         limits = c(-4, 4),
+                         breaks = seq(-4, 4, length.out = 5),
+                         oob = scales::squish,
+                         guide = guide_colorbar(frame.colour = 'black', 
+                                                ticks = FALSE, 
+                                                nbin = 50,
+                                                barwidth = 2,
+                                                title = NULL,
+                                                barheight = 0.2)) +
+    labs(x = '',
+         y = '',
+         title = which_cluster) +
+    theme(legend.position = 'top',
+          axis.ticks = element_blank(),
+          legend.text = element_text(size = 5),
+          panel.border = element_rect(color = NA),
+          axis.line = element_blank(),
+          axis.text.y = element_blank(),
+          axis.text.x = element_text(size = 6, hjust = 0.5),
+          plot.title = element_text(size = 8),
+          plot.subtitle = element_text(size = 7, hjust = 0.5))
+
+
+}) %>% patchwork::wrap_plots(nrow = 1)
+
+p2 <- l2fc %>% 
+  filter(condition %in% c('PV', 'Mid')) %>% 
+  ggplot(aes(x = factor(ultracluster, levels = plot_order),
+             y = l2fc,
+             color = condition)) +
+  geom_point(size = 2) +
+  labs(x = '',
+       y = '',
+       title = 'Avg log2FC PV/HC') +
+  ylim(c(0, NA)) +
+  scale_color_few() +
+  theme(plot.title = element_text(size = 7),
+        axis.text = element_text(size = 6),
+        legend.position = 'bottom') 
+
+p3 <- cor_metrics %>% 
+  pivot_longer(cols = -ultracluster,
+               names_to = 'group',
+               values_to = 'cor') %>% 
+  ggplot(aes(x = factor(ultracluster, levels = plot_order),
+             y = cor,
+             color = group)) +
+  geom_point(size = 2) +
+  labs(x = '',
+       y = '',
+       title = 'Correlation to PV/HC') +
+  scale_y_continuous(breaks = c(0, 1),
+                     limits = c(0, 1)) +
+  scale_color_manual(values = c('orangered', 'dodgerblue4')) +
+  theme(plot.title = element_text(size = 7),
+        axis.text = element_text(size = 6),
+        legend.position = 'bottom')
+
+p_table <- l2fc %>% 
+  pivot_wider(names_from = condition,
+              values_from = l2fc,
+              names_prefix = 'l2fc_') %>% 
+  left_join(cor_metrics %>% set_names(c('ultracluster', 'cor_Mid', 'cor_AD'))) %>% 
+  mutate(across(where(is.numeric), round, 3)) %>% t()
+
+table_theme <- gridExtra::ttheme_default(
+  core = list(fg_params=list(cex = 0.5)),
+  colhead = list(fg_params=list(cex = 0.5)),
+  rowhead = list(fg_params=list(cex = 0.5)))
+
+p4 <- gridExtra::tableGrob(p_table, theme = table_theme)
+
+p <- patchwork::wrap_plots(p1, p2, p3, p4, nrow = 4, heights = c(8, 1, 1, 1))
+
+ggsave(plot = p,
+       device = cairo_pdf,
+       path = here(output_dir, 'heatmaps'),
+       w = 12,
+       h = 14,
+       filename = 'ultracluster_50_figure.pdf')
+
+# table of genes
+plot_input %>% 
+  pivot_wider(names_from = condition,
+              values_from = value) %>% 
+  arrange(ultracluster, -PV) %>% 
+  write_excel_notebook(output_file = here(output_dir, 'ultracluster_50_gene_l2fc.xlsx'), 
+                       tabs = 'ultracluster', 
+                       prefix = '')
+
+l2fc %>% 
+  pivot_wider(names_from = condition,
+              values_from = l2fc) %>% 
+  write_tsv(file = here(output_dir, 'l2fc_50.tsv'))
+
+cor_metrics %>% 
+  write_tsv(file = here(output_dir, 'cor_50.tsv'))
+```
+### CPM
+
+```{r}
+heatmap_data
+```
+
+
+### Fold-change and correlation for different groups
+```{r}
+patient_cluster_pseudobulk <- pseudobulk(seuratobj,
+                                         cells = heatmap_cells,
+                                         genes = heatmap_genes$gene %>% unique(),
+                                         group_by = c('id', 'ultracluster')) 
+
+gene_subset <- patient_cluster_pseudobulk %>% 
+  left_join(patient_meta) %>% 
+  inner_join(heatmap_genes %>% select(ultracluster = cluster, gene))
+```
+
+#### PV (PV + tildra pre), AD, Responder Mid, Non-responder mid
+```{r}
+main_groups <- gene_subset %>% 
+  mutate(description = paste(condition, group, treatment) %>% str_remove(' NA None') %>% str_remove('PV ')) %>% 
+  mutate(description = ifelse(treatment == 'Pre', 'PV', description)) %>% 
+  group_by(gene, ultracluster, description) %>% 
+  summarize(counts = sum(counts),
+            total = sum(total),
+            cpm = counts/total * 1e6) %>% 
+  ungroup() %>% 
+  select(gene, ultracluster, description, cpm) %>% 
+  pivot_wider(names_from = description,
+              values_from = cpm) %>% 
+  mutate(PV = log2(PV / HC),
+         ResponderMid = log2(`Responder Mid` / HC),
+         NonresponderMid = log2(`Non-responder Mid` / HC),
+         AD = log2(AD / HC)) %>% 
+  select(gene, ultracluster, PV, ResponderMid, NonresponderMid, AD)
+  
+main_groups
+  
+```
+
+#### Tcell response
+```{r}
+tcell_groups <- gene_subset %>% 
+  mutate(description = paste(condition, tcellgroup, treatment) %>% str_remove(' NA None') %>% str_remove('PV ')) %>% 
+  group_by(gene, ultracluster, description) %>% 
+  summarize(counts = sum(counts),
+            total = sum(total),
+            cpm = counts/total * 1e6) %>% 
+  ungroup() %>% 
+  select(gene, ultracluster, description, cpm) %>% 
+  pivot_wider(names_from = description,
+              values_from = cpm) %>% 
+  mutate(TResponderMid = log2(`Tcell Responder Mid` / HC),
+         TNonresponderMid = log2(`Tcell Non-responder Mid` / HC)) %>% 
+  select(gene, ultracluster, contains('ponderMid'))
+  
+tcell_groups
+```
+#### Merge
+```{r}
+merged_groups <- main_groups %>% 
+  left_join(tcell_groups) %>% 
+  mutate(across(where(is.numeric), round, 3)) %>% 
+  filter(!is.infinite(PV)) %>% 
+#  filter_all(all_vars(!is.infinite(.))) %>% 
+
+  group_by(ultracluster, gene) %>% 
+  arrange(ultracluster, -PV)
+merged_groups
+```
+### Avg log2fc
+```{r}
+top50 <- merged_groups %>% 
+  group_by(ultracluster) %>% 
+  slice_max(PV, n = 50)
+
+top50_l2fc <- top50 %>% 
+  group_by(ultracluster) %>% 
+  summarize(across(where(is.numeric), mean)) %>% 
+  arrange(-PV)
+
+top50_l2fc
+```
+```{r}
+merged_groups %>% write_excel_notebook(output_file = here(output_dir, 'l2fc_by_group.xlsx'), tabs = 'ultracluster', prefix = '')
+```
+
+```{r}
+top50_l2fc <- top50 %>% 
+  group_by(ultracluster) %>% 
+  summarize(across(where(is.numeric), mean)) %>% 
+  arrange(-PV)
+
+top50_l2fc
+```
+
+### Boxplot signatures
+#### CPM
+```{r}
+plot_input <- patient_cluster_pseudobulk %>% 
+  inner_join(signatures %>% select(ultracluster, gene, combo)) %>% 
+  left_join(patient_meta) %>% 
+  mutate(description = paste(condition, group, treatment)) %>% 
+  mutate(description = description %>% str_remove(' NA None') %>% str_remove('PV ')) %>% 
+  mutate(description = ifelse(treatment == 'Pre', 'PV', description)) %>% 
+  mutate(description = factor(description, levels = c('HC', 'PV', 'AD', 'Responder Mid', 'Non-responder Mid')))
+
+p <- map(signatures$ultracluster %>% unique(), function(which_ultracluster) {
+
+  
+  plot_input %>% 
+    filter(ultracluster == which_ultracluster) %>% 
+    ggplot(aes(x = description, 
+               y = cpm,
+               fill = description)) +
+    geom_boxplot() +
+    facet_wrap(~combo, scales = 'free_y', nrow = 1) +
+    labs(y = 'Counts per Million',
+         x = '',
+         title = which_ultracluster) + 
+    scale_fill_few() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+}) %>% patchwork::wrap_plots(nrow = 3)
+
+ggsave(plot = p,
+       device = cairo_pdf,
+       path = output_dir,
+       filename = 'boxplot_signature_cpm.pdf',
+       w = 20,
+       h = 10)
+```
+
+### Stats
+```{r}
+comparisons <- crossing('group1' = as.character(plot_input$description),
+                        'group2' = as.character(plot_input$description),
+                        'combo' = plot_input$combo) %>% 
+  rowwise() %>% 
+  mutate(comparison = ifelse(group1 < group2, 
+                             paste0(group1, ':', group2),
+                             paste0(group2, ':', group1))) %>% 
+  unique() %>% 
+  filter(group1 != group2,
+         group2 > group1) 
+
+comparisons
+
+boxplot_stats <- map(1:nrow(comparisons), function(i) {
+  
+  parameters <- comparisons[i, ]
+  
+  group1_values <- plot_input %>% filter(description == parameters$group1, combo == parameters$combo) %>% pull(cpm)
+  group2_values <- plot_input %>% filter(description == parameters$group2, combo == parameters$combo) %>% pull(cpm)
+  
+  res <- wilcox.test(group1_values,
+                     group2_values)
+  
+  tibble(combo = parameters$combo,
+         comparison = parameters$comparison,
+         pval = res$p.value)
+  
+}) %>% bind_rows()
+
+boxplot_stats %>% 
+  #mutate(sig = ifelse(pval < 0.05, TRUE, FALSE)) %>% 
+  mutate(pval = round(pval, 3)) %>% 
+  filter(comparison %in% 
+           c('PV:Responder Mid',
+             'Non-responder Mid:PV',
+             'HC:Responder Mid',
+             'HC:Non-responder Mid',
+             'HC:PV')) %>% 
+  pivot_wider(names_from = comparison,
+              values_from = pval) %>% 
+  separate(col = combo,
+           into = c('ultracluster', 'gene'),
+           sep = ':') %>% 
+  write_excel_notebook(output_file = here(output_dir, 'boxplot_stats.xlsx'),
+                       tabs = 'ultracluster',
+                       prefix = '')
+```
+
+#### L2FC
+```{r}
+data_prep <- patient_cluster_pseudobulk %>% 
+  inner_join(signatures %>% select(ultracluster, gene, combo)) %>% 
+  left_join(patient_meta) %>% 
+  mutate(description = paste(condition, group, treatment)) %>% 
+  mutate(description = description %>% str_remove(' NA None') %>% str_remove('PV ')) %>% 
+  mutate(description = ifelse(treatment == 'Pre', 'PV', description))
+
+hc_avg <- data_prep %>% 
+  filter(description == 'HC') %>% 
+  group_by(ultracluster, gene) %>% 
+  summarize(counts = sum(counts),
+            total = sum(total),
+            cpm = counts/total * 1e6) %>% 
+  ungroup() 
+
+plot_input <- data_prep %>% 
+  filter(description != 'HC') %>% 
+  left_join(hc_avg %>% select(ultracluster, gene, hc_cpm = cpm)) %>% 
+  mutate(l2fc = log2(cpm / hc_cpm)) %>% 
+  mutate(description = factor(description, levels = c('PV', 'AD', 'Responder Mid', 'Non-responder Mid')))
+
+p <- map(signatures$ultracluster %>% unique(), function(which_ultracluster) {
+
+  
+  plot_input %>% 
+    filter(ultracluster == which_ultracluster) %>% 
+    ggplot(aes(x = description, 
+               y = l2fc,
+               fill = description)) +
+    geom_boxplot() +
+    facet_wrap(~combo, scales = 'free_y', nrow = 1) +
+    labs(y = 'log2 FC vs HC',
+         x = '',
+         title = which_ultracluster) + 
+    scale_fill_few() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+}) %>% patchwork::wrap_plots(nrow = 3)
+
+ggsave(plot = p,
+       device = cairo_pdf,
+       path = output_dir,
+       filename = 'boxplot_signature_l2fc.pdf',
+       w = 20,
+       h = 10)
+```
+
+
+### LogCPM
+```{r}
+plot_clusters <- intersect(levels(seuratobj$ultracluster), heatmap_genes$cluster)
+
+p <- map(plot_clusters, function(which_cluster) {
+  
+  cluster_genes <- heatmap_genes %>% filter(cluster == which_cluster) %>% pull(gene) %>% unique()
+  
+  heatmap_subset <- heatmap_data %>% 
+    filter(ultracluster == which_cluster,
+           gene %in% cluster_genes) %>% 
+    mutate(description = paste(condition, group, treatment)) %>% 
+    mutate(description = description %>% str_remove(' NA None') %>% str_remove('PV ')) %>% 
+    filter(description %in% c('HC', 'PV', 'Responder Mid')) %>% 
+    mutate(description = ifelse(description == 'Responder Mid', 'Mid', description)) %>% 
+    select(gene, description, log10cpm) %>% 
+    pivot_wider(names_from = description,
+                values_from = log10cpm) %>% 
+    select(gene, PV, HC, Mid) %>% 
+    pivot_longer(cols = -gene,
+                 names_to = 'condition',
+                 values_to = 'value') %>% 
+    arrange(value)
+  
+  gene_order <- heatmap_subset %>% filter(condition == 'PV') %>% pull(gene)
+  
+  heatmap_subset %>% 
+    ggplot(aes(x = factor(condition, levels = c('PV', 'HC', 'Mid')),
+               y = factor(gene, levels = gene_order),
+               fill = value)) +
+    #geom_tile(color = 'black', linewidth = 0.25) +
+    geom_tile(color = NA) +
+    scale_fill_gradientn(colors = colorRampPalette(rev(RColorBrewer::brewer.pal(n = 7, name = "RdBu")))(100),
+                         limits = c(0, 4),
+                         breaks = seq(0, 4, length.out = 4),
+                         oob = scales::squish,
+                         guide = guide_colorbar(frame.colour = 'black', 
+                                                ticks = FALSE, 
+                                                nbin = 50,
+                                                barwidth = 2,
+                                                barheight = 0.2)) +
+    labs(x = '',
+         y = '',
+         title = which_cluster) +
+    theme(legend.position = 'top',
+          axis.ticks = element_blank(),
+          legend.text = element_blank(),
+          panel.border = element_rect(color = NA),
+          axis.line = element_blank(),
+          #axis.text.y = element_text(size = 5),
+          axis.text.y = element_blank(),
+          plot.title = element_text(size = 8))
+  
+  
+
+}) %>% patchwork::wrap_plots(nrow = 3)
+
+ggsave(plot = p,
+       device = cairo_pdf,
+       path = here(output_dir, 'heatmaps'),
+       w = 10,
+       h = 24,
+       filename = 'ultracluster_1k_expression.pdf')
+```
+
+```{r}
+heatmap_genes <- de_combined_supercluster %>% 
+  filter(comparison %in% c('PV vs HC',
+                           'Responder Pre vs Responder Mid')) %>% 
+  filter(p_val_adj < p_adj_cutoff) %>% 
+  group_by(gene, comparison) %>% 
+  tally() %>% 
+  pivot_wider(names_from = comparison,
+              values_from = n,
+              values_fill = 0) %>% 
+  mutate(both = ifelse(`PV vs HC` * `Responder Pre vs Responder Mid` > 1, TRUE, FALSE),
+         total = `PV vs HC` + `Responder Pre vs Responder Mid`) %>% 
+  filter(total > 20, both) %>% 
+  arrange(-total)
+
+heatmap_genes
+```
+```{r}
+heatmap_genes <- de_combined_cluster %>% 
+  filter(comparison %in% c('PV vs HC')) %>% 
+  filter(p_val_adj < p_adj_cutoff) %>% 
+  group_by(cluster) %>% 
+  slice_max((avg_log2FC), n = 200)
+
+heatmap_genes
+```
+
+### heatmap of log fold-changes
+```{r}
+heatmap_genes
+```
+```{r}
+heatmap_genes$gene %>% n_distinct()
+```
+
+```{r}
+which_cluster <- 'Trm1'
+de_choice <- de_combined_cluster %>% 
+  filter(cluster == which_cluster,
+         comparison %in% c('PV vs HC',
+                           'Responder Pre vs Responder Mid'),
+         gene %in% heatmap_genes$gene)
+
+pheatmap_input <- de_choice %>% 
+  select(comparison, gene, avg_log2FC) %>% 
+  pivot_wider(names_from = comparison,
+              values_from = avg_log2FC) %>% 
+  column_to_rownames('gene') %>% 
+  drop_na()
+
+pheatmap_input
+```
+
+
+
+```{r}
+heatmap_cells <- seuratobj@meta.data %>% filter(condition != 'AD') %>% rownames()
+heatmap_data <- pseudobulk(seuratobj,
+                           cells = heatmap_cells,
+                           genes = heatmap_genes$gene %>% unique(),
+                           group_by = c('ultracluster', 'condition', 'treatment', 'group'))
+
+heatmap_data
+# heatmap_matrix <- pseudobulk_matrix(seuratobj,
+#                                     cells = heatmap_cells,
+#                                     group_by = c('cluster', 'condition', 'treatment', 'group'))
+
+# cells = heatmap_cells
+# group_by = c('cluster', 'condition', 'treatment', 'group')
+# metadata_groups <- FetchData(seuratobj, vars = group_by, cells = cells) 
+# metadata_groups$identifier <- apply(metadata_groups[ , group_by ] , 1 , paste , collapse = ':')
+# metadata_groups <- metadata_groups[cells, ]
+# 
+# input_matrix <- expression_matrix <- Matrix::t(seuratobj@assays$RNA@counts[, cells])
+# 
+# test <- aggregate(input_matrix, by = metadata_groups$identifier)
+
+```
+
+
+```{r eval=FALSE}
+which_cluster <- 'Trm'
+
+map(heatmap_genes$cluster %>% unique, function(which_cluster) {
+  
+  cluster_genes <- heatmap_genes %>% filter(cluster == which_cluster) %>% pull(gene) %>% unique()
+  
+  heatmap_subset <- heatmap_data %>% 
+    filter(supercluster == which_cluster,
+           gene %in% cluster_genes) %>% 
+    mutate(description = paste(condition, group, treatment)) %>% 
+    mutate(description = description %>% str_remove(' NA None') %>% str_remove('PV ')) %>% 
+    filter(description %in% c('HC', 'PV', 'Responder Mid')) %>% 
+    select(gene, description, cpm) %>% 
+    pivot_wider(names_from = description,
+                values_from = cpm) %>% 
+    mutate(PV = log2(PV / HC),
+           Mid = log2(`Responder Mid` / HC)) %>% 
+    select(gene, PV, Mid) %>% 
+    arrange(-PV) %>% 
+    column_to_rownames('gene')
+  
+  pheatmap_input <- heatmap_subset
+  
+  pheatmap(pheatmap_input,
+           colorRampPalette(rev(RColorBrewer::brewer.pal(n = 7, name = "RdBu")))(100),
+           breaks = seq(-3, 3, length.out = 101),
+           #scale = 'row',
+           cluster_cols = FALSE,
+           cluster_rows = FALSE,
+           angle_col = 0,
+           display_numbers = TRUE,
+           main = which_cluster)
+  
+  
+  
+})
+
+
+
+```
+
+```{r}
+#which_cluster <- 'Trm'
+
+plot_clusters <- intersect(levels(seuratobj$cluster), heatmap_genes$cluster)
+
+p <- map(plot_clusters, function(which_cluster) {
+  
+  cluster_genes <- heatmap_genes %>% filter(cluster == which_cluster) %>% pull(gene) %>% unique()
+  
+  heatmap_subset <- heatmap_data %>% 
+    filter(cluster == which_cluster,
+           gene %in% cluster_genes) %>% 
+    mutate(description = paste(condition, group, treatment)) %>% 
+    mutate(description = description %>% str_remove(' NA None') %>% str_remove('PV ')) %>% 
+    filter(description %in% c('HC', 'PV', 'Responder Mid')) %>% 
+    select(gene, description, cpm) %>% 
+    pivot_wider(names_from = description,
+                values_from = cpm) %>% 
+    mutate(PV = log2(PV / HC),
+           Mid = log2(`Responder Mid` / HC)) %>% 
+    select(gene, PV, Mid) %>% 
+    pivot_longer(cols = -gene,
+                 names_to = 'condition',
+                 values_to = 'value') %>% 
+    arrange(-value)
+  
+  heatmap_subset %>% 
+    ggplot(aes(x = factor(condition, levels = c('PV', 'Mid')),
+               y = reorder(gene, value),
+               fill = value)) +
+    geom_tile(color = 'black', linewidth = 0.25) +
+    scale_fill_gradientn(colors = colorRampPalette(rev(RColorBrewer::brewer.pal(n = 7, name = "RdBu")))(100),
+                         limits = c(-4, 4),
+                         breaks = seq(-4, 4, length.out = 5),
+                         oob = scales::squish,
+                         guide = guide_colorbar(frame.colour = 'black', ticks = FALSE, nbin = 50)) +
+    labs(x = '',
+         y = '',
+         title = which_cluster) +
+    theme(legend.position = 'top',
+          axis.ticks = element_blank(),
+          plot.background = element_rect(color = 'white', fill = 'white'),
+          panel.border = element_rect(color = NA),
+          #axis.text.y = element_text(size = 5),
+          axis.text.y = element_blank(),
+          axis.line = element_blank())
+  
+  
+
+}) %>% patchwork::wrap_plots(nrow = 3)
+
+ggsave(plot = p,
+       path = output_dir,
+       h = 20,
+       w = 20,
+       filename = 'ultracluster_heatmap.png')
+```
+
+```{r}
+
+```
+
+### Figure 2B
+#### Volcano PV vs HC
+```{r}
+which_cluster <- str_subset(de_subset$cluster, 'Trm') %>% unique() %>% sort() %>% head(1)
+
+de_subset %>% 
+  filter(cluster == which_cluster) %>% 
+  ggplot(aes(x = avg_log2FC,
+             y = -log10(p_val_adj),
+             color = sig,
+             label = gene)) +
+  geom_point(alpha = 0.3) +
+  facet_wrap(~comparison, scales = 'free_y') +
+  scale_color_manual(values = c('grey50', 'darkorchid4')) +
+  geom_text_repel(data = de_subset %>% filter(cluster == which_cluster) %>% group_by(comparison) %>% top_n(10, abs(avg_log2FC)), box.padding = 0.5) +
+  labs(x = 'log2 fold-change',
+       y = '-log10 adj. p-value')
+  
+```
+### Figure 2C
+What is corrected by treatment?
+
+Import gene sets
+```{r}
+genesets <- read_tsv(here('analysis/output/msigdb/il23_il17_gene_sets.tsv'))
+```
+
+```{r}
+response_genes <- de_combined_cluster %>% 
+  filter(comparison == 'Responder Pre vs Responder Mid') %>% 
+  filter(p_val_adj < p_adj_cutoff,
+         avg_log2FC > 0) %>% 
+  top_n(10, wt = abs(avg_log2FC)) %>% 
+  pull(gene) %>% 
+  c('IL17A', 'IL17F', 'CXCL13')
+
+response_genes
+```
+### Extract expression
+```{r}
+genes_to_extract <- genesets$gene_symbol %>% unique()
+
+metadata_subset <- metadata %>% 
+  filter(group == 'Responder' | condition == 'HC',
+         cluster == which_cluster) %>% 
+  mutate(treatment = ifelse(treatment == 'None', 'Healthy', as.character(treatment)),
+         treatment = factor(treatment, levels = c('Pre', 'Mid', 'Healthy')))
+
+barcodes <- metadata_subset$rowname
+
+exprs <- FetchData(seuratobj, 
+                   cells = barcodes,
+                   vars = genes_to_extract) %>% 
+  rownames_to_column() %>% 
+  as_tibble()
+
+exprs
+
+```
+
+```{r}
+merged_table <- exprs %>% 
+  inner_join(metadata_subset %>% select(rowname, patient, id, condition, treatment, response, group, cluster)) %>% 
+  pivot_longer(cols = genes_to_extract,
+               names_to = 'gene',
+               values_to = 'expression')
+
+merged_table
+```
+```{r}
+p <- merged_table %>% 
+  ggplot(aes(x = treatment,
+             y = expression,
+             color = treatment)) +
+  geom_boxplot(outlier.shape = NA) +
+  #geom_sina(alpha = 0.1, size = 0.5) 
+  facet_wrap(~gene, scales = 'free_y') +
+  scale_color_carto_d() +
+  theme(legend.position = 'top')
+
+p
+```
+
+```{r}
+summarized_table <- merged_table %>% 
+  group_by(treatment, group, cluster, gene) %>% 
+  summarize(mean = mean(expression),
+            sd = sd(expression))
+
+summarized_table %>% head()
+```
+
+
+
+```{r}
+p <- summarized_table %>% 
+   ggplot(aes(x = treatment,
+              y = mean,
+              fill = treatment)) +
+  geom_col(color = 'black') +
+  facet_wrap(~gene, scales = 'free_y') +
+  scale_fill_carto_d() +
+  #theme(legend.position = 'top') +
+  labs(x = '',
+       y = 'Average Expression in Trm Cells')
+
+p
+```
+### Biocarta
+```{r}
+p <- summarized_table %>% 
+  filter(cluster == 'Trm1',
+         gene %in% (genesets %>% filter(gs_name == 'BIOCARTA_IL17_PATHWAY') %>% pull(gene_symbol))) %>% 
+   ggplot(aes(x = treatment,
+              y = mean,
+              fill = treatment)) +
+  geom_col(color = 'black') +
+  facet_wrap(~gene, scales = 'free_y') +
+  scale_fill_carto_d() +
+  #theme(legend.position = 'top') +
+  labs(x = '',
+       y = 'Average Expression in Trm Cells',
+       title = 'Biocarta IL17 Pathway')
+
+p
+```
+### Wikipathway
+```{r}
+p <- summarized_table %>% 
+  filter(cluster == 'Trm1',
+         gene %in% (genesets %>% filter(gs_name == 'WP_IL17_SIGNALING_PATHWAY') %>% pull(gene_symbol))) %>% 
+   ggplot(aes(x = treatment,
+              y = mean,
+              fill = treatment)) +
+  geom_col(color = 'black') +
+  facet_wrap(~gene, scales = 'free_y') +
+  scale_fill_carto_d() +
+  #theme(legend.position = 'top') +
+  labs(x = '',
+       y = 'Average Expression in Trm Cells',
+       title = 'Wikipathway IL17 Signaling Pathway')
+
+p
+```
+### PID
+```{r}
+p <- summarized_table %>% 
+  filter(cluster == 'Trm1',
+         gene %in% (genesets %>% filter(gs_name == 'PID_IL23_PATHWAY') %>% pull(gene_symbol))) %>% 
+   ggplot(aes(x = treatment,
+              y = mean,
+              fill = treatment)) +
+  geom_col(color = 'black') +
+  facet_wrap(~gene, scales = 'free_y') +
+  scale_fill_carto_d() +
+  #theme(legend.position = 'top') +
+  labs(x = '',
+       y = 'Average Expression in Trm Cells',
+       title = 'Pathway Interaction Database IL23 Pathway')
+
+p
+```
+
+```{r}
+shared_pathway_genes <- genesets %>% 
+  select(gs_name, gene_symbol) %>% 
+  unique() %>% 
+  group_by(gene_symbol) %>% 
+  tally() 
+```
+
+```{r}
+p <- summarized_table %>% 
+  filter(gene %in% (shared_pathway_genes %>% filter(n > 1) %>% pull(gene_symbol))) %>% 
+   ggplot(aes(x = treatment,
+              y = mean,
+              fill = treatment)) +
+  geom_col(color = 'black') +
+  facet_wrap(~gene, scales = 'free_y') +
+  scale_fill_carto_d() +
+  #theme(legend.position = 'top') +
+  labs(x = '',
+       y = 'Average Expression in Trm Cells',
+       title = 'Il23/IL17 Robust Gene Set')
+
+p
+```
+
+### clusterProfiler
+```{r}
+
+```
+
+```{r}
+summarized_table %>% 
+  filter(treatment != 'Healthy') %>% 
+  ggplot(aes(x = reorder(gene, -mean),
+             y = mean,
+             color = treatment,
+             group = gene)) +
+  geom_point(size = 3) +
+  geom_line(color = 'grey50', arrow = arrow(length = unit(0.2, "cm"), type = 'closed')) +
+  theme_dwu(legend.position = 'right') +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  scale_color_manual(values = c('orangered', 'dodgerblue4')) +
+  #geom_point(size = 2, data = summarized_table %>% filter(treatment == 'Healthy'), inherit.aes = FALSE, aes(x = reorder(gene, -mean), y = mean)) +
+  labs(x = '',
+       y = 'Average Trm Expression')
+```
+### Waterfall
+
+```{r}
+ray_genes <- c("IL17F", "GNLY", "LRRN3", "MGAT4A", "CHN1", "CTSH", "PTPN13", "GZMB", "ADGRG1", "SOX4", "GABPB1-AS1", "SNX9", "CD7", "CPM", "CTLA4", "ODF2L", "CBLB", "LAYN", "TNFAIP3", "ARHGEF12", "H1FX", "HIST1H1E", "YPEL2", "GBP5", "DAPK2", "RAP1B", "CXCL13", "FYN")
+
+genes_to_extract <- ray_genes
+
+metadata_subset <- analyze %>% 
+  filter(group %in% c('Responder', 'Non-responder') | condition == 'HC',
+         cluster == which_cluster) %>% 
+  mutate(treatment = ifelse(treatment == 'None', 'Healthy', as.character(treatment)),
+         treatment = factor(treatment, levels = c('Pre', 'Mid', 'Healthy')))
+
+
+
+barcodes <- metadata_subset$rowname
+exprs <- FetchData(seuratobj, 
+                   cells = barcodes,
+                   vars = genes_to_extract) %>% 
+  rownames_to_column() %>% 
+  as_tibble()
+
+exprs
+
+
+
+
+```
+
+```{r}
+merged_table <- exprs %>% 
+  inner_join(metadata_subset %>% select(rowname, patient, id, condition, treatment, group, cluster, patient_label)) %>% 
+  pivot_longer(cols = genes_to_extract,
+               names_to = 'gene',
+               values_to = 'expression')
+
+merged_table
+```
+
+
+```{r}
+p <- merged_table %>% 
+  filter(group == 'Responder' | treatment == 'Healthy') %>% 
+  ggplot(aes(x = treatment,
+             y = expression,
+             fill = treatment)) +
+  geom_boxplot(outlier.shape = NA, color = 'black', alpha = 0.8) +
+  #geom_sina(alpha = 0.1, size = 0.5) 
+  facet_wrap(~gene, scales = 'free_y') +
+  #scale_color_carto_d() +
+  scale_fill_manual(values = c('orangered', 'dodgerblue4', 'grey80')) +
+  theme(legend.position = 'top') +
+  labs(x = '',
+       y = 'Average Trm Expression')
+
+p
+```
+```{r}
+summarized_table <- merged_table %>% 
+  filter(group != 'Non-responder') %>% 
+  group_by(treatment, group, cluster, gene) %>% 
+  summarize(mean = mean(expression),
+            median = median(expression),
+            sd = sd(expression))
+```
+
+```{r}
+plot_input <- merged_table %>% 
+  group_by(patient, treatment, group, cluster, gene, patient_label) %>% 
+  summarize(mean = mean(expression)) 
+
+p <- plot_input %>% 
+  filter(treatment != 'Healthy') %>% 
+  ggplot(aes(x = reorder(gene, -mean),
+             y = mean,
+             color = treatment,
+             group = gene)) +
+  geom_point(size = 3) +
+  geom_line(color = 'grey50', arrow = arrow(length = unit(0.2, "cm"), type = 'closed')) +
+  theme_dwu(legend.position = 'right') +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  facet_wrap(~patient_label, scales = 'free_y', ncol = 4) +
+  scale_color_manual(values = c('orangered', 'dodgerblue4')) +
+  geom_point(size = 2,
+             data = plot_input %>% filter(treatment == 'Healthy') %>%
+               group_by(gene) %>%
+               summarize(mean = mean(mean)),
+             inherit.aes = FALSE,
+             aes(x = reorder(gene, -mean), y = mean),
+             shape = 1) +
+  labs(x = '',
+       y = 'Average Trm Expression')
+
+ggsave(plot = p,
+       path = output_dir,
+       filename = 'F3_waterfall.pdf',
+       h = 6,
+       w = 16)
+
+p
+```
+
+
+```{r}
+summarized_table %>% 
+  filter(treatment != 'Healthy') %>% 
+  ggplot(aes(x = reorder(gene, -mean),
+             y = mean,
+             color = treatment,
+             group = gene)) +
+  geom_point(size = 3) +
+  geom_line(color = 'grey50', arrow = arrow(length = unit(0.2, "cm"), type = 'closed')) +
+  theme_dwu(legend.position = 'right') +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  scale_color_manual(values = c('orangered', 'dodgerblue4')) +
+  geom_point(size = 2, 
+             data = summarized_table %>% filter(treatment == 'Healthy'), 
+             inherit.aes = FALSE, 
+             aes(x = reorder(gene, -mean), y = mean),
+             shape = 1
+             ) +
+  labs(x = '',
+       y = 'Average Trm Expression')
+```
+
+
+```{r}
+p <- summarized_table %>% 
+  ggplot(aes(x = treatment,
+              y = mean,
+              fill = treatment)) +
+  geom_bar(stat = 'identity', color = 'black', alpha = 0.8) + 
+  facet_wrap(~gene, scales = 'free_y') +
+  scale_color_carto_d() +
+  #theme(legend.position = 'top') +
+  scale_fill_manual(values = c('orangered', 'dodgerblue4', 'grey80')) +
+  labs(x = '',
+       y = 'Average Expression in Trm Cells')
+
+p
+  
+```
+
+
+### Figure
+Top genes from PV vs HC
+```{r}
+pv_vs_hc <- de_combined_cluster %>% 
+  filter(comparison == 'PV vs HC')
+
+pv_vs_hc
+```
+
+```{r}
+top_pv_vs_hc <- pv_vs_hc %>% 
+  filter(avg_log2FC > 0,
+         cluster == which_cluster) %>% 
+  top_n(10, pct.diff) %>%
+  pull(gene)
+
+top_pv_vs_hc
+```
+
+
+#### Which genes normalize?
+```{r}
+de_normalize <- de_combined_cluster %>% 
+  filter(comparison %in% c('PV vs HC', 'Pre vs Mid'),
+         cluster == which_cluster) %>% 
+  select(comparison, gene, avg_log2FC, pct.1, pct.2, pct.diff, p_val_adj) %>% 
+  pivot_wider(names_from = comparison,
+              values_from = avg_log2FC:p_val_adj) %>% 
+  mutate(avg_log2FC = ifelse(`avg_log2FC_PV vs HC` * `avg_log2FC_Pre vs Mid` > 0, TRUE, FALSE))
+
+de_normalize
+```
+
+```{r}
+de_normalize %>% 
+  filter(avg_log2FC)
+```
+
+
+
+### Extract expression
+```{r}
+genes_to_extract <- de_normalize$gene
+
+metadata_subset <- metadata %>% 
+  filter(group == 'Responder' | condition == 'HC',
+         cluster == which_cluster) %>% 
+  mutate(treatment = ifelse(treatment == 'None', 'Healthy', as.character(treatment)),
+         treatment = factor(treatment, levels = c('Pre', 'Mid', 'Healthy')))
+
+barcodes <- metadata_subset$rowname
+exprs <- FetchData(seuratobj, 
+                   cells = barcodes,
+                   vars = genes_to_extract) %>% 
+  rownames_to_column() %>% 
+  as_tibble()
+
+exprs
+
+```
+
+```{r}
+merged_table <- exprs %>% 
+  inner_join(metadata_subset %>% select(rowname, patient, id, condition, treatment, response, group, cluster)) %>% 
+  pivot_longer(cols = genes_to_extract,
+               names_to = 'gene',
+               values_to = 'expression')
+
+merged_table
+```
+```{r}
+summarized_table <- merged_table %>% 
+  group_by(patient, treatment, group, cluster, gene) %>% 
+  summarize(median = median(expression),
+            mean = mean(expression),
+            sd = sd(expression))
+
+summarized_table
+```
+
+```{r}
+summarized_table %>% 
+  filter(gene %in% genes_to_extract[1:20]) %>% 
+   ggplot(aes(x = treatment,
+              y = mean,
+              color = treatment)) +
+  geom_bar(stat = 'summary', color = 'black', fill = 'white', fun = 'mean') + 
+  geom_sina() +
+  facet_wrap(~gene, scales = 'free_y') +
+  scale_color_carto_d() +
+  #theme(legend.position = 'top') +
+  labs(x = '',
+       y = 'Average Expression in Trm Cells')
+```
+
+### DEG
+#### Global
+```{r}
+h <- 3
+w <- 3
+dpi <- 600
+
+which_comparison <- c('PV vs HC',
+                      'Pre vs Mid',
+                      'Responder Pre vs Responder Mid',
+                      'Non-responder Pre vs Non-responder Mid')
+
+
+
+cluster_levels <- seuratobj$cluster
+
+de_subset <- de_combined_cluster %>% 
+  filter(comparison %in% which_comparison) %>% 
+  mutate(comparison = factor(comparison, levels = which_comparison),
+         sig = ifelse(p_val_adj < p_adj_cutoff, TRUE, FALSE),
+         cluster = factor(cluster, levels = levels(seuratobj$cluster)))
+```
+
+### Figure 2A
+#### How many DE genes?
+##### Cluster
+```{r}
+p <- de_combined_cluster %>% 
+  filter(comparison %in% which_comparison) %>% 
+  mutate(comparison = factor(comparison, levels = which_comparison),
+         sig = ifelse(p_val_adj < p_adj_cutoff, TRUE, FALSE),
+         cluster = factor(cluster, levels = levels(seuratobj$cluster))) %>% 
+  filter(p_val_adj < p_adj_cutoff) %>% 
+  mutate(comparison = factor(comparison, levels = which_comparison)) %>% 
+  group_by(cluster, comparison) %>% 
+  tally() %>% 
+  ggplot(aes(x = cluster,
+             y = n,
+             fill = comparison)) +
+  geom_col(color = 'black') +
+  facet_wrap(~comparison, scales = 'free_y', nrow = 3) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  labs(x = '',
+       y = '# of DEGs') +
+  scale_fill_carto_d(drop = FALSE) +
+  scale_x_discrete(drop = FALSE)
+
+ggsave(plot = p,
+       filename = 'F2A_de_tally_cluster.pdf',
+       path = output_dir, 
+       h = 8,
+       w = 8)
+p
+```
+```{r}
+p <- de_combined_supercluster %>% 
+  filter(comparison %in% which_comparison) %>% 
+  mutate(comparison = factor(comparison, levels = which_comparison),
+         sig = ifelse(p_val_adj < p_adj_cutoff, TRUE, FALSE),
+         supercluster = factor(cluster, levels = levels(seuratobj$supercluster))) %>% 
+  filter(p_val_adj < p_adj_cutoff) %>% 
+  mutate(comparison = factor(comparison, levels = which_comparison)) %>% 
+  group_by(supercluster, comparison) %>% 
+  tally() %>% 
+  ggplot(aes(x = supercluster,
+             y = n,
+             fill = comparison)) +
+  geom_col(color = 'black') +
+  facet_wrap(~comparison, scales = 'free_y', nrow = 3) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  labs(x = '',
+       y = '# of DEGs') +
+  scale_fill_carto_d(drop = FALSE) +
+  scale_x_discrete(drop = FALSE)
+
+ggsave(plot = p,
+       filename = 'F2A_de_tally_supercluster.pdf',
+       path = output_dir, 
+       h = 8,
+       w = 8)
+p
+```
+
+#### Ultracluster
+```{r}
+p <- de_combined_ultracluster %>% 
+  filter(comparison %in% which_comparison) %>% 
+  mutate(comparison = factor(comparison, levels = which_comparison),
+         sig = ifelse(p_val_adj < p_adj_cutoff, TRUE, FALSE),
+         ultracluster = factor(cluster, levels = levels(seuratobj$ultracluster))) %>% 
+  filter(p_val_adj < p_adj_cutoff) %>% 
+  mutate(comparison = factor(comparison, levels = which_comparison)) %>% 
+  group_by(ultracluster, comparison) %>% 
+  tally() %>% 
+  ggplot(aes(x = ultracluster,
+             y = n,
+             fill = comparison)) +
+  geom_col(color = 'black') +
+  facet_wrap(~comparison, scales = 'free_y', nrow = 3) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  labs(x = '',
+       y = '# of DEGs') +
+  scale_fill_carto_d(drop = FALSE) +
+  scale_x_discrete(drop = FALSE)
+
+ggsave(plot = p,
+       filename = 'F2A_de_tally_ultracluster.pdf',
+       path = output_dir, 
+       h = 8,
+       w = 8)
+p
+```
+
+
+#### Up and down DEGs
+
+```{r}
+plot_input <- de_subset %>% 
+  filter(p_val_adj < p_adj_cutoff) %>% 
+  mutate(comparison = factor(comparison, levels = which_comparison),
+         direction = ifelse(avg_log2FC > 0, 'up', 'down')) %>% 
+  filter(comparison %in% c('Responder Pre vs Responder Mid',
+                           'Non-responder Pre vs Non-responder Mid')) %>% 
+  group_by(cluster, comparison, direction) %>% 
+  tally() %>% 
+  mutate(n = ifelse(direction == 'up', -n, n)) 
+
+max_limit <- max(abs(plot_input$n))
+  
+
+p <- plot_input %>% 
+  ggplot(aes(y = factor(cluster, levels = rev(levels(cluster))),
+             x = n,
+             fill = comparison)) +
+  geom_col(color = 'black') +
+  geom_vline(xintercept = 0) +
+  facet_wrap(~comparison, 
+             #scales = 'free_x', 
+             nrow = 1) +
+  scale_x_continuous(limits = c(-max_limit, max_limit),
+                     breaks = c(-500, 0, 500),
+                     labels = c('500 \n(Higher in Pre)', 0, '500 \n(Higher in Mid)')) + 
+  scale_y_discrete(drop = FALSE) +
+  ggthemes::scale_fill_few(drop = FALSE) +
+  labs(x = '# of DEGs',
+       y = '')  
+
+p
+```
+
+
+#### P6 excluded
+```{r}
+de_filtered <- read_tsv(here('analysis/output/08_de/', which_cluster, 'de_pre_vs_mid_responder_filtered.tsv.gz'))
+
+p <- bind_rows(de_subset %>% 
+            filter(comparison %in% c('Responder Pre vs Responder Mid')) %>% 
+            mutate(comparison = 'All Patients'),
+          de_filtered %>% mutate(comparison = 'Excluding P6')) %>% 
+  mutate(cluster = factor(cluster, levels = levels(seuratobj$cluster))) %>% 
+  filter(p_val_adj < p_adj_cutoff) %>% 
+  group_by(cluster, comparison) %>% 
+  tally() %>% 
+  ggplot(aes(x = cluster,
+             y = n,
+             fill = comparison)) +
+  geom_col(color = 'black') +
+  facet_wrap(~comparison, nrow = 2) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  scale_x_discrete(drop = FALSE) +
+  ggthemes::scale_fill_few(drop = FALSE) +
+  labs(x = '',
+       y = '# of DEGs')  
+
+p
+```
+
+#### P9 excluded
+```{r}
+de_nonresponder_filtered <- read_tsv(here('analysis/output/08_de/', 
+                                          which_ultracluster, 'de_pre_vs_mid_nonresponder_filtered.tsv.gz'))
+
+p <- bind_rows(de_combined_ultracluster %>% 
+                 filter(comparison %in% c('Non-responder Pre vs Non-responder Mid')),
+               de_nonresponder_filtered %>% mutate(comparison = 'Remove P9')) %>% 
+  mutate(cluster = factor(cluster, levels = levels(seuratobj$ultracluster))) %>% 
+  filter(p_val_adj < p_adj_cutoff) %>% 
+  group_by(cluster, comparison) %>% 
+  tally() %>% 
+  ggplot(aes(x = cluster,
+             y = n,
+             fill = comparison)) +
+  geom_col(color = 'black') +
+  facet_wrap(~comparison) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  scale_x_discrete(drop = FALSE) +
+  ggthemes::scale_fill_few(drop = FALSE) +
+  labs(x = '',
+       y = '# of DEGs')  
+
+p
+```
+#### DEG per cluster
+```{r}
+de_filtered %>% 
+  filter(p_val_adj < p_adj_cutoff) %>% 
+  group_by(cluster, n_group1, n_group2) %>% 
+  tally() %>% 
+  ggplot(aes(x = n_group1 + n_group2,
+             y = n)) +
+  geom_point() +
+  geom_text_repel(aes(label = cluster)) +
+  labs(x = '# of Cells in DE comparison',
+       y = '# of DEGs')
+```
+```{r}
+p <- de_subset %>% 
+  filter(comparison %in% c('Responder Pre vs Responder Mid',
+                           'Non-responder Pre vs Non-responder Mid')) %>% 
+  mutate(display = ifelse(str_detect(comparison, 'Non'), 'Non-responder', 'Responder')) %>% 
+  filter(p_val_adj < p_adj_cutoff) %>% 
+  group_by(cluster, display, n_group1, n_group2) %>% 
+  tally() %>% 
+  ggplot(aes(x = n_group1 + n_group2,
+             y = n,
+             label = display)) +
+  facet_wrap(~cluster, scales = 'free') +
+  geom_point() +
+  geom_text_repel() +
+  labs(x = '# of Cells in DE comparison',
+       y = '# of DEGs')
+
+p
+```
+
+
+
+## Session Info
+```{r}
+sessionInfo()
+```
