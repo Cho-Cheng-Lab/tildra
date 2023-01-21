@@ -30,6 +30,7 @@ dir.create(data_dir, showWarnings = FALSE)
 library(Seurat) 
 library(tidyverse)
 library(ggExtra)
+library(patchwork)
 library(ggthemes)
 library(ggforce)
 library(wutilities) # devtools::install_github('symbiologist/wutilities')
@@ -74,6 +75,7 @@ write_excel_notebook <- function(input_table,
 ### Import
 ```{r}
 seuratobj <- read_rds(here(data_dir, 'seuratobj_annotated.rds'))
+metadata <- seuratobj@meta.data %>% rownames_to_column()
 seuratobj
 ```
 ### Use global or local identities and set as cluster/supercluster in the object
@@ -194,7 +196,7 @@ ggplot(aes(x = treatment_group,
 
 ggsave(plot = p,
        device = cairo_pdf,
-       filename = 'F1E_box_combined.pdf',
+       filename = 'F2E_box_combined.pdf',
        path = output_dir,
        h = 5,
        w = 10)
@@ -224,7 +226,7 @@ ggplot(aes(x = treatment_group,
 
 ggsave(plot = p,
        device = cairo_pdf,
-       filename = 'F1E_box_all_clusters_n.pdf',
+       filename = 'F2E_box_all_clusters_n.pdf',
        path = output_dir,
        h = 8,
        w = 8)
@@ -254,7 +256,7 @@ ggplot(aes(x = treatment_group,
 
 ggsave(plot = p,
        device = cairo_pdf,
-       filename = 'F1E_box_all_clusters_f.pdf',
+       filename = 'F2E_box_all_clusters_f.pdf',
        path = output_dir,
        h = 8,
        w = 8)
@@ -285,7 +287,7 @@ ggplot(aes(x = treatment_group,
 
 ggsave(plot = p,
        device = cairo_pdf,
-       filename = 'F1E_box_all_superclusters_n.pdf',
+       filename = 'F2E_box_all_superclusters_n.pdf',
        path = output_dir,
        h = 8,
        w = 8)
@@ -315,7 +317,7 @@ ggplot(aes(x = treatment_group,
 
 ggsave(plot = p,
        device = cairo_pdf,
-       filename = 'F1E_box_all_superclusters_f.pdf',
+       filename = 'F2E_box_all_superclusters_f.pdf',
        path = output_dir,
        h = 8,
        w = 8)
@@ -324,7 +326,7 @@ p
 ```
 
 
-### Figure 1F
+### Figure 2F
 #### n
 ```{r}
 p <- cluster_tallies %>% 
@@ -348,7 +350,7 @@ p <- cluster_tallies %>%
 
 ggsave(plot = p,
        device = cairo_pdf,
-       filename = 'F1F_bar_patient_trm_combined.pdf',
+       filename = 'F2F_bar_patient_trm_combined.pdf',
        path = output_dir,
        h = 4,
        w = 4)
@@ -378,7 +380,7 @@ p <- cluster_tallies %>%
 
 ggsave(plot = p,
        device = cairo_pdf,
-       filename = 'F1F_bar_patient_mast.pdf',
+       filename = 'F2F_bar_patient_mast.pdf',
        path = output_dir,
        h = 4,
        w = 4)
@@ -416,7 +418,7 @@ p_cluster <- map(levels(cluster_tallies$cluster), function(i) {
   
   ggsave(plot = p,
          device = cairo_pdf,
-         filename = paste0('F1F_bar_patient_', str_replace(i, '/','+'),'.pdf'),
+         filename = paste0('F2F_bar_patient_', str_replace(i, '/','+'),'.pdf'),
          path = here(output_dir, 'patient_bar_cluster'),
          h = 4,
          w = 4)
@@ -459,7 +461,7 @@ p <- map(levels(supercluster_tallies$supercluster), function(i) {
   
   ggsave(plot = p,
          device = cairo_pdf,
-         filename = paste0('F1F_bar_patient_', str_replace(i, '/','+'),'.pdf'),
+         filename = paste0('F2F_bar_patient_', str_replace(i, '/','+'),'.pdf'),
          path = here(output_dir, 'patient_bar_supercluster'),
          h = 4,
          w = 4)
@@ -501,7 +503,7 @@ p_ultracluster <- map(levels(ultracluster_tallies$ultracluster), function(i) {
   
   ggsave(plot = p,
          device = cairo_pdf,
-         filename = paste0('F1F_bar_patient_', str_replace(i, '/','+'),'.pdf'),
+         filename = paste0('F2F_bar_patient_', str_replace(i, '/','+'),'.pdf'),
          path = here(output_dir, 'patient_bar_ultracluster'),
          h = 4,
          w = 4)
