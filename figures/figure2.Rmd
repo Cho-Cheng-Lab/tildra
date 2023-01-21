@@ -84,6 +84,7 @@ which_identity <- 'local'
 which_cluster <- paste0(which_identity, '_cluster')
 which_supercluster <- paste0(which_identity, '_supercluster')
 which_ultracluster <- paste0(which_identity, '_ultracluster')
+which_annotation <- which_supercluster
 
 seuratobj$cluster <- seuratobj[[which_cluster]] 
 seuratobj$supercluster <- seuratobj[[which_supercluster]] 
@@ -94,6 +95,20 @@ output_dir <- here(figures_dir, which_identity)
 dir.create(output_dir)
 ```
 
+### DE genes per patient
+```{r}
+de_patient_vs_hc <- read_tsv(here('analysis/output/08_de', which_annotation, 'de_patient_vs_hc.tsv.gz'))
+```
+### Patient metadata
+```{r}
+metadata_patient <- metadata %>% 
+  select(id, sample, patient, treatment, group) %>% 
+  filter(treatment != 'None') %>% 
+  unique() %>% 
+  droplevels()
+
+metadata_patient
+```
 
 
 ### Analysis
@@ -133,6 +148,16 @@ ultracluster_tallies <- analyze %>%
 
 cluster_tallies
 ```
+#### DE tally
+```{r}
+de_sample_tally <- de_patient_vs_hc %>% 
+  filter(p_val_adj < 0.01) %>% 
+  group_by(sample, cluster) %>% 
+  tally()
+
+de_sample_tally
+```
+
 
 #### Major celltypes
 
@@ -357,36 +382,6 @@ ggsave(plot = p,
 
 p
 ```
-### Mast cell
-```{r}
-p <- cluster_tallies %>% 
-  filter(str_detect(cluster, 'Mast')) %>% 
-  filter(!is.na(group)) %>% 
-  select(sample, treatment, group, celltype, n, pct) %>% 
-  pivot_longer(cols = c(n, pct),
-               names_to = 'metric',
-               values_to = 'value') %>% 
-  ggplot(aes(x = sample,
-             y = value,
-             fill = group)) +
-  geom_bar(stat = 'identity', color = 'black', alpha = 0.8) +
-  labs(x = '',
-       y = '') +
-  theme_dwu(legend.position = 'top') +
-  coord_flip() +
-  facet_wrap(~metric, nrow = 1, scales = 'free_x') +
-  scale_fill_manual(values = colors_response2) +
-  scale_x_discrete(limits = rev) 
-
-ggsave(plot = p,
-       device = cairo_pdf,
-       filename = 'F2F_bar_patient_mast.pdf',
-       path = output_dir,
-       h = 4,
-       w = 4)
-
-p
-```
 ### Loop
 ```{r}
 dir.create(here(output_dir, 'patient_bar_cluster'))
@@ -433,18 +428,20 @@ p_cluster
 ```{r}
 dir.create(here(output_dir, 'patient_bar_supercluster'))
 
-p <- map(levels(supercluster_tallies$supercluster), function(i) {
+p_supercluster <- map(levels(supercluster_tallies$supercluster), function(i) {
   
   print2(i)
   
   p <- supercluster_tallies %>% 
-    mutate(sample = factor(sample, levels = str_subset(levels(sample), '-'))) %>% 
     filter(supercluster == i) %>% 
     filter(!is.na(group)) %>% 
-    select(sample, treatment, group, celltype, n, pct) %>% 
-    pivot_longer(cols = c(n, pct),
+    left_join(de_sample_tally %>% select(sample, supercluster = cluster, DEGs = n)) %>% 
+    select(sample, treatment, group, Abundance = n, Proportion = pct, DEGs) %>% 
+    pivot_longer(cols = c(Abundance, Proportion, DEGs),
                  names_to = 'metric',
                  values_to = 'value') %>% 
+    mutate(metric = factor(metric, levels = c('Abundance', 'Proportion', 'DEGs')),
+           sample = factor(sample, levels = metadata_patient$sample)) %>% 
     ggplot(aes(x = sample,
                y = value,
                fill = group)) +
@@ -461,10 +458,10 @@ p <- map(levels(supercluster_tallies$supercluster), function(i) {
   
   ggsave(plot = p,
          device = cairo_pdf,
-         filename = paste0('F2F_bar_patient_', str_replace(i, '/','+'),'.pdf'),
+         filename = paste0(str_replace(i, '/','+'),'.pdf'),
          path = here(output_dir, 'patient_bar_supercluster'),
          h = 4,
-         w = 4)
+         w = 6)
   
   p
   
