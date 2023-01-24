@@ -94,11 +94,6 @@ Idents(seuratobj) <- 'cluster' # set cluster as main annotation
 output_dir <- here(figures_dir, which_identity)
 dir.create(output_dir)
 ```
-
-### DE genes per patient
-```{r}
-de_patient_vs_hc <- read_tsv(here('analysis/output/08_de', which_annotation, 'de_patient_vs_hc.tsv.gz'))
-```
 ### Patient metadata
 ```{r}
 metadata_patient <- metadata %>% 
@@ -109,6 +104,11 @@ metadata_patient <- metadata %>%
 
 metadata_patient
 ```
+### DE genes per patient
+```{r}
+de_patient_vs_hc <- read_tsv(here('analysis/output/08_de', which_annotation, 'de_patient_vs_hc.tsv.gz'))
+```
+
 
 
 ### Analysis
@@ -558,7 +558,7 @@ p_ultracluster <- map(levels(ultracluster_tallies$ultracluster), function(i) {
 ### IL17 secreting cells
 ```{r}
 il17 <- pseudobulk(seuratobj,
-                   genes = c('IL17A', 'IL17F'))
+                   genes = c('IL17A', 'IL17F', 'IL26', 'IFNG'))
 
 il17 %>% arrange(-cpm)
 ```
@@ -573,7 +573,7 @@ il17 %>%
 ```
 
 ```{r}
-il17 <- FetchData(seuratobj, vars = c('IL17A', 'IL17F', 'id', 'supercluster')) %>% 
+il17 <- FetchData(seuratobj, vars = c('IL17A', 'IL17F', 'IL26', 'IFNG', 'id', 'supercluster')) %>% 
   rownames_to_column() %>% left_join(metadata_patient)
 
 il17
@@ -588,12 +588,24 @@ p <- il17 %>%
 
 ggExtra::ggMarginal(p)
 ```
+
+```{r}
+p <- il17 %>% 
+  filter(treatment != 'Mid',
+         supercluster == 'Trm') %>% 
+  ggplot(aes(x = IL26,
+             y = IFNG)) +
+  geom_point(alpha = 0.5) 
+
+ggExtra::ggMarginal(p)
+```
+
+
 ```{r}
 il17 %>% 
   filter(treatment != 'None',
          supercluster == 'Trm',
-         IL17A > -1,
-         IL17F > 0) 
+         IL17A + IL17F + IL26 + IFNG > 0) 
 ```
 
 ```{r}
@@ -603,7 +615,7 @@ totals <- seuratobj@meta.data %>% group_by(sample) %>% tally(name = 'total')
 p <- il17 %>% 
   filter(treatment != 'None',
          supercluster == 'Trm',
-         IL17A + IL17F > 0)  %>% 
+         IL17A + IL17F + IL26 + IFNG > 0)  %>% 
   left_join(totals) %>% 
   mutate(sample = factor(sample, levels = str_subset(levels(sample), '-'))) %>% 
   group_by(sample, treatment, group, total) %>% 
@@ -624,7 +636,7 @@ p <- il17 %>%
     facet_wrap(~metric, nrow = 1, scales = 'free_x') +
     scale_fill_manual(values = colors_response2) +
     scale_x_discrete(limits = rev, drop = FALSE) +
-    ggtitle('IL17A or F')
+    ggtitle('IL17A/F or IL26 or IFNG')
   
   
 
