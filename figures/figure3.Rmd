@@ -306,10 +306,6 @@ p
 ```
 
 #### Using pseudobulk DE log2FC
-```{r}
-
-```
-
 ##### Ultracluster
 ```{r}
 de_tallies <- de_combined %>% de_tally()
@@ -355,7 +351,7 @@ de_tallies %>%
 ##### Heatmap
 ```{r}
 top_genes <- de_combined %>% 
-  filter(comparison %in% c('PV vs HC'),
+  filter(comparison %in% c('Responder Pre vs Responder Mid'),
          !str_detect(gene, '^MT-|^RP[SL]|^MRP[SL]')) %>% 
   filter(p_val_adj < p_adj_cutoff,
          avg_log2FC > 0) %>% 
@@ -380,9 +376,8 @@ heatmap_data
 ```
 
 ```{r}
-which_cluster <- 'Trm'
 top_genes <- de_combined_supercluster %>% 
-  filter(comparison %in% c('PV vs HC')) %>% 
+  filter(comparison %in% c('Responder Pre vs Responder Mid')) %>% 
   group_by(cluster) %>% 
   slice_max(avg_log2FC, n = 20) 
 
@@ -418,6 +413,7 @@ plot_input <- map(seuratobj@meta.data$supercluster %>% unique(), function(which_
       ggplot(aes(x = factor(gene, levels = gene_order),
                  y = expression)) +
       geom_point(aes(shape = factor(condition, levels = c('PV', 'HC', 'AD')))) +
+      theme_dwu() +
       theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
             legend.position = 'right') +
       labs(y = 'Average Normalized Expression',
@@ -442,13 +438,15 @@ plot_input <- map(seuratobj@meta.data$supercluster %>% unique(), function(which_
       mutate(description = case_when(
         condition == 'HC' ~ 'HC',
         treatment == 'Mid' ~ 'Mid',
-        TRUE ~ 'PV'
+        treatment == 'Pre' ~ 'Pre'
       )) %>% 
-      mutate(description = factor(description, levels = c('HC', 'PV', 'Mid'))) %>% 
+      mutate(description = factor(description, levels = c('HC', 'Pre', 'Mid'))) %>% 
+      filter(!is.na(description)) %>% 
       ggplot(aes(x = factor(gene, levels = gene_order),
                  y = expression,
                  fill = description)) +
       geom_boxplot() +
+      theme_dwu() +
       theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
             legend.position = 'top') +
       labs(y = 'Normalized Expression',
@@ -465,13 +463,62 @@ plot_input <- map(seuratobj@meta.data$supercluster %>% unique(), function(which_
            path = plot_dir,
            h = 4,
            w = 8)
+    
+    waterfall_input %>% 
+      mutate(condition = factor(condition, levels = c('PV', 'HC', 'AD')))
   }
-  
-}) 
+}) %>% bind_rows()
 
 ```
 
 ```{r}
+gene_order <- plot_input %>% filter(condition == 'PV') %>% arrange(cluster, -expression) 
+
+p <- plot_input %>% 
+  ggplot(aes(x = factor(gene, levels = unique(gene_order$gene)),
+             y = expression,
+             color = cluster,
+             shape = condition)) +
+  geom_point() +
+  theme_dwu(legend.position = 'top') +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 6)) +
+  scale_color_tableau(palette = 'Tableau 20') +
+  labs(x = '',
+       y = 'Normalized Expression')
+p
+```
+```{r}
+clusters <- plot_input$cluster %>% unique()
+p_boxplots <- map(clusters, function(which_cluster) {
+  
+  gene_order <- plot_input %>% filter(condition == 'PV', cluster == which_cluster) %>% arrange(-expression) 
+  
+  p <- plot_input %>% 
+    filter(cluster == which_cluster) %>% 
+    ggplot(aes(x = factor(gene, levels = unique(gene_order$gene)),
+               y = expression,
+               color = condition)) +
+    geom_point(alpha = 0.8) +
+    theme_dwu() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 6),
+          axis.text.y = element_blank(),
+          axis.ticks.y = element_blank()) +
+    facet_wrap(~cluster) +
+    labs(x = NULL,
+         y = NULL) +
+    scale_color_tableau()
+  
+  if(which_cluster == clusters[ceiling(length(clusters)/2)]) {
+    
+    p <- p + theme(legend.position = 'right')
+    
+  }
+  
+  p
+  
+}) %>% wrap_plots(nrow = 2)
+
+p_boxplots
 
 ```
 
