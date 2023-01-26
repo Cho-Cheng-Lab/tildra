@@ -636,10 +636,15 @@ p <- il17 %>%
     facet_wrap(~metric, nrow = 1, scales = 'free_x') +
     scale_fill_manual(values = colors_response2) +
     scale_x_discrete(limits = rev, drop = FALSE) +
-    ggtitle('IL17A/F or IL26 or IFNG')
+    ggtitle('IL17 Secreting Cells')
   
   
-
+  ggsave(plot = p,
+         device = cairo_pdf,
+         path = here(output_dir, 'patient_bar_supercluster'),
+         filename = 'il17.pdf',
+         h = 4,
+         w = 4)
   
   p
   
