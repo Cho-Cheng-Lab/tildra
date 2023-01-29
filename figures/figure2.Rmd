@@ -651,3 +651,37 @@ p <- il17 %>%
 
 ```
 
+### Stats
+```{r}
+which_subset <- 'Trm'
+stats_input <- supercluster_tallies %>% 
+  filter(treatment != 'None') %>% 
+  ungroup() %>% 
+  select(patient, supercluster, treatment, group, n, f) %>% 
+  pivot_wider(names_from = treatment,
+              values_from = c(n, f))
+
+stats_input
+```
+
+```{r}
+map(stats_input$supercluster %>% unique(), function(which_subset) {
+  
+  stats_subset <- stats_input %>% filter(supercluster == which_subset)
+  
+  group1 <- stats_subset %>% filter(group == 'Responder')
+  group2 <- stats_subset %>% filter(group == 'Non-responder')
+  
+  res1 <- wilcox.test(group1$f_Pre,
+                     group1$f_Mid)
+  
+  res2 <- wilcox.test(group2$f_Pre,
+                      group2$f_Mid)
+  
+  tibble('cluster' = which_subset,
+         'Responder_p' = res1$p.value,
+         'Nonresponder_p' = res2$p.value)
+  
+}) %>% bind_rows() 
+```
+

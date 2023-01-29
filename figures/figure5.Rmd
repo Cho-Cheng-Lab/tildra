@@ -70,7 +70,7 @@ ggsave(plot = p,
        device = cairo_pdf,
        h = 2,
        w = 8,
-       filename = 'F4A.pdf')
+       filename = 'F5A.pdf')
 p
 ```
 Legend
@@ -86,7 +86,7 @@ ggsave(plot = p,
        device = cairo_pdf,
        h = 2,
        w = 2,
-       filename = 'F4A_legend.pdf')
+       filename = 'Legend.pdf')
 
 p
 ```
