@@ -492,6 +492,152 @@ ggsave(plot = p2,
 
 p2
 ```
+
+#### CD4 vs CD8 status based on ADT and RNA data
+```{r}
+cd_data <- FetchData(seuratobj, 
+                     vars = c('CD4', 'CD8A', 'CD8B', 'ADT.CD4', 'ADT.CD8', 
+                              'cluster', 'supercluster', 'celltype', 'treatment')) %>% 
+  filter(celltype == 'Lymphocyte') %>% 
+  rownames_to_column() %>% 
+  mutate(ADT = case_when(
+    ADT.CD4 == 'Positive' & ADT.CD8 == 'Positive' ~ 'Double-positive',
+    ADT.CD4 == 'Positive' ~ 'CD4',
+    ADT.CD8 == 'Positive' ~ 'CD8',
+    TRUE ~ 'Double-negative'
+  ))
+```
+
+#### CD8
+```{r}
+p <- cd_data %>% 
+  ggplot(aes(x = CD8A,
+             y = CD8B,
+             color = ADT)) +
+  geom_point(alpha = 0.1,
+             size = 0.5) +
+  facet_wrap(~ADT)
+
+p
+```
+#### CD4
+```{r}
+p <- cd_data %>% 
+  ggplot(aes(x = CD4,
+             y = CD8A,
+             color = ADT)) +
+  geom_point(alpha = 0.1,
+             size = 0.5) +
+  facet_wrap(~ADT)
+
+p
+```
+#### Treg vs other T cells
+```{r}
+p <- cd_data %>% 
+  filter(celltype == 'Lymphocyte',
+         str_detect(supercluster, 'T')) %>% 
+  ggplot(aes(x = CD8A,
+             y = CD8B,
+             color = ADT)) +
+  geom_point(alpha = 0.1,
+             size = 0.5) +
+  facet_wrap(~supercluster)
+
+p
+```
+### Lymphocytes vs APCs
+```{r}
+p <- cd_data %>% 
+  ggplot(aes(x = CD8A,
+             y = CD8B,
+             color = ADT)) +
+  geom_point(alpha = 0.1,
+             size = 0.5) +
+  facet_wrap(~celltype)
+
+p
+```
+
+#### Classify CD4/8 status based on protein then RNA
+```{r}
+cd_status <- cd_data %>% 
+  mutate(CD = case_when(
+    ADT == 'Double-positive' ~ 'Unknown',
+    ADT == 'CD4' ~ 'CD4',
+    ADT == 'CD8' ~ 'CD8',
+    CD4 > 1 & (CD8A < 1 & CD8B < 1) ~ 'CD4',
+    (CD8A > 1 | CD8B > 1) & CD4 < 1 ~ 'CD8',
+    TRUE ~ 'Unknown'
+  ))
+
+cd_status %>% pull(CD) %>% table()
+```
+```{r}
+cd_data %>% 
+  ggplot(aes(x = CD4)) +
+  geom_histogram() +
+  facet_wrap(~celltype, scales = 'free_y')
+```
+```{r}
+cd_data %>% 
+  ggplot(aes(x = CD8A)) +
+  geom_histogram() +
+  facet_wrap(~celltype, scales = 'free_y')
+```
+
+
+### Assign each cluster to closest match
+```{r}
+cluster_cd_tally <- cd_status %>% 
+  group_by(cluster, CD) %>% 
+  tally() %>% 
+  pivot_wider(names_from = CD,
+              values_from = n) %>% 
+  rowwise() %>% 
+  mutate(CD = ifelse(CD4 > CD8, 'CD4', 'CD8'))
+
+cluster_cd_tally 
+```
+
+```{r}
+cd_status <- cd_status #%>% select(-CD) %>% left_join(cluster_cd_tally %>% select(cluster, CD))
+```
+
+#### Add metadata
+```{r}
+add_cd <- seuratobj@meta.data %>% 
+  rownames_to_column() %>% 
+  select(rowname) %>% 
+  left_join(cd_status)
+seuratobj$CD <- add_cd$CD
+
+lymphocytes <- subset(seuratobj, str_detect(seuratobj$cluster, 'T') & CD != 'Unknown')
+```
+
+```{r}
+p <- seurat_feature(lymphocytes, 
+                    features = 'CD', 
+                    facets = 'CD', 
+                    facet_hide = FALSE,
+                    label = FALSE, 
+                    nrow = 1, 
+                    color_package = 'custom', 
+                    color_palette = c(color_palette5[c(2, 1)], 'transparent'), 
+                    legend_position = 'none', 
+                    axis_title_position = 'none',
+                    rasterize_dpi = dpi)
+
+ggsave(plot = p,
+       path = output_dir,
+       height = unit_height,
+       width = unit_width * 2,
+       dpi = dpi,
+       filename = 'F1D_cd.png') 
+
+p
+```
+
 ### Figure 1E
 #### Plotting order
 ```{r}
@@ -512,5 +658,9 @@ metadata %>% filter(treatment %in% c('Pre', 'Mid')) %>% select(cluster, patient)
 ```{r}
 metadata %>% filter(treatment %in% c('Pre', 'Mid')) %>% select(cluster, patient, treatment) %>% unique() %>% group_by(cluster, treatment) %>% tally() %>% 
   pivot_wider(names_from = treatment, values_from = n)
+```
+
+```{r}
+p6
 ```
 

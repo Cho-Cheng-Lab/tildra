@@ -370,12 +370,157 @@ heatmap_data <- pseudobulk(seuratobj,
 
 heatmap_data
 ```
-### Voom-normalized counts for visualization
+### F3A
+#### log10 CPM
 ```{r}
+top_genes <- de_combined_supercluster %>% 
+  filter(comparison %in% c('Responder Pre vs Responder Mid')) %>% 
+  filter(p_val_adj < p_adj_cutoff) %>% 
+  group_by(cluster) %>% 
+  slice_max(avg_log2FC, n = 20) 
 
+pseudo_data <- pseudobulk(seuratobj,
+                          genes = top_genes$gene %>% unique(),
+                          group_by = c('id', 'supercluster')) %>% 
+  left_join(patient_meta)
+
+### HC, AD, Pre (responders only)
+pseudo_summary <- pseudo_data %>% 
+  filter(condition != 'PV' | (group == 'Responder' & treatment == 'Pre')) %>% 
+  inner_join(top_genes %>% select(cluster, gene)) %>% 
+  group_by(cluster, condition, gene) %>% 
+  summarize(expression = mean(log10cpm))
+
+p <- map(top_genes$cluster %>% unique(), function(which_cluster) {
+  
+  print2(which_cluster)
+  waterfall_input <- pseudo_summary %>% filter(cluster == which_cluster)
+  
+  if(nrow(waterfall_input) > 0) {
+    gene_order <- waterfall_input %>% pivot_wider(names_from = condition, values_from = expression) %>% arrange(-PV) %>% pull(gene)
+    
+    p <- waterfall_input %>% 
+      ggplot(aes(x = factor(gene, levels = unique(gene_order)),
+                 y = expression,
+                 color = condition)) +
+      geom_point(alpha = 0.8, size = 2) +
+      theme_dwu(legend.position = 'right') +
+      theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 6)) +
+      facet_wrap(~cluster) +
+      labs(x = NULL,
+           y = NULL) +
+      scale_color_tableau() #+scale_y_log10()
+    
+    plot_dir <- here(output_dir, 'F3A')
+    dir.create(plot_dir)
+    
+    ggsave(plot = p,
+           device = cairo_pdf,
+           filename = paste0(str_replace(which_cluster, '/','+'),'.pdf'),
+           path = plot_dir,
+           h = 4,
+           w = 8)
+    
+   p
+  }
+}) %>% wrap_plots(nrow = 3)
+
+p
 ```
 
+### F3B heatmap
 ```{r}
+ # F3B heatmap
+    pre_mid_input <- pseudo_data %>% 
+      filter(condition != 'AD',
+             supercluster == which_cluster) %>% 
+      mutate(description = case_when(
+        condition == 'HC' ~ 'HC',
+        treatment == 'Mid' ~ 'Mid',
+        treatment == 'Pre' ~ 'Pre'
+      )) %>% 
+      mutate(description = factor(description, levels = c('HC', 'Pre', 'Mid'))) %>% 
+      filter(!is.na(description))
+    
+    heat_input <- pre_mid_input %>% 
+      filter(treatment != 'None') %>% 
+      group_by(gene, treatment) %>% 
+      summarize(expression = mean(cpm))
+    
+    #heat_order <- gene_order
+    heat_order <- heat_input %>% filter(treatment == 'Pre') %>% arrange(expression) %>% pull(gene)
+      
+    p <- heat_input %>% 
+      ggplot(aes(x = factor(treatment, levels = c('Pre', 'Mid')),
+               y = factor(gene, levels = heat_order),
+               fill = expression)) +
+    geom_tile(color = 'black', linewidth = 0.5) +
+    #geom_tile(color = NA) +
+    scale_fill_gradientn(colors = colorRampPalette(rev(RColorBrewer::brewer.pal(n = 7, name = "RdBu")))(100),
+                         limits = c(-3, 3),
+                         breaks = seq(-3, 3, length.out = 5),
+                         oob = scales::squish,
+                         guide = guide_colorbar(frame.colour = 'black', 
+                                                ticks = FALSE, 
+                                                nbin = 50,
+                                                barwidth = 2,
+                                                title = NULL,
+                                                barheight = 0.2)) +
+    labs(x = NULL,
+         y = NULL,
+         title = which_cluster) +
+    theme(legend.position = 'top',
+          axis.ticks = element_blank(),
+          legend.text = element_text(size = 5),
+          panel.border = element_rect(color = NA),
+          axis.line = element_blank(),
+          axis.text.y = element_text(size = 6),
+          axis.text.x = element_text(size = 6, hjust = 0.5),
+          plot.title = element_text(size = 8),
+          plot.subtitle = element_text(size = 7, hjust = 0.5))
+    
+    plot_dir <- here(output_dir, 'F3B')
+    dir.create(plot_dir)
+    
+    ggsave(plot = p,
+           device = cairo_pdf,
+           filename = paste0(str_replace(which_cluster, '/','+'),'.pdf'),
+           path = plot_dir,
+           h = 4,
+           w = 1.5)
+    
+    # F3D
+    p <- pre_mid_input %>% 
+      ggplot(aes(x = factor(gene, levels = gene_order),
+                 y = expression,
+                 fill = description)) +
+      geom_boxplot() +
+      theme_dwu() +
+      theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+            legend.position = 'top') +
+      labs(y = 'Normalized Expression',
+           x = 'Gene',
+           title = which_cluster)
+    
+    
+    plot_dir <- here(output_dir, 'F3D')
+    dir.create(plot_dir)
+    
+    ggsave(plot = p,
+           device = cairo_pdf,
+           filename = paste0(str_replace(which_cluster, '/','+'),'.pdf'),
+           path = plot_dir,
+           h = 4,
+           w = 8)
+    
+    waterfall_input %>% 
+      mutate(condition = factor(condition, levels = c('PV', 'HC', 'AD')))
+```
+
+
+
+### Voom-normalized counts for visualization
+```{r eval=FALSE}
 top_genes <- de_combined_supercluster %>% 
   filter(comparison %in% c('Responder Pre vs Responder Mid')) %>% 
   group_by(cluster) %>% 
