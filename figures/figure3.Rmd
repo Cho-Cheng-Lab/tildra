@@ -373,13 +373,21 @@ heatmap_data
 ### F3A
 Compare fold-changes
 ```{r}
-  top_genes <- de_combined_supercluster %>% 
-    filter(comparison == 'Responder Pre vs Responder Mid',
-           p_val_adj < p_adj_cutoff) %>% 
+top_genes <- de_combined_supercluster %>% 
+  filter(comparison == 'Responder Pre vs Responder Mid',
+         p_val_adj < p_adj_cutoff) %>% 
   group_by(cluster) %>% 
-  slice_max(avg_log2FC, n = 20)
+  filter(avg_log2FC > 0) %>% 
+  slice_max((avg_log2FC), n = 20)
 
-p <- map(top_genes$cluster %>% unique(), function(which_cluster) {
+logfc_input <- de_combined_supercluster %>% 
+  filter(comparison %in% c('Responder Pre vs Responder Mid',
+                           'PV vs HC',
+                           'AD vs HC')) %>% 
+  inner_join(top_genes %>% select(cluster, gene))
+
+
+ p <- map(top_genes$cluster %>% unique(), function(which_cluster) {
   
   print2(which_cluster)
 
@@ -388,11 +396,7 @@ p <- map(top_genes$cluster %>% unique(), function(which_cluster) {
   
   if(nrow(top_genes_subset) > 0) {
     
-    logfc_input <- de_combined_supercluster %>% 
-      filter(comparison %in% c('Responder Pre vs Responder Mid',
-                               'PV vs HC',
-                               'AD vs HC')) %>% 
-      filter(gene %in% top_genes_subset$gene) %>% 
+    logfc_input <- logfc_input %>% 
       filter(cluster == which_cluster)
     
     gene_order <- logfc_input %>% filter(group1 == 'PV') %>% arrange(-avg_log2FC) %>% pull(gene)
@@ -413,9 +417,10 @@ p <- map(top_genes$cluster %>% unique(), function(which_cluster) {
       theme(legend.position = 'top',
             axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
       scale_fill_tableau() +
-      facet_wrap(~cluster) +
+      #facet_wrap(~cluster) +
       labs(x = NULL,
-           y = 'log2 fold-change')
+           y = 'log2 fold-change',
+           title = which_cluster)
     
     plot_dir <- here(output_dir, 'F3A_bar')
     dir.create(plot_dir)
@@ -432,7 +437,81 @@ p <- map(top_genes$cluster %>% unique(), function(which_cluster) {
 }) %>% wrap_plots
 ```
 ```{r}
+scale_max <- 6
+color_scale <- c(-scale_max, -scale_max/2, 0, scale_max/2, scale_max)
+which_subset <- 'Trm'
 
+p <- map(logfc_input$cluster %>% unique(), function(which_subset) {
+  print2(which_subset)
+  
+  gene_order <- logfc_input %>% 
+  filter(comparison == 'Responder Pre vs Responder Mid') %>% 
+  filter(cluster == which_subset) %>% 
+  arrange(-avg_log2FC) %>% 
+  pull(gene)
+
+p <- logfc_input %>% 
+  filter(cluster == which_subset) %>% 
+  mutate(avg_log2FC = ifelse(p_val_adj > p_adj_cutoff, N, avg_log2FC)) %>% 
+  mutate(comparison = ifelse(comparison == 'Responder Pre vs Responder Mid', 'Pre vs Mid', comparison)) %>% 
+  mutate(comparison = factor(comparison, levels = c('Pre vs Mid', 'PV vs HC', 'AD vs HC'))) %>% 
+  ggplot(aes(x = comparison,
+             y = factor(gene, levels = rev(gene_order)),
+             fill = avg_log2FC)) +
+  geom_tile(color = 'black') +
+  scale_fill_gradientn(colors = colorRampPalette(rev(RColorBrewer::brewer.pal(n = 7, name = "RdBu")))(100),
+                       limits = range(color_scale),
+                       breaks = color_scale,
+                       oob = scales::squish,
+                       na.value = 'grey90',
+                       guide = guide_colorbar(frame.colour = 'black', 
+                                              ticks = FALSE, 
+                                              nbin = 100,
+                                              barwidth = 0.5,
+                                              title = 'log2FC',
+                                              barheight = 5)) +
+  theme(legend.position = 'right',
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1)) +
+  labs(x = NULL,
+       y = NULL,
+       title = which_subset)
+
+p
+  
+}) %>% wrap_plots(nrow = 2)
+
+```
+
+```{r}
+sig_genes <- de_combined_supercluster %>% 
+  filter(comparison == 'Responder Pre vs Responder Mid',
+         p_val_adj < p_adj_cutoff) 
+  
+
+tally_input <- de_combined_supercluster %>% 
+  filter(comparison %in% c('PV vs HC',
+                           'AD vs HC')) %>% 
+  mutate(comparison = factor(comparison)) %>% 
+  inner_join(sig_genes %>% select(cluster, gene, il23_direction = avg_log2FC)) %>% 
+  mutate(avg_log2FC = ifelse(p_val_adj > p_adj_cutoff, 0, avg_log2FC)) %>% 
+  mutate(direction = ifelse(avg_log2FC * il23_direction > 0, TRUE, FALSE)) %>% 
+  group_by(comparison, cluster) %>% 
+  summarize(n = sum(direction))
+
+tally_input %>% 
+  ggplot(aes(x = n,
+             y = reorder(cluster, n),
+             fill = comparison)) +
+  geom_col(color = 'black',
+           position = 'dodge') +
+  theme(legend.position = 'top') +
+  scale_fill_few(drop = FALSE) +
+  scale_y_discrete(drop = FALSE) +
+  labs(x = '# DEGs shared with IL23 Response',
+       y = NULL)
+
+
+  
 ```
 
 #### log10 CPM
