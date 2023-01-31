@@ -623,8 +623,8 @@ pseudo_data <- pseudobulk(seuratobj,
 ```{r}
 patient_level_fc <- pseudo_data %>% 
   filter(treatment != 'None') %>% 
-  inner_join(top_genes %>% select(supercluster = cluster, gene)) %>% 
-  select(gene, supercluster, cpm, patient, treatment) 
+  inner_join(top_genes %>% group_by(cluster) %>% slice_max(avg_log2FC, n = 5) %>% select(supercluster = cluster, gene)) %>% 
+  select(gene, supercluster, cpm, log10cpm, patient, treatment) 
 
 patient_level_fc
 ```
@@ -640,18 +640,19 @@ median_input <- boxplot_input %>%
 p <- boxplot_input %>% 
   ggplot(aes(x = treatment,
              y = cpm + 1)) +
-  geom_point(aes(color = patient)) +
-  geom_path(aes(color = patient, 
-                group = patient)) +
+  # geom_point(aes(color = patient)) +
+  # geom_path(aes(color = patient, 
+  #               group = patient)) +
   geom_path(data = median_input,
             aes(group = gene),
             color = 'black') +
-    geom_point(data = median_input, 
-             color = 'black', 
+  geom_point(data = median_input,
+             color = 'black',
              fill = 'grey80',
              shape = 21,
+             stroke = 1,
              size = 3) +
-  facet_wrap(~gene, scales = 'free_y', nrow = 2) +
+  facet_wrap(~gene, scales = 'free_y', nrow = 1) +
   scale_y_log10() +
   scale_color_tableau() +
   labs(y = 'Counts per Million',
@@ -664,7 +665,7 @@ p <- boxplot_input %>%
   ggplot(aes(x = treatment,
              y = cpm + 1)) +
   geom_boxplot() + 
-  facet_wrap(~gene, scales = 'free_y', nrow = 2) +
+  facet_wrap(~gene, scales = 'free_y', nrow = 1) +
   scale_y_log10() +
   scale_color_tableau() +
   labs(y = 'Counts per Million',
