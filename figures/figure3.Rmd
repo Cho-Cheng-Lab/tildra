@@ -514,62 +514,7 @@ tally_input %>%
   
 ```
 
-#### log10 CPM
-```{r}
-top_genes <- de_combined_supercluster %>% 
-  filter(comparison %in% c('Responder Pre vs Responder Mid')) %>% 
-  filter(p_val_adj < p_adj_cutoff) %>% 
-  group_by(cluster) %>% 
-  slice_min(avg_log2FC, n = 100) 
 
-pseudo_data <- pseudobulk(seuratobj,
-                          genes = top_genes$gene %>% unique(),
-                          group_by = c('id', 'supercluster')) %>% 
-  left_join(patient_meta)
-
-### HC, AD, Pre (responders only)
-pseudo_summary <- pseudo_data %>% 
-  filter(condition != 'PV' | (group == 'Responder' & treatment == 'Pre')) %>% 
-  inner_join(top_genes %>% select(cluster, gene)) %>% 
-  group_by(cluster, condition, gene) %>% 
-  summarize(expression = mean(log10cpm))
-
-p <- map(top_genes$cluster %>% unique(), function(which_cluster) {
-  
-  print2(which_cluster)
-  waterfall_input <- pseudo_summary %>% filter(cluster == which_cluster)
-  
-  if(nrow(waterfall_input) > 0) {
-    gene_order <- waterfall_input %>% pivot_wider(names_from = condition, values_from = expression) %>% arrange(-PV) %>% pull(gene)
-    
-    p <- waterfall_input %>% 
-      ggplot(aes(x = factor(gene, levels = unique(gene_order)),
-                 y = expression,
-                 color = condition)) +
-      geom_point(alpha = 0.8, size = 2) +
-      theme_dwu(legend.position = 'right') +
-      theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 6)) +
-      facet_wrap(~cluster) +
-      labs(x = NULL,
-           y = NULL) +
-      scale_color_tableau() #+scale_y_log10()
-    
-    plot_dir <- here(output_dir, 'F3A')
-    dir.create(plot_dir)
-    
-    ggsave(plot = p,
-           device = cairo_pdf,
-           filename = paste0(str_replace(which_cluster, '/','+'),'.pdf'),
-           path = plot_dir,
-           h = 4,
-           w = 8)
-    
-   p
-  }
-}) %>% wrap_plots(nrow = 3)
-
-p
-```
 
 ### F3B heatmap
 ```{r}
@@ -660,6 +605,76 @@ p
       mutate(condition = factor(condition, levels = c('PV', 'HC', 'AD')))
 ```
 
+### F3D boxplots
+```{r}
+top_genes <- de_combined_supercluster %>% 
+  filter(comparison %in% c('Responder Pre vs Responder Mid')) %>% 
+  filter(p_val_adj < p_adj_cutoff) %>% 
+  group_by(cluster) %>% 
+  slice_max(avg_log2FC, n = 20)
+
+pseudo_data <- pseudobulk(seuratobj,
+                          genes = top_genes$gene %>% unique(),
+                          group_by = c('id', 'supercluster')) %>% 
+  left_join(patient_meta)
+
+```
+
+```{r}
+patient_level_fc <- pseudo_data %>% 
+  filter(treatment != 'None') %>% 
+  inner_join(top_genes %>% select(supercluster = cluster, gene)) %>% 
+  select(gene, supercluster, cpm, patient, treatment) 
+
+patient_level_fc
+```
+```{r}
+which_subset <- 'Trm'
+boxplot_input <- patient_level_fc %>% 
+  filter(supercluster == which_subset)
+
+median_input <- boxplot_input %>% 
+  group_by(gene, treatment) %>% 
+  summarize(cpm = median(cpm))
+
+p <- boxplot_input %>% 
+  ggplot(aes(x = treatment,
+             y = cpm + 1)) +
+  geom_point(aes(color = patient)) +
+  geom_path(aes(color = patient, 
+                group = patient)) +
+  geom_path(data = median_input,
+            aes(group = gene),
+            color = 'black') +
+    geom_point(data = median_input, 
+             color = 'black', 
+             fill = 'grey80',
+             shape = 21,
+             size = 3) +
+  facet_wrap(~gene, scales = 'free_y', nrow = 2) +
+  scale_y_log10() +
+  scale_color_tableau() +
+  labs(y = 'Counts per Million',
+       x = NULL)
+
+p
+```
+```{r}
+p <- boxplot_input %>% 
+  ggplot(aes(x = treatment,
+             y = cpm + 1)) +
+  geom_boxplot() + 
+  facet_wrap(~gene, scales = 'free_y', nrow = 2) +
+  scale_y_log10() +
+  scale_color_tableau() +
+  labs(y = 'Counts per Million',
+       x = NULL)
+
+p
+```
+```{r}
+
+```
 
 
 ### Voom-normalized counts for visualization
@@ -2629,4 +2644,61 @@ p
 ## Session Info
 ```{r}
 sessionInfo()
+```
+
+### Old
+#### log10 CPM
+```{r}
+top_genes <- de_combined_supercluster %>% 
+  filter(comparison %in% c('Responder Pre vs Responder Mid')) %>% 
+  filter(p_val_adj < p_adj_cutoff) %>% 
+  group_by(cluster) 
+
+pseudo_data <- pseudobulk(seuratobj,
+                          genes = top_genes$gene %>% unique(),
+                          group_by = c('id', 'supercluster')) %>% 
+  left_join(patient_meta)
+
+### HC, AD, Pre (responders only)
+pseudo_summary <- pseudo_data %>% 
+  filter(condition != 'PV' | (group == 'Responder' & treatment == 'Pre')) %>% 
+  inner_join(top_genes %>% select(cluster, gene)) %>% 
+  group_by(cluster, condition, gene) %>% 
+  summarize(expression = mean(log10cpm))
+
+p <- map(top_genes$cluster %>% unique(), function(which_cluster) {
+  
+  print2(which_cluster)
+  waterfall_input <- pseudo_summary %>% filter(cluster == which_cluster)
+  
+  if(nrow(waterfall_input) > 0) {
+    gene_order <- waterfall_input %>% pivot_wider(names_from = condition, values_from = expression) %>% arrange(-PV) %>% pull(gene)
+    
+    p <- waterfall_input %>% 
+      ggplot(aes(x = factor(gene, levels = unique(gene_order)),
+                 y = expression,
+                 color = condition)) +
+      geom_point(alpha = 0.8, size = 2) +
+      theme_dwu(legend.position = 'right') +
+      theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 6)) +
+      facet_wrap(~cluster) +
+      labs(x = NULL,
+           y = NULL) +
+      scale_color_tableau() #+scale_y_log10()
+    
+    plot_dir <- here(output_dir, 'F3A')
+    dir.create(plot_dir)
+    
+    ggsave(plot = p,
+           device = cairo_pdf,
+           filename = paste0(str_replace(which_cluster, '/','+'),'.pdf'),
+           path = plot_dir,
+           h = 4,
+           w = 8)
+    
+   p
+  }
+}) %>% wrap_plots(nrow = 3)
+
+p
 ```
