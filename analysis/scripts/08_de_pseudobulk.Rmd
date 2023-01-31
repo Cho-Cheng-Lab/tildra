@@ -195,7 +195,7 @@ seuratobj
 ```
 ### Set identity
 ```{r}
-which_annotation <- 'local_cluster'
+which_annotation <- 'local_supercluster'
 seuratobj$annotation <- seuratobj[[which_annotation]]
 Idents(seuratobj) <- 'annotation'
 
@@ -270,7 +270,7 @@ de_ad_vs_hc <- map(patients_per_cluster[[which_annotation]], function(i) {
   de_pseudobulk_pipeline(pseudobulk_subset = pseudobulk_subset, 
                          metadata_subset = metadata_subset,
                          cluster = i,
-                         group1_id = 'AV',
+                         group1_id = 'AD',
                          group2_id = 'HC')
   
 }) %>% bind_rows()

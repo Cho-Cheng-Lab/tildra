@@ -371,13 +371,77 @@ heatmap_data <- pseudobulk(seuratobj,
 heatmap_data
 ```
 ### F3A
+Compare fold-changes
+```{r}
+  top_genes <- de_combined_supercluster %>% 
+    filter(comparison == 'Responder Pre vs Responder Mid',
+           p_val_adj < p_adj_cutoff) %>% 
+  group_by(cluster) %>% 
+  slice_max(avg_log2FC, n = 20)
+
+p <- map(top_genes$cluster %>% unique(), function(which_cluster) {
+  
+  print2(which_cluster)
+
+  top_genes_subset <- top_genes %>% 
+    filter(cluster == which_cluster)
+  
+  if(nrow(top_genes_subset) > 0) {
+    
+    logfc_input <- de_combined_supercluster %>% 
+      filter(comparison %in% c('Responder Pre vs Responder Mid',
+                               'PV vs HC',
+                               'AD vs HC')) %>% 
+      filter(gene %in% top_genes_subset$gene) %>% 
+      filter(cluster == which_cluster)
+    
+    gene_order <- logfc_input %>% filter(group1 == 'PV') %>% arrange(-avg_log2FC) %>% pull(gene)
+    
+    p <- logfc_input %>% 
+      #filter(group1 != 'Responder Pre') %>% 
+      ggplot(aes(x = factor(gene, levels = gene_order),
+                 y = avg_log2FC,
+                 fill = factor(comparison, 
+                               levels = c('PV vs HC',
+                                          'Responder Pre vs Responder Mid',
+                                          'AD vs HC')))) +
+      # geom_point(shape = 21,
+      #            size = 2) +
+      geom_col(color = 'black',
+               position = 'dodge',
+               alpha = 0.8) +
+      theme(legend.position = 'top',
+            axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+      scale_fill_tableau() +
+      facet_wrap(~cluster) +
+      labs(x = NULL,
+           y = 'log2 fold-change')
+    
+    plot_dir <- here(output_dir, 'F3A_bar')
+    dir.create(plot_dir)
+    
+    ggsave(plot = p,
+           device = cairo_pdf,
+           filename = paste0(str_replace(which_cluster, '/','+'),'.pdf'),
+           path = plot_dir,
+           h = 4,
+           w = 8)
+    
+   p
+  }
+}) %>% wrap_plots
+```
+```{r}
+
+```
+
 #### log10 CPM
 ```{r}
 top_genes <- de_combined_supercluster %>% 
   filter(comparison %in% c('Responder Pre vs Responder Mid')) %>% 
   filter(p_val_adj < p_adj_cutoff) %>% 
   group_by(cluster) %>% 
-  slice_max(avg_log2FC, n = 20) 
+  slice_min(avg_log2FC, n = 100) 
 
 pseudo_data <- pseudobulk(seuratobj,
                           genes = top_genes$gene %>% unique(),
