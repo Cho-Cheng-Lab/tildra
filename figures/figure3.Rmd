@@ -452,7 +452,7 @@ p <- map(logfc_input$cluster %>% unique(), function(which_subset) {
 
 p <- logfc_input %>% 
   filter(cluster == which_subset) %>% 
-  mutate(avg_log2FC = ifelse(p_val_adj > p_adj_cutoff, N, avg_log2FC)) %>% 
+  mutate(avg_log2FC = ifelse(p_val_adj > p_adj_cutoff, NA, avg_log2FC)) %>% 
   mutate(comparison = ifelse(comparison == 'Responder Pre vs Responder Mid', 'Pre vs Mid', comparison)) %>% 
   mutate(comparison = factor(comparison, levels = c('Pre vs Mid', 'PV vs HC', 'AD vs HC'))) %>% 
   ggplot(aes(x = comparison,
@@ -607,14 +607,20 @@ tally_input %>%
 
 ### F3D boxplots
 ```{r}
-top_genes <- de_combined_supercluster %>% 
+top_genes_sig <- de_combined_supercluster %>% 
+  filter(cluster == 'Trm') %>% 
   filter(comparison %in% c('Responder Pre vs Responder Mid')) %>% 
   filter(p_val_adj < p_adj_cutoff) %>% 
-  group_by(cluster) %>% 
-  slice_max(avg_log2FC, n = 20)
+  group_by(cluster) 
+
+top_genes_nonsig <- de_combined_supercluster %>% 
+  filter(cluster == 'Trm') %>% 
+  filter(comparison %in% c('Responder Pre vs Responder Mid')) %>% 
+  filter(p_val_adj > p_adj_cutoff) %>% 
+  slice_max(abs(avg_log2FC), n = 200)
 
 pseudo_data <- pseudobulk(seuratobj,
-                          genes = top_genes$gene %>% unique(),
+                          genes = union(top_genes_sig$gene, top_genes_nonsig$gene),
                           group_by = c('id', 'supercluster')) %>% 
   left_join(patient_meta)
 
@@ -623,26 +629,45 @@ pseudo_data <- pseudobulk(seuratobj,
 ```{r}
 patient_level_fc <- pseudo_data %>% 
   filter(treatment != 'None') %>% 
-  inner_join(top_genes %>% group_by(cluster) %>% slice_max(avg_log2FC, n = 5) %>% select(supercluster = cluster, gene)) %>% 
+  inner_join(bind_rows(top_genes_sig, top_genes_nonsig) %>% group_by(cluster) %>% select(supercluster = cluster, gene)) %>% 
   select(gene, supercluster, cpm, log10cpm, patient, treatment) 
 
 patient_level_fc
 ```
 ```{r}
+
+```
+
+
+```{r}
 which_subset <- 'Trm'
+which_genes <- top_genes_sig$gene
+
 boxplot_input <- patient_level_fc %>% 
-  filter(supercluster == which_subset)
+  filter(supercluster == which_subset) %>% 
+  filter(gene %in% which_genes)
 
 median_input <- boxplot_input %>% 
   group_by(gene, treatment) %>% 
   summarize(cpm = median(cpm))
 
+gene_order <- median_input %>% 
+  pivot_wider(names_from = treatment,
+              values_from = cpm) %>% 
+  rowwise() %>% 
+  mutate(difference = Pre - Mid,
+         normalized = difference/max(c(Pre, Mid))) %>% 
+  arrange(-normalized, -difference)
+
+boxplot_input <- boxplot_input %>% mutate(gene = factor(gene, levels = gene_order$gene))
+median_input <- median_input %>% mutate(gene = factor(gene, levels = gene_order$gene))
+
 p <- boxplot_input %>% 
   ggplot(aes(x = treatment,
              y = cpm + 1)) +
-  # geom_point(aes(color = patient)) +
-  # geom_path(aes(color = patient, 
-  #               group = patient)) +
+  geom_point(aes(color = patient)) +
+  geom_path(aes(color = patient,
+                group = patient)) +
   geom_path(data = median_input,
             aes(group = gene),
             color = 'black') +
@@ -652,29 +677,75 @@ p <- boxplot_input %>%
              shape = 21,
              stroke = 1,
              size = 3) +
-  facet_wrap(~gene, scales = 'free_y', nrow = 1) +
+  facet_wrap(~gene, scales = 'free_y', nrow = 12) +
   scale_y_log10() +
   scale_color_tableau() +
+  theme(strip.text.x = element_text(face = 'italic')) +
   labs(y = 'Counts per Million',
        x = NULL)
 
-p
+ggsave(plot = p,
+       device = cairo_pdf,
+       path = output_dir,
+       h = 16,
+       w = 32,
+       filename = 'F3D/Trm_sig.pdf')
 ```
+
+#### Non-sig
 ```{r}
+which_subset <- 'Trm'
+which_genes <- top_genes_nonsig$gene
+
+boxplot_input <- patient_level_fc %>% 
+  filter(supercluster == which_subset) %>% 
+  filter(gene %in% which_genes)
+
+median_input <- boxplot_input %>% 
+  group_by(gene, treatment) %>% 
+  summarize(cpm = median(cpm))
+
+gene_order <- median_input %>% 
+  pivot_wider(names_from = treatment,
+              values_from = cpm) %>% 
+  rowwise() %>% 
+  mutate(difference = Pre - Mid,
+         normalized = difference/max(c(Pre, Mid))) %>% 
+  arrange(-normalized, -difference)
+
+boxplot_input <- boxplot_input %>% mutate(gene = factor(gene, levels = gene_order$gene))
+median_input <- median_input %>% mutate(gene = factor(gene, levels = gene_order$gene))
+
 p <- boxplot_input %>% 
   ggplot(aes(x = treatment,
              y = cpm + 1)) +
-  geom_boxplot() + 
-  facet_wrap(~gene, scales = 'free_y', nrow = 1) +
+  geom_point(aes(color = patient)) +
+  geom_path(aes(color = patient,
+                group = patient)) +
+  geom_path(data = median_input,
+            aes(group = gene),
+            color = 'black') +
+  geom_point(data = median_input,
+             color = 'black',
+             fill = 'grey80',
+             shape = 21,
+             stroke = 1,
+             size = 3) +
+  facet_wrap(~gene, scales = 'free_y', nrow = 12) +
   scale_y_log10() +
   scale_color_tableau() +
+  theme(strip.text.x = element_text(face = 'italic')) +
   labs(y = 'Counts per Million',
        x = NULL)
 
-p
-```
-```{r}
+ggsave(plot = p,
+       device = cairo_pdf,
+       path = output_dir,
+       h = 16,
+       w = 32,
+       filename = 'F3D/Trm_nonsig.pdf')
 
+p
 ```
 
 
