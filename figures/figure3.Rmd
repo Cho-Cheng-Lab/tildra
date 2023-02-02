@@ -617,7 +617,8 @@ top_genes_nonsig <- de_combined_supercluster %>%
   filter(cluster == 'Trm') %>% 
   filter(comparison %in% c('Responder Pre vs Responder Mid')) %>% 
   filter(p_val_adj > p_adj_cutoff) %>% 
-  slice_max(abs(avg_log2FC), n = 200)
+  filter(logCPM > 0) %>% 
+  slice_min(abs(avg_log2FC), n = 200)
 
 pseudo_data <- pseudobulk(seuratobj,
                           genes = union(top_genes_sig$gene, top_genes_nonsig$gene),

@@ -208,6 +208,73 @@ ggsave(plot = p,
 
 p
 ```
+#### Supercluster manual colors
+```{r fig.height=4, fig.width=6}
+annotations <- seuratobj$supercluster %>% levels()
+annotations
+```
+
+
+```{r fig.height=4, fig.width=6}
+lymphocyte_annotations <- str_subset(annotations, 'T|NK')
+
+lymphocyte_colors1 <- rev(RColorBrewer::brewer.pal(n = ceiling(length(lymphocyte_annotations)/2), name = 'Blues'))
+lymphocyte_colors2 <- rev(RColorBrewer::brewer.pal(n = ceiling(length(lymphocyte_annotations)/2), name = 'Greens'))
+lymphocyte_colors <- c(rbind(lymphocyte_colors1, lymphocyte_colors2))[1:length(lymphocyte_annotations)]
+
+b_annotations <- str_subset(annotations, 'B|Plasma') 
+b_colors <- RColorBrewer::brewer.pal(n = length(b_annotations), name = 'Purples')[-1]
+  
+apc_annotations <- annotations %>% setdiff(c(lymphocyte_annotations, b_annotations))
+apc_colors <- RColorBrewer::brewer.pal(n = length(apc_annotations), name = 'YlOrRd')
+
+#colors_supercluster <- colorRampPalette(rev(RColorBrewer::brewer.pal(n = 7, name = "RdYlBu")))(length(annotations))
+colors_supercluster <- c(lymphocyte_colors, b_colors, apc_colors)
+```
+
+
+```{r fig.height=4, fig.width=6}
+p <- seurat_feature(seuratobj, 
+                    features = 'supercluster', 
+                    facet_hide = TRUE, 
+                    legend_position = 'none', 
+                    label = TRUE, 
+                    color_package = 'custom', 
+                    color_palette = colors_supercluster, 
+                    rasterize_dpi = dpi) 
+
+ggsave(plot = p,
+       device = cairo_pdf,
+       path = output_dir,
+       height = h,
+       width = w,
+       dpi = dpi,
+       filename = 'F1B_supercluster_custom.pdf') 
+
+p
+```
+
+```{r fig.height=4, fig.width=6}
+p <- seurat_feature(seuratobj, 
+                    features = 'supercluster', 
+                    facet_hide = TRUE, 
+                    legend_position = 'right', 
+                    label = FALSE, 
+                    color_package = 'custom', 
+                    color_palette = colors_supercluster, 
+                    rasterize_dpi = dpi) 
+
+ggsave(plot = p,
+       device = cairo_pdf,
+       path = output_dir,
+       height = h,
+       width = w * 1.5,
+       dpi = dpi,
+       filename = 'F1B_supercluster_custom_legend.pdf') 
+
+p
+```
+
 ### Figure 1C, Marker Dot Plot
 #### Reynolds et al markers
 
@@ -349,10 +416,8 @@ p
 unit_height <- 2
 unit_width <- 2
 
-color_palette5 <- rcartocolor::carto_pal(n = 5, name = 'Vivid')
-view_colors(color_palette5)
-
-
+color_palette6 <- rcartocolor::carto_pal(n = 6, name = 'Bold')
+view_colors(color_palette6)
 ```
 
 #### By condition
@@ -362,7 +427,7 @@ p <- seurat_feature(subset(seuratobj, subset = condition != 'AD'),
                     facets = 'condition', 
                     facet_hide = TRUE,
                     label = FALSE, color_package = 'custom', 
-                    color_palette = color_palette5[c(5, 4)], 
+                    color_palette = color_palette6[c(6, 1)], 
                     legend_position = 'none', 
                     axis_title_position = 'none', 
                     rasterize_dpi = dpi)
@@ -384,7 +449,7 @@ p <- seurat_feature(subset(seuratobj, subset = condition != 'AD'),
                     label = FALSE, 
                     facet_hide = TRUE,
                     color_package = 'custom', 
-                    color_palette = color_palette5[c(5, 4)], 
+                    color_palette = color_palette6[c(6, 1)], 
                     legend_position = 'none', 
                     axis_title_position = 'none', 
                     nrow = 2,
@@ -406,9 +471,10 @@ p <- seurat_feature(patient_only,
                     features = 'treatment', 
                     facets = 'treatment', 
                     facet_hide = TRUE,
-                    label = FALSE, nrow = 1, 
+                    label = FALSE, 
+                    nrow = 1, 
                     color_package = 'custom', 
-                    color_palette = color_palette5[c(2, 1)], 
+                    color_palette = color_palette6[c(5, 3)], 
                     legend_position = 'none', 
                     axis_title_position = 'none',
                     rasterize_dpi = dpi)
@@ -422,77 +488,7 @@ ggsave(plot = p,
 
 p
 ```
-
-#### By patient, mixed colors
-```{r}
-patient_colors <- carto_pal(n = 9, name = 'Prism')
-view_colors(patient_colors)
-```
-
-
-```{r}
-p1 <- seurat_feature(patient_only, 
-                     features = 'patient', 
-                     label = FALSE, 
-                     legend_position = 'none', 
-                     facet_hide = TRUE, 
-                     axis_title_position = 'none', 
-                     color_package = 'custom',
-                     color_palette = patient_colors,
-                     rasterize_dpi = dpi)
-
-ggsave(plot = p1,
-       path = output_dir,
-       height = unit_height,
-       width = unit_width,
-       dpi = dpi,
-       filename = 'F1D_patient_umap.png') 
-
-p1
-```
-
-```{r}
-p1 <- seurat_feature(patient_only, 
-                     features = 'patient', 
-                     label = FALSE, 
-                     facet_hide = TRUE, 
-                     legend_position = 'right',  
-                     axis_title_position = 'none', 
-                     color_package = 'custom',
-                     color_palette = patient_colors,
-                     rasterize_dpi = dpi)
-
-ggsave(plot = p1,
-       device = cairo_pdf,
-       path = output_dir,
-       height = unit_height,
-       width = unit_width,
-       dpi = dpi,
-       filename = 'F1D_patient_umap_legend.pdf') 
-
-p1
-```
-
-#### Patients faceted
-```{r}
-p2 <- seurat_feature(patient_only, 
-                     features = 'patient', 
-                     facets = 'patient', 
-                     label = FALSE, facet_hide = TRUE, alpha = 0.5, size = 0.2, 
-                     color_package = 'custom',
-                     color_palette = patient_colors,
-                     rasterize_dpi = dpi)
-
-ggsave(plot = p2,
-       path = output_dir,
-       height = unit_height * 2,
-       width = unit_width * 2,
-       dpi = dpi,
-       filename = 'F1D_patient_matrix.png') 
-
-p2
-```
-
+#### By CD status
 #### CD4 vs CD8 status based on ADT and RNA data
 ```{r}
 cd_data <- FetchData(seuratobj, 
@@ -619,11 +615,11 @@ lymphocytes <- subset(seuratobj, str_detect(seuratobj$cluster, 'T') & CD != 'Unk
 p <- seurat_feature(lymphocytes, 
                     features = 'CD', 
                     facets = 'CD', 
-                    facet_hide = FALSE,
+                    facet_hide = TRUE,
                     label = FALSE, 
                     nrow = 1, 
                     color_package = 'custom', 
-                    color_palette = c(color_palette5[c(2, 1)], 'transparent'), 
+                    color_palette = c(color_palette6[c(2, 4)], 'transparent'), 
                     legend_position = 'none', 
                     axis_title_position = 'none',
                     rasterize_dpi = dpi)
@@ -637,6 +633,125 @@ ggsave(plot = p,
 
 p
 ```
+```{r}
+p <- seurat_feature(lymphocytes, 
+                    features = 'CD', 
+                    facets = 'CD', 
+                    facet_hide = TRUE,
+                    label = FALSE, 
+                    nrow = 2, 
+                    color_package = 'custom', 
+                    color_palette = c(color_palette6[c(2, 4)], 'transparent'), 
+                    legend_position = 'none', 
+                    axis_title_position = 'none',
+                    rasterize_dpi = dpi)
+
+ggsave(plot = p,
+       path = output_dir,
+       height = unit_height * 2,
+       width = unit_width,
+       dpi = dpi,
+       filename = 'F1D_cd_vertical.png') 
+
+p
+```
+
+#### By patient, mixed colors
+```{r}
+patient_colors <- carto_pal(n = 9, name = 'Prism')
+view_colors(patient_colors)
+```
+
+
+```{r}
+p1 <- seurat_feature(patient_only, 
+                     features = 'patient', 
+                     label = FALSE, 
+                     legend_position = 'none', 
+                     facet_hide = TRUE, 
+                     axis_title_position = 'none', 
+                     color_package = 'custom',
+                     color_palette = patient_colors,
+                     rasterize_dpi = dpi)
+
+ggsave(plot = p1,
+       path = output_dir,
+       height = unit_height,
+       width = unit_width,
+       dpi = dpi,
+       filename = 'F1D_patient_umap.png') 
+
+p1
+```
+
+```{r}
+p1 <- seurat_feature(patient_only, 
+                     features = 'patient', 
+                     label = FALSE, 
+                     facet_hide = TRUE, 
+                     legend_position = 'right',  
+                     axis_title_position = 'none', 
+                     color_package = 'custom',
+                     color_palette = patient_colors,
+                     rasterize_dpi = dpi)
+
+ggsave(plot = p1,
+       device = cairo_pdf,
+       path = output_dir,
+       height = unit_height,
+       width = unit_width,
+       dpi = dpi,
+       filename = 'F1D_patient_umap_legend.pdf') 
+
+p1
+```
+
+#### Patients faceted
+```{r}
+p2 <- seurat_feature(patient_only, 
+                     features = 'patient', 
+                     facets = 'patient', 
+                     label = FALSE, facet_hide = TRUE, alpha = 0.5, size = 0.2, 
+                     nrow = 3,
+                     color_package = 'custom',
+                     color_palette = patient_colors,
+                     rasterize_dpi = dpi)
+
+ggsave(plot = p2,
+       device = cairo_pdf,
+       path = output_dir,
+       height = unit_height * 3,
+       width = unit_width * 3.1,
+       dpi = dpi,
+       filename = 'F1D_patient_matrix.pdf') 
+
+p2
+```
+
+```{r}
+p <- seurat_feature(patient_only, 
+                    features = 'patient', 
+                    facets = 'patient', 
+                    label = FALSE, 
+                    facet_hide = FALSE,
+                    legend_position = 'none',
+                    alpha = 0.5, 
+                    size = 0.2, 
+                    nrow = 1,
+                    color_package = 'custom',
+                    color_palette = patient_colors,
+                    rasterize_dpi = dpi)
+
+ggsave(plot = p,
+       path = output_dir,
+       height = unit_height,
+       width = unit_width * 9,
+       dpi = dpi,
+       filename = 'F1D_patient_linear.png') 
+
+p
+```
+
 
 ### Figure 1E
 #### Plotting order
