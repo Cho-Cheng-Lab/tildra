@@ -613,11 +613,17 @@ top_genes_sig <- de_combined_supercluster %>%
   filter(p_val_adj < p_adj_cutoff) %>% 
   group_by(cluster) 
 
+top_genes_pv_vs_hc <- de_combined_supercluster %>% 
+  filter(cluster == 'Trm') %>% 
+  filter(comparison %in% c('PV vs HC')) %>% 
+  filter(p_val_adj < p_adj_cutoff) 
+
 top_genes_nonsig <- de_combined_supercluster %>% 
   filter(cluster == 'Trm') %>% 
   filter(comparison %in% c('Responder Pre vs Responder Mid')) %>% 
   filter(p_val_adj > p_adj_cutoff) %>% 
   filter(logCPM > 0) %>% 
+  filter(gene %in% top_genes_pv_vs_hc$gene) %>% 
   slice_min(abs(avg_log2FC), n = 200)
 
 pseudo_data <- pseudobulk(seuratobj,
@@ -646,7 +652,8 @@ which_genes <- top_genes_sig$gene
 
 boxplot_input <- patient_level_fc %>% 
   filter(supercluster == which_subset) %>% 
-  filter(gene %in% which_genes)
+  filter(gene %in% which_genes) %>% 
+  filter(patient %in% (metadata_patient %>% filter(group == 'Responder') %>% pull(patient)))
 
 median_input <- boxplot_input %>% 
   group_by(gene, treatment) %>% 
@@ -700,7 +707,8 @@ which_genes <- top_genes_nonsig$gene
 
 boxplot_input <- patient_level_fc %>% 
   filter(supercluster == which_subset) %>% 
-  filter(gene %in% which_genes)
+  filter(gene %in% which_genes) %>% 
+  filter(patient %in% (metadata_patient %>% filter(group == 'Responder') %>% pull(patient)))
 
 median_input <- boxplot_input %>% 
   group_by(gene, treatment) %>% 
