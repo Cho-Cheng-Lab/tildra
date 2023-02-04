@@ -312,7 +312,7 @@ p <- heatmap_input %>%
              fill = cytokine_pct,
              label = cytokine_pct)) +
   geom_tile(color = 'black') +
-  geom_text(aes(color = cytokine_pct)) +
+  geom_text(aes(color = cytokine_pct), size = 4) +
   scale_color_gradient(low = 'dodgerblue4',
                        high = 'white',
                        guide = NULL) +
@@ -337,6 +337,13 @@ p <- heatmap_input %>%
   labs(x = NULL,
        y = NULL,
        title = 'Cytokine Source')
+
+ggsave(plot = p,
+       device = cairo_pdf,
+       path = output_dir,
+       h = 6,
+        w = 8,
+	filename = 'F4B_cytokine_source.pdf')
 
 p
 ```
