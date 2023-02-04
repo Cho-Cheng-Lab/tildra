@@ -268,7 +268,7 @@ cytokine_source %>% filter(patient == which_patient) %>% select(treatment, gene,
 cytokine_source_combined <- pseudo %>% 
   left_join(cytokine_total) %>% 
   left_join(sample_total) %>% 
-  group_by(supercluster, condition, treatment, group) %>% 
+  group_by(supercluster, gene, condition, treatment, group) %>% 
   summarize(counts = sum(counts),
             total = sum(total),
             cytokine_total = sum(cytokine_total)) %>% 
@@ -284,28 +284,38 @@ cytokine_source_combined
 
 ```{r}
 heatmap_input <- cytokine_source_combined %>% 
-  select(supercluster, condition, treatment, group, cytokine_pct) %>% 
+  select(supercluster, gene, condition, treatment, group, cytokine_pct) %>% 
   unique() %>% 
   mutate(description = paste(condition, group, treatment)) %>% 
-  mutate(description = description %>% str_remove('NA None')) %>% 
+  mutate(description = description %>% str_remove(' NA None') %>% str_remove('PV ')) %>% 
+  mutate(description = factor(description, levels =
+                                c('PV', 
+                                'Non-responder Pre',
+                                'Non-responder Mid',
+                                'Responder Pre',
+                                'Responder Mid',
+                                'HC'))) %>% 
   arrange(condition, treatment, group, supercluster, cytokine_pct)
 
 heatmap_input
 ```
 ```{r}
 color_scale <- c(0, 50, 100)
-cluster_order <- heatmap_input %>% filter(description == 'PV') %>% arrange(cytokine_pct)
+cluster_order <- heatmap_input %>% filter(description == 'PV', gene == 'IL17A') %>% arrange(cytokine_pct) %>% pull(supercluster) %>% unique()
   
-heatmap_input %>% 
+p <- heatmap_input %>% 
+  filter(gene %in% c('IL17A', 'IL17F', 'IL26', 'IFNG')) %>% 
+  mutate(gene = factor(gene, levels = c('IL17A', 'IL17F', 'IL26', 'IFNG'))) %>% 
   mutate(cytokine_pct = round(cytokine_pct, 1)) %>% 
   ggplot(aes(x = description,
-             y = factor(supercluster, levels = rev(levels(supercluster))),
+             y = factor(supercluster, levels = cluster_order),
              fill = cytokine_pct,
              label = cytokine_pct)) +
   geom_tile(color = 'black') +
   geom_text(aes(color = cytokine_pct)) +
   scale_color_gradient(low = 'dodgerblue4',
-                       high = 'white') +
+                       high = 'white',
+                       guide = NULL) +
   scale_fill_gradientn(colors = colorRampPalette(RColorBrewer::brewer.pal(n = 7, name = "Blues"))(100),
                          limits = range(color_scale),
                          breaks = color_scale,
@@ -315,15 +325,20 @@ heatmap_input %>%
                                                 ticks = FALSE, 
                                                 nbin = 100,
                                                 barwidth = 0.5,
-                                                title = 'log2FC',
+                                                title = '%',
                                                 barheight = 5)) +
   theme(legend.position = 'right',
         axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
         axis.ticks = element_blank(),
         axis.line = element_blank(),
-        panel.border = element_blank()) +
+        panel.border = element_blank(),
+        legend.title = element_text(hjust = 0.5)) +
+  facet_wrap(~gene, nrow = 1) +
   labs(x = NULL,
-       y = NULL)
+       y = NULL,
+       title = 'Cytokine Source')
+
+p
 ```
 
 ## Session Info
