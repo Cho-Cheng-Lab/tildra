@@ -114,15 +114,15 @@ Idents(seuratobj) <- 'annotation'
 #### Subset TRMs
 ```{r}
 which_celltype <- seuratobj$annotation %>% str_subset('Trm') %>% unique() %>% sort() %>% head(1)
-subsetobj <- seuratobj %>% subset(annotation == which_celltype & condition != 'AD')
+subsetobj <- seuratobj %>% subset(annotation == which_celltype & condition != 'AD' & group %in% c(NA, 'Responder'))
 
 subsetobj$description <- paste0(subsetobj$condition, subsetobj$group, subsetobj$treatment) %>% 
   str_replace('HCNANone', 'HC') %>% 
   str_remove('PV') %>% 
   str_replace('NANone', 'PV') %>% 
   factor(levels = c('PV',
-                    'Non-responderPre',
-                    'Non-responderMid',
+                    # 'Non-responderPre',
+                    # 'Non-responderMid',
                     'ResponderPre',
                     'ResponderMid',
                     'HC'))
@@ -187,11 +187,19 @@ p <- subsetobj %>% seurat_feature(features = 'description',
                                   facets = 'description',
                                   label = FALSE,
                                   legend_position = 'none',
-                                  alpha = 0.5, 
+                                  nrow = 1,
+                                  alpha = 0.2, 
                                   size = 0.5,
                                   reduction = 'pca') +
   geom_hline(yintercept = 0, linetype = 'dashed') +
   geom_vline(xintercept = 0, linetype = 'dashed')
+
+ggsave(plot = p,
+       device = cairo_pdf,
+       path = output_dir,
+       h = 2.5,
+       w = 8,
+	filename = 'trajectory_facets.pdf')
 p
 ```
 ```{r}

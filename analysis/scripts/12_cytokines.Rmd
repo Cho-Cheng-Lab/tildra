@@ -51,12 +51,12 @@ seuratobj
 which_identity <- 'local'
 which_cluster <- paste0(which_identity, '_cluster')
 which_supercluster <- paste0(which_identity, '_supercluster')
-which_ultracluster <- paste0(which_identity, '_ultracluster')
+which_supercluster <- paste0(which_identity, '_supercluster')
 
 seuratobj$cluster <- seuratobj[[which_cluster]] 
 seuratobj$supercluster <- seuratobj[[which_supercluster]] 
-seuratobj$ultracluster <- seuratobj[[which_ultracluster]] 
-Idents(seuratobj) <- 'cluster' # set cluster as main annotation
+seuratobj$supercluster <- seuratobj[[which_supercluster]] 
+Idents(seuratobj) <- 'supercluster' # set cluster as main annotation
 
 output_dir <- here(output_dir, which_identity)
 dir.create(output_dir)
@@ -81,14 +81,14 @@ cells <- seuratobj@meta.data %>% filter(condition != 'AD') %>% rownames()
 pseudo <- pseudobulk(seuratobj,
                      genes = cytokines,
                      cells = cells,
-                     group_by = c('patient', 'ultracluster', 'condition', 'treatment', 'group'))
+                     group_by = c('patient', 'supercluster', 'condition', 'treatment', 'group'))
 
 pseudo %>% head()
 ```
 
 ```{r}
 sample_total <- pseudo %>% 
-  group_by(patient, treatment) %>% 
+  group_by(patient, condition, group, treatment) %>% 
   summarize(sample_total = sum(total))
 sample_total
 ```
@@ -119,9 +119,9 @@ cytokine_source
 which_patient <- 'P2'
 which_treatment <- 'Pre'
 
-annotation <- levels(cytokine_source$ultracluster)
+annotation <- levels(cytokine_source$supercluster)
 color_scale <- c(RColorBrewer::brewer.pal(n = sum(str_detect(annotation, 'T|B|ILC')),
-                                          name = 'Blues'),
+                                          name = 'Blues'), 'black',
                  RColorBrewer::brewer.pal(n = sum(!str_detect(annotation, 'T|B|ILC')),
                                           name = 'Reds'))
                  
@@ -131,7 +131,7 @@ cytokine_source %>%
          treatment == which_treatment) %>% 
   ggplot(aes(x = gene,
              y = cytokine_pct,
-             fill = ultracluster)) +
+             fill = supercluster)) +
   geom_col(color = 'black') +
   labs(x = 'Cytokine',
        y = '% Produced by Cell Type',
@@ -142,6 +142,7 @@ cytokine_source %>%
 
 
 ```
+
 ### Loop
 ```{r}
 tildra_patients <- cytokine_source %>% filter(treatment != 'None') %>% pull(patient) %>% unique() %>% sort()
@@ -153,7 +154,7 @@ p <- map(tildra_patients %>% unique(), function(which_patient) {
            treatment == 'Pre') %>% 
     ggplot(aes(x = gene,
                y = cytokine_pct,
-               fill = ultracluster)) +
+               fill = supercluster)) +
     geom_col(color = 'black') +
     labs(x = 'Cytokine',
          y = '% Produced by Cell Type',
@@ -166,7 +167,7 @@ p <- map(tildra_patients %>% unique(), function(which_patient) {
            treatment == 'Mid') %>% 
     ggplot(aes(x = gene,
                y = cytokine_pct,
-               fill = ultracluster)) +
+               fill = supercluster)) +
     geom_col(color = 'black') +
     labs(x = 'Cytokine',
          y = '% Produced by Cell Type',
@@ -190,7 +191,7 @@ p <- map(tildra_patients %>% unique(), function(which_patient) {
     filter(patient == which_patient) %>% 
     ggplot(aes(x = gene,
                y = cytokine_pct)) +
-    geom_col(color = 'black', aes(fill = ultracluster)) +
+    geom_col(color = 'black', aes(fill = supercluster)) +
     geom_text(data = cytokine_source %>% filter(patient == which_patient) %>% 
                 select(gene, treatment, gene_total) %>% unique(),
               aes(x = gene,
@@ -217,7 +218,7 @@ cytokine_source %>%
   filter(patient == which_patient, treatment == 'Pre') %>% 
   ggplot(aes(x = gene,
              y = cpm,
-             fill = ultracluster)) +
+             fill = supercluster)) +
   geom_bar(color = 'black', stat = 'identity') +
   # geom_text(data = cytokine_source %>% filter(patient == which_patient) %>% select(treatment, gene, cpm, gene_total) %>% unique(),
   #           aes(x = gene, y = cpm + 1, label = gene_total),
@@ -233,7 +234,7 @@ cytokine_source %>%
   filter(patient == which_patient, treatment == 'Pre') %>% 
   ggplot(aes(x = gene,
              y = cpm + 1,
-             fill = ultracluster)) +
+             fill = supercluster)) +
   geom_bar(color = 'black', stat = 'identity') +
   # geom_text(data = cytokine_source %>% filter(patient == which_patient) %>% select(treatment, gene, cpm, gene_total) %>% unique(),
   #           aes(x = gene, y = cpm + 1, label = gene_total),
@@ -252,17 +253,77 @@ cytokine_source %>% filter(patient == which_patient, gene == 'CXCL13', treatment
 ### Group
 ```{r}
 cytokine_source %>% 
-  ggplot(aes(x = ultracluster,
+  ggplot(aes(x = supercluster,
              y = cytokine_pct)) +
   geom_boxplot() +
   facet_wrap(~gene)
 ```
 ```{r}
-cytokine_source %>% filter(patient == which_patient) %>% select(treatment, gene, cpm, gene_total
+cytokine_source %>% filter(patient == which_patient) %>% select(treatment, gene, cpm, gene_total)
+
+```
+
+### As heatmap
+```{r}
+cytokine_source_combined <- pseudo %>% 
+  left_join(cytokine_total) %>% 
+  left_join(sample_total) %>% 
+  group_by(supercluster, condition, treatment, group) %>% 
+  summarize(counts = sum(counts),
+            total = sum(total),
+            cytokine_total = sum(cytokine_total)) %>% 
+  mutate(cytokine_pct = round(100 * counts / cytokine_total, 2))
+
+gene_counts <- cytokine_source %>% 
+  group_by(gene, condition, group, treatment) %>% 
+  summarize(gene_total = sum(counts))
+
+cytokine_source_combined <- cytokine_source_combined %>% left_join(gene_counts)
+cytokine_source_combined
 ```
 
 ```{r}
+heatmap_input <- cytokine_source_combined %>% 
+  select(supercluster, condition, treatment, group, cytokine_pct) %>% 
+  unique() %>% 
+  mutate(description = paste(condition, group, treatment)) %>% 
+  mutate(description = description %>% str_remove('NA None')) %>% 
+  arrange(condition, treatment, group, supercluster, cytokine_pct)
 
+heatmap_input
+```
+```{r}
+color_scale <- c(0, 50, 100)
+cluster_order <- heatmap_input %>% filter(description == 'PV') %>% arrange(cytokine_pct)
+  
+heatmap_input %>% 
+  mutate(cytokine_pct = round(cytokine_pct, 1)) %>% 
+  ggplot(aes(x = description,
+             y = factor(supercluster, levels = rev(levels(supercluster))),
+             fill = cytokine_pct,
+             label = cytokine_pct)) +
+  geom_tile(color = 'black') +
+  geom_text(aes(color = cytokine_pct)) +
+  scale_color_gradient(low = 'dodgerblue4',
+                       high = 'white') +
+  scale_fill_gradientn(colors = colorRampPalette(RColorBrewer::brewer.pal(n = 7, name = "Blues"))(100),
+                         limits = range(color_scale),
+                         breaks = color_scale,
+                         oob = scales::squish,
+                         na.value = 'grey90',
+                         guide = guide_colorbar(frame.colour = 'black', 
+                                                ticks = FALSE, 
+                                                nbin = 100,
+                                                barwidth = 0.5,
+                                                title = 'log2FC',
+                                                barheight = 5)) +
+  theme(legend.position = 'right',
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+        axis.ticks = element_blank(),
+        axis.line = element_blank(),
+        panel.border = element_blank()) +
+  labs(x = NULL,
+       y = NULL)
 ```
 
 ## Session Info
