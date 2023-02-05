@@ -528,7 +528,6 @@ ggsave(plot = p[[1]] + theme(legend.position = 'right'),
        filename = 'F2A_heatmap_legend.pdf')
 
 p
-
 ```
 
 ```{r}
@@ -547,9 +546,14 @@ tally_input <- de_combined_supercluster %>%
   group_by(comparison, cluster) %>% 
   summarize(n = sum(direction))
 
+cluster_order <- tally_input %>% 
+    pivot_wider(names_from = comparison,
+                values_from = n) %>% arrange(`PV vs HC`) %>% 
+  pull(cluster)
+
 p <- tally_input %>% 
   ggplot(aes(x = n,
-             y = reorder(cluster, n),
+             y = factor(cluster, levels = cluster_order),
              fill = comparison)) +
   geom_col(color = 'black',
            position = 'dodge') +
@@ -560,17 +564,15 @@ p <- tally_input %>%
        y = NULL)
 
 ggsave(plot = p,
-	device = cairo_pdf,
-	path = output_dir,
-        h = 6,
-        w = 4,
-	filename = 'F2B_tally_bar.pdf')
+       device = cairo_pdf,
+       path = output_dir,
+       h = 6,
+       w = 4,
+       filename = 'F2B_tally_bar.pdf')
 
 p
   
 ```
-
-
 
 
 
@@ -680,14 +682,6 @@ median_input <- boxplot_input %>%
   group_by(gene, treatment) %>% 
   summarize(cpm = median(cpm))
 
-# gene_order <- median_input %>% 
-#   pivot_wider(names_from = treatment,
-#               values_from = cpm) %>% 
-#   rowwise() %>% 
-#   mutate(difference = Pre - Mid,
-#          normalized = difference/max(c(Pre, Mid))) %>% 
-#   arrange(-normalized, -difference)
-
 gene_order <- which_genes
 
 boxplot_input <- boxplot_input %>% mutate(gene = factor(gene, levels = gene_order))
@@ -791,6 +785,140 @@ ggsave(plot = p,
        w = 32,
        filename = 'F3D/Trm_nonsig.pdf')
 
+p
+```
+
+### CD4 CD8 Trm
+#### CD4 vs CD8 status based on ADT and RNA data
+```{r}
+cd_data <- FetchData(seuratobj, 
+                     vars = c('CD4', 'CD8A', 'CD8B', 'ADT.CD4', 'ADT.CD8', 
+                              'cluster', 'supercluster', 'celltype', 'treatment')) %>% 
+  filter(celltype == 'Lymphocyte') %>% 
+  rownames_to_column() %>% 
+  mutate(ADT = case_when(
+    ADT.CD4 == 'Positive' & ADT.CD8 == 'Positive' ~ 'Double-positive',
+    ADT.CD4 == 'Positive' ~ 'CD4',
+    ADT.CD8 == 'Positive' ~ 'CD8',
+    TRUE ~ 'Double-negative'
+  ))
+```
+
+
+#### Classify CD4/8 status based on protein then RNA
+```{r}
+cd_status <- cd_data %>% 
+  mutate(CD = case_when(
+    ADT == 'Double-positive' ~ 'Unknown',
+    ADT == 'CD4' ~ 'CD4',
+    ADT == 'CD8' ~ 'CD8',
+    CD4 > 1 & (CD8A < 1 & CD8B < 1) ~ 'CD4',
+    (CD8A > 1 | CD8B > 1) & CD4 < 1 ~ 'CD8',
+    TRUE ~ 'Unknown'
+  ))
+
+cd_status %>% pull(CD) %>% table()
+```
+
+
+#### Add metadata
+```{r}
+add_cd <- seuratobj@meta.data %>% 
+  rownames_to_column() %>% 
+  select(rowname) %>% 
+  left_join(cd_status) %>% 
+  mutate(cd_supercluster = paste(CD, supercluster))
+seuratobj$CD <- add_cd$CD
+seuratobj$cd_supercluster <- add_cd$cd_supercluster
+```
+
+### CD status expression
+```{r}
+pseudo_data_cd <- pseudobulk(seuratobj,
+                             genes = c('IL17A', 'IL17F', 'IL26', 'IFNG'),
+                             cells = add_cd %>% filter(supercluster == 'Trm') %>% pull(rowname),
+                             group_by = c('id', 'cd_supercluster')) %>% 
+  left_join(patient_meta)
+
+pseudo_data_cd
+```
+
+```{r}
+patient_level_fc_cd <- pseudo_data_cd %>% 
+  filter(treatment != 'None') %>% 
+  filter(!str_detect(cd_supercluster, 'Unknown')) %>% 
+  select(gene, cd_supercluster, cpm, log10cpm, patient, treatment) 
+
+patient_level_fc_cd
+```
+
+```{r}
+boxplot_input <- patient_level_fc_cd %>% 
+  filter(patient %in% (metadata_patient %>% filter(group == 'Responder') %>% pull(patient)))
+
+median_input <- boxplot_input %>% 
+  group_by(gene, treatment) %>% 
+  summarize(cpm = median(cpm))
+
+gene_order <- c('IL17A', 'IL17F', 'IL26', 'IFNG')
+
+boxplot_input <- boxplot_input %>% mutate(gene = factor(gene, levels = gene_order))
+median_input <- median_input %>% mutate(gene = factor(gene, levels = gene_order))
+
+p <- boxplot_input %>% 
+  ggplot(aes(x = treatment,
+             y = cpm)) +
+  geom_point(aes(color = patient), alpha = 0.5) +
+  geom_path(aes(color = patient,
+                group = patient),
+            alpha = 0.5) +
+  geom_path(data = median_input,
+            aes(group = gene),
+            color = 'black') +
+  geom_point(data = median_input,
+             color = 'black',
+             fill = 'grey80',
+             shape = 21,
+             stroke = 1,
+             size = 3) +
+  facet_wrap(~cd_supercluster+gene, scales = 'free_y', nrow = 2) +
+  scale_y_log10() +
+  scale_color_tableau() +
+  theme(strip.text.x = element_text(face = 'italic')) +
+  labs(y = 'Counts per Million',
+       x = NULL)
+
+ggsave(plot = p,
+       device = cairo_pdf,
+       path = output_dir,
+       h = 4,
+       w = 8,
+       filename = 'F2D/Trm_CD.pdf')
+
+p
+```
+```{r}
+p <- pseudo_data_cd %>% 
+  filter(cd_supercluster != 'Unknown Trm') %>% 
+  filter(condition != 'AD') %>% 
+  filter(treatment %in% c('None', 'Pre')) %>% 
+  ggplot(aes(x = factor(gene, levels = c('IL17A', 'IL17F', 'IL26', 'IFNG')),
+             y = cpm + 1,
+             fill = condition)) +
+  geom_boxplot() +
+  facet_wrap(~cd_supercluster) +
+  scale_y_log10() +
+  theme(legend.position = 'top') +
+  labs(x = NULL,
+       y = 'Counts per Million') +
+  ggthemes::scale_fill_fivethirtyeight()
+
+ggsave(plot = p,
+	device = cairo_pdf,
+	path = output_dir,
+        h = 3,
+        w = 4,
+	filename = 'F2D/Trm_CD_boxplot.pdf')
 p
 ```
 
