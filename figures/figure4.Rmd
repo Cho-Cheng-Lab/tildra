@@ -1,13 +1,12 @@
 ---
-title: "Figure 4"
+title: "Figrue 4"
 author: "David Wu"
 ---
 
-Set working directory to project directory
+### Use the here package for robust relative paths
 ```{r}
 library(here)
 ```
-
 
 ### Optionally convert this Rmd to R script 
 ```{r eval=FALSE, message=FALSE}
@@ -31,982 +30,743 @@ dir.create(data_dir, showWarnings = FALSE)
 library(Seurat) 
 library(tidyverse)
 library(ggExtra)
-library(SeuratWrappers)
+library(patchwork)
+library(ggthemes)
+library(ggforce)
 library(wutilities) # devtools::install_github('symbiologist/wutilities')
 library(tictoc)
-library(ggforce)
-library(ggradar) # devtools::install_github("ricardo-bion/ggradar")
+library(rcartocolor)
+library(ggrepel)
 library(extrafont)
-library(patchwork)
-
+loadfonts()
 theme_set(theme_dwu()) # set default theme
+source(here('figures/colors.R')) # consistent color palettes
+
 ```
+
 ### Functions
 ```{r}
-calculate_signature <- function(seuratobj, 
-                                genes,
-                                name = 'signature') {
+library(openxlsx)
+write_excel_notebook <- function(input_table, 
+                                 output_file, 
+                                 tabs = 'cluster', 
+                                 prefix = 'cluster_') {
+  OUT <- createWorkbook()
   
-  gene_data <- FetchData(seuratobj, genes)
-  as.data.frame(rowSums(gene_data)) %>% set_names(name)
+  input_table$tabs <- input_table[[tabs]]
+  tabs <- input_table[[tabs]] %>% unique()
   
+  
+  for(i in tabs){
+    tryCatch({
+      table_subset <- input_table %>% filter(tabs == i) %>% select(-tabs)
+      
+      sheet_name <- paste0(prefix, i) %>% str_remove('[\\?/]') %>% str_remove('[\\/]') %>% str_remove('[\\:/]') 
+      addWorksheet(OUT, sheet_name)
+      writeData(OUT, sheet = sheet_name, x = table_subset)
+      
+    }, error=function(e){message(paste0("We have an error here in ", i))})
+  }
+  
+  saveWorkbook(OUT, output_file, overwrite = TRUE)
 }
 ```
 
-### Import data
-#### scRNA-seq
+### Import
 ```{r}
 seuratobj <- read_rds(here(data_dir, 'seuratobj_annotated.rds'))
+metadata <- seuratobj@meta.data %>% rownames_to_column()
 seuratobj
 ```
-#### Visium
-```{r}
-visiumobj <- read_rds(here(data_dir, 'visium_integrated.rds'))
-
-visium_meta <- visiumobj@meta.data %>% rownames_to_column() %>% 
-  mutate(cluster = case_when(seurat_clusters == 3 ~ 'Keratinocyte',
-                             seurat_clusters == 2 ~ 'Vascular',
-                             seurat_clusters == 1 ~ 'Fibroblast',
-                             seurat_clusters == 0 ~ 'Stromal'))
-```
-
 ### Use global or local identities and set as cluster/supercluster in the object
 ```{r}
 which_identity <- 'local'
-which_level <- 'supercluster'
-which_annotation <- paste0(which_identity, '_', which_level)
-
 which_cluster <- paste0(which_identity, '_cluster')
 which_supercluster <- paste0(which_identity, '_supercluster')
 which_ultracluster <- paste0(which_identity, '_ultracluster')
+which_annotation <- which_supercluster
 
 seuratobj$cluster <- seuratobj[[which_cluster]] 
 seuratobj$supercluster <- seuratobj[[which_supercluster]] 
 seuratobj$ultracluster <- seuratobj[[which_ultracluster]] 
-seuratobj$annotation <- seuratobj[[which_annotation]]
-Idents(seuratobj) <- 'annotation'
+Idents(seuratobj) <- 'cluster' # set cluster as main annotation
 
 output_dir <- here(figures_dir, which_identity)
 dir.create(output_dir)
 ```
-
-### DE
+### Patient metadata
 ```{r}
-which_de <- '08_de_pseudobulk'
-metadata <- seuratobj@meta.data %>% rownames_to_column() 
-de_combined_cluster <- read_tsv(here('analysis/output', which_de, which_cluster, 'de_combined.tsv.gz')) %>% mutate(level = 'cluster')
-de_combined_supercluster <- read_tsv(here('analysis/output', which_de, which_supercluster, 'de_combined.tsv.gz')) %>% mutate(level = 'supercluster')
-de_combined_ultracluster <- read_tsv(here('analysis/output', which_de, which_ultracluster, 'de_combined.tsv.gz')) %>% mutate(level = 'ultracluster')
-
-de_combined <- bind_rows(de_combined_cluster,
-                         de_combined_supercluster,
-                         de_combined_ultracluster)
-```
-
-```{r}
-de_patient_cluster <- read_tsv(here('analysis/output/08_de', which_cluster, 'de_pre_vs_mid_per_patient.tsv.gz')) %>% mutate(level = 'cluster')
-de_patient_supercluster <- read_tsv(here('analysis/output/08_de', which_supercluster, 'de_pre_vs_mid_per_patient.tsv.gz')) %>% mutate(level = 'supercluster')
-de_patient_ultracluster <- read_tsv(here('analysis/output/08_de', which_ultracluster, 'de_pre_vs_mid_per_patient.tsv.gz')) %>% mutate(level = 'ultracluster')
-
-de_patient <- bind_rows(de_patient_cluster,
-                        de_patient_supercluster,
-                        de_patient_ultracluster)
-```
-
-### Prepare metadata
-```{r}
-metadata <- seuratobj@meta.data %>% rownames_to_column()
-
-metadata_sample <- metadata %>% 
-  select(id, patient, sample, condition, treatment, response, group, patient_label, sample_label) %>% 
+metadata_patient <- metadata %>% 
+  select(id, sample, patient, treatment, group) %>% 
+  filter(treatment != 'None') %>% 
   unique() %>% 
-  as_tibble()
+  droplevels()
 
-metadata_sample
+metadata_patient
+```
+### DE genes per patient
+```{r}
+de_patient_vs_hc <- read_tsv(here('analysis/output/08_de', which_annotation, 'de_patient_vs_hc.tsv.gz'))
 ```
 
-#### Combine visium and scRNA metadata
-```{r}
-metadata_combined <- metadata %>% 
-  bind_rows(visium_meta %>% select(rowname, id, cluster) %>% drop_na()) %>% 
-  select(rowname, 
-         id, 
-         sample, 
-         patient,
-         condition, 
-         treatment, 
-         group, 
-         cluster, 
-         supercluster, 
-         celltype, 
-         sample_label, 
-         patient_label) %>% 
-  mutate(cellgroup = case_when(
-    str_detect(cluster, 'Trm1') ~ 'Trm1',
-    celltype == 'APC' ~ 'APC',
-    str_detect(cluster, 'T') ~ 'Tcell',
-    TRUE ~ cluster
-  ))
 
-metadata_combined
+
+### Analysis
+
+
+### Cluster size and % 
+```{r}
+analyze <- metadata %>% 
+  select(rowname, id, patient, sample, condition, treatment, cluster, supercluster, ultracluster, group, celltype) 
+
+analyze %>% head()
 ```
-
-### Major clusters
 ```{r}
-clusters_all <- metadata$annotation %>% unique()
-clusters_all
-```
-
-## Gene sets
-### PV50
-```{r}
-pv50 <- readxl::read_excel(here('analysis/input/PV50.xlsx'))
-pv50_genes <- pv50$...1 %>% intersect(rownames(seuratobj))
-```
-
-### Tildra-responsive genes
-#### Genes that change in responders but not non-responders
-##### Group-level
-```{r}
-p_val_threshold <- 0.05
-```
-
-```{r}
-de_pre_vs_mid_response <- de_combined %>% filter(level == which_level) %>% 
-  filter(comparison %in% c('Responder Pre vs Responder Mid',
-                           'Non-responder Pre vs Non-responder Mid'))
-
-il23_group_response <- de_pre_vs_mid_response %>% 
-  filter(p_val_adj < p_val_threshold,
-         avg_log2FC > 0,
-         comparison == 'Responder Pre vs Responder Mid') 
-
-il23_group_response
-```
-
-##### Patient-level
-```{r}
-de_pre_vs_mid_patients <- de_patient %>% filter(level == which_level)
-
-de_patient_tally <- de_pre_vs_mid_patients %>% 
-  filter(p_val_adj < p_val_threshold,
-         avg_log2FC > 0) %>% 
-  group_by(cluster, gene, group) %>% 
+cluster_tallies <- analyze %>% 
+  group_by(sample, patient, condition, cluster, celltype, treatment, group) %>% 
   tally() %>% 
-  pivot_wider(names_from = group,
-              values_from = n,
-              values_fill = 0)
+  group_by(sample) %>% 
+  mutate(total = sum(n),
+         f = n/total,
+         pct = round(100 * f, 2))
 
-de_patient_tally
+supercluster_tallies <- analyze %>% 
+  group_by(sample, patient, condition, supercluster, celltype, treatment, group) %>% 
+  tally() %>% 
+  group_by(sample) %>% 
+  mutate(total = sum(n),
+         f = n/total,
+         pct = round(100 * f, 2))
+
+ultracluster_tallies <- analyze %>% 
+  group_by(sample, patient, condition, ultracluster, celltype, treatment, group) %>% 
+  tally() %>% 
+  group_by(sample) %>% 
+  mutate(total = sum(n),
+         f = n/total,
+         pct = round(100 * f, 2))
+
+cluster_tallies
 ```
-
+#### DE tally
 ```{r}
-il23_response <- il23_group_response %>% 
-  left_join(de_patient_tally)
+de_sample_tally <- de_patient_vs_hc %>% 
+  filter(p_val_adj < 0.01) %>% 
+  group_by(sample, cluster) %>% 
+  tally()
 
-il23_response
-```
-
-### Response genes per cluster
-```{r}
-il23_genes_all <- map(clusters_all %>% set_names(.), function(i) {
-  
-  il23_response %>% 
-    filter(cluster == i, 
-           p_val_adj < p_val_threshold) %>% 
-    pull(gene)
-  
-})
-
-il23_genes_strict <- map(clusters_all %>% set_names(.), function(i) {
-  
-  il23_response %>% 
-    filter(cluster == i, 
-           p_val_adj < p_val_threshold, 
-           Responder > `Non-responder`,
-           Responder > 2, 
-           `Non-responder` < 2) %>% 
-    pull(gene) 
-  
-})
-
-il23_genes_strict$Trm
-```
-
-```{r}
-il23_genes_all$Trm
-```
-
-```{r}
-il23_genes_table <- map(names(il23_genes_all), function(i) {
-  
-  strict <- il23_genes_strict[[i]]
-  
-  output <- tibble('cluster' = i,
-         'gene' = il23_genes_all[[i]]) 
-  
-  if(!is.null(strict)) {
-    output <- output %>% mutate(Status = ifelse(gene %in% strict, 'Strict', 'All'))
-  } else {
-    output <- output %>% mutate(Status = 'All')
-  }
-  
-  output %>% mutate(across(everything(), as.character))
-  
-})  %>% bind_rows()
-
-il23_genes_table %>% write_tsv(here(output_dir, 'il23_genes_table.tsv'))
-il23_genes_table
+de_sample_tally
 ```
 
 
-### IL17 responsive genes from Harirchian et al. JID 2019
-https://pubmed.ncbi.nlm.nih.gov/30543901/
-```{r}
-il17 <- bind_rows(
-  readxl::read_xlsx(here('analysis/input/NIHMS1522377-supplement-2 Cho IL17A.xlsx'), sheet = 'Table S1C', skip = 1) %>% mutate(time = 'T_1'),
-  readxl::read_xlsx(here('analysis/input/NIHMS1522377-supplement-2 Cho IL17A.xlsx'), sheet = 'Table S1D', skip = 1) %>% mutate(time = 'T_24'))
-colnames(il17)[1] <- 'gene'
-il17
-```
-
+#### Major celltypes
 
 ```{r}
-il17_responsive <- il17 %>% 
-  filter(logFC > 0.4,
-         FDR < 0.05) %>% 
-  add_count(gene) %>% filter(n > 1)
-
-il17_responsive
-```
-
-
-```{r}
-il17_genes <- il17_responsive$gene %>% unique()
-```
-
-#### Other signatures of interest
-```{r}
-secreted_signature <- c('IL17A', 'IL17F', 'IL26', 'CXCl13', 'GZMB', 'GNLY', 'PCSK7')
-
-il23_peripheral <- c('GNLY',
-                     'HGPD',
-                     'IL17A',
-                     'IL17F',
-                     'IL26',
-                     'PTPN13',
-                     'S100A4')
-```
-
-### Extract all expression data
-```{r}
-extract_expression <- function(seuratobj,
-                               cells = NULL,
-                               genes,
-                               normalize = TRUE,
-                               log = FALSE,
-                               assay = 'RNA',
-                               slot = 'counts') {
+four_colors <- carto_pal(n = 5, name = 'Bold')
   
-  data_subset <- FetchData(object = seuratobj, 
-                           cells = cells,
-                           vars = genes,
-                           assay = assay,
-                           slot = slot) %>% 
-    rownames_to_column() %>% 
-    pivot_longer(cols = -rowname,
-                 names_to = 'gene',
-                 values_to = 'counts')
-  
-  total_count <- colSums(GetAssayData(seuratobj, 
-                                        slot = slot, 
-                                        assay = assay))
-  
-  if(!is.null(cells)) {
-    total_count <- total_count[cells]
-  }
-  
-  data_subset <- data_subset %>% 
-    left_join(data.frame('total' = total_count) %>% rownames_to_column(), by = 'rowname')
-  
-  if(normalize) {
-   data_subset <- data_subset %>% 
-      mutate(cpm = 1e6 * counts / total) 
-  }
-  
-  data_subset
-  
-}
-
-pseudobulk <- function(seuratobj,
-                       genes,
-                       cells = NULL,
-                       group_by = 'ident',
-                       pseudocount = 1,
-                       rounding = 3,
-                       assay = 'RNA',
-                       slot = 'count') {
-  
-  metadata_groups <- FetchData(seuratobj, vars = group_by, cells = cells) %>% rownames_to_column()
-  
-  expression <- extract_expression(seuratobj,
-                                   genes = genes,
-                                   cells = cells,
-                                   normalize = FALSE,
-                                   log = FALSE,
-                                   assay = assay,
-                                   slot = slot) %>% 
-    left_join(metadata_groups, by = 'rowname')
-  
-  totals <- expression %>% 
-    select(rowname, total, all_of(group_by)) %>% 
-    unique() %>% 
-    group_by(across(all_of(group_by))) %>% 
-    summarize(total = sum(total))
-  
-  merged <- expression %>% 
-    group_by(across(all_of(c('gene', group_by)))) %>% 
-    summarize(counts = sum(counts)) %>% 
-    ungroup() %>% 
-    left_join(totals) %>% 
-    mutate(cpm = counts/total * 1e6,
-           log10cpm = log10(cpm + pseudocount))
-  
-  merged %>% mutate(across(contains('cpm'), round, rounding))
-  
-}
-
-plot_radar <- function(df,
-                       group_by = NULL,
-                       features = NULL,
-                       colors = NULL,
-                       title = '',
-                       legend.position = 'top') {
-  
-  if(is.null(group_by)) {
-    
-    group_by <- colnames(df)[1]
-    
-  }
-    
-  if(is.null(features)) {
-    
-    features <- colnames(df) %>% setdiff(group_by)
-    
-  }
-  
-  radar_input <- df %>% 
-    select(all_of(c(group_by, features))) %>% 
-    mutate(across(all_of(features), scales::rescale_max))
-  
-  radar_input[[group_by]] <- droplevels(radar_input[[group_by]])
-  
-  radar_input %>% 
-    ggradar(legend.text.size = 8,
-            grid.label.size = 0,
-            axis.label.size = 2,
-            group.point.size = 2,
-            axis.label.offset = 1.1,
-            group.line.width = 1,
-            group.colours = colors,
-            plot.title = title,
-            legend.position = legend.position) +
-    theme(plot.title = element_text(size = 9, hjust = 0.5),
-          plot.background = element_rect(color = 'black'),
-          #legend.box.background = element_rect(color = 'blue'),
-          legend.key.height = unit(1, 'mm'),
-          legend.spacing = unit(0, 'mm')) 
-}
-
-plot_radar_patient <- function(pseudo,
-                               cluster,
-                               patient,
-                               genes,
-                               normalize = TRUE,
-                               scale = c('within', 'across'),
-                               colors = c('dodgerblue4', 'orangered'),
-                               test = TRUE,
-                               significance_colors = c('orangered', 'red4'),
-                               significance_cutoff = 0.01,
-                               title = 'patient_label') {
-  
-  plot_title <- pseudo %>% filter(patient == {{patient}}) %>% pull({{title}}) %>% unique()
-  
-  plot_input <- pseudo %>% 
-    filter(cluster %in% {{cluster}}, 
-           gene %in% {{genes}}) %>% 
-    select(patient,
-           feature = gene,
-           treatment,
-           normalized = cpm)
-  
-  # significance testing
-  if(test) {
-    res <- test_pre_vs_mid(pseudo = {{pseudo}},
-                           cluster = {{cluster}},
-                           genes = {{genes}},
-                           patient = {{patient}})
-    
-    subtitle <- paste0('p = ', round(res$wilcox$p.value, 3))
-    
-    # if(res$t$p.value < significance_cutoff) {
-    #   plot_title <- paste0(plot_title, '*')
-    # }
-    
-    if(res$wilcox$p.value < significance_cutoff) {
-      plot_title <- paste0(plot_title, '*')
-    }
-    
-    # color title based on significance
-    n_significant <- str_count(plot_title, '\\*')
-    if(n_significant == 0) {
-      title_color <- 'black'
-    } else {
-      title_color <- significance_colors[n_significant]
-    }
-    
-  } else {
-    
-    subtitle <- NULL
-  
-    }
-  
-  if(scale == 'across') {
-    
-    plot_input <- plot_input %>% 
-      group_by(feature) %>% 
-      mutate(feature_max = max(normalized),
-             normalized = ifelse(feature_max > 0, normalized/feature_max, 0)) %>% 
-      filter(patient == {{patient}})
-    
-  } else if(scale == 'within') {
-    
-    plot_input <- plot_input %>% 
-      filter(patient == {{patient}}) %>% 
-      group_by(feature) %>% 
-      mutate(feature_max = max(normalized),
-             normalized = ifelse(feature_max > 0, normalized/feature_max, 0))
-  }
-  
-  radar_input <- plot_input %>% 
-    mutate(treatment = droplevels(treatment)) %>% 
-    select(treatment, feature, normalized) %>% 
-    pivot_wider(names_from = feature,
-                values_from = normalized)
-  
-  p_radar <- radar_input %>% 
-    ggradar(legend.text.size = 8,
-            grid.label.size = 0,
-            axis.label.size = 2,
-            group.point.size = 2,
-            axis.label.offset = 1.1,
-            group.line.width = 1,
-            group.colours = colors,
-            legend.position = 'top', 
-            font.radar = 'Arial') +
-    theme(text = element_text(family = 'Arial'),
-          plot.title = element_text(size = 9, hjust = 0.5, color = title_color),
-          plot.subtitle = element_text(size = 8, hjust = 0.5),
-          plot.background = element_rect(color = 'black'),
-          legend.key.height = unit(1, 'mm'),
-          legend.spacing = unit(0, 'mm')) +
-    labs(title = plot_title,
-         subtitle = subtitle)
-  
-  p_radar
-  
-  
-}
-
-test_pre_vs_mid <- function(pseudo,
-                            patient,
-                            cluster,
-                            genes,
-                            logtransform = TRUE,
-                            pseudocount = 1,
-                            binarize = TRUE,
-                            cutoff = 0.5) {
-  
-  test_input <- pseudo %>% 
-    filter(cluster %in% {{cluster}}, 
-           gene %in% {{genes}},
-           patient == {{patient}}) %>% 
-    select(gene,
-           treatment,
-           expression = cpm) %>% 
-    rowwise() %>% 
-    mutate(expression = ifelse(logtransform, log10(expression + 1), expression)) %>% 
-    ungroup() %>% 
-    pivot_wider(names_from = 'treatment',
-                values_from = 'expression')
-  
-  if(binarize) {
-    test_input <- test_input %>% rowwise() %>% 
-      mutate(Max = max(Pre, Mid), 
-             Pre = as.integer(Pre > cutoff * Max), 
-             Mid = as.integer(Mid > cutoff * Max)) %>% 
-      ungroup() %>% 
-      select(-Max)
-    
-  }
-  
-  if((test_input$Pre == test_input$Mid)) {
-    t_res <- list(p.value = 1)
-    wilcox_res <- list(p.value = 1)
-  } else {
-    t_res <- t.test(test_input$Pre,
-                    test_input$Mid,
-                    paired = TRUE)
-    
-    wilcox_res <- wilcox.test(test_input$Pre,
-                              test_input$Mid,
-                              paired = TRUE)
-  } 
-  
-  list('t' = t_res,
-       'wilcox' = wilcox_res)
-}
-
+conditions <- c('APC', 'Lymphocyte')
 
 ```
 
 ```{r}
-tildra_barcodes <- metadata %>% filter(treatment %in% c('Pre', 'Mid')) %>% pull(rowname)
-genes_core <- c('IL17A', 'IL17F', 'IL26', 'IFNG')
-gene_set <- c('IL17A', 'IL17F', 'IL26', 'TNF', 'IFNG', 'IL23R', 'IL21', 'IL22', 'IL36A', 'CXCL13')
-
-pseudo <- pseudobulk(seuratobj,
-                     cells = tildra_barcodes,
-                     genes = c(genes_core, gene_set, il23_genes_all %>% unlist()) %>% unique(),
-                     group_by = c(which_level, 'id')) %>% 
-  left_join(metadata_sample %>% select(id, patient, treatment, group, sample_label, patient_label)) %>% 
-  dplyr::rename(cluster = {{which_level}})
-
-pseudo 
+celltype_input <- cluster_tallies %>% 
+    filter(treatment %in% c('Pre', 'Mid')) %>% 
+    group_by(patient, sample, treatment, total, celltype, group) %>% 
+    summarize(n = sum(n)) %>% 
+  rowwise() %>% 
+  mutate(f = n/total, 
+         pct = 100 * f)
+  
 ```
 
-### Radar plot
-
+#### Combined
 ```{r}
-
-# p <- plot_radar_patient(pseudo = pseudo,
-#                    cluster = 'Mac',
-#                    patient = 'P1',
-#                    genes = c(genes_core, il23_genes_strict$Mac),
-#                    scale = 'across')
-# 
-# ggsave(plot = p,
-#        h = 10,
-#        w = 10,
-#        device = cairo_pdf,
-#        path = output_dir,
-#        filename = 'test.pdf')
-# 
-# p
+treatment_groups <- celltype_input %>% 
+  ungroup() %>% 
+  select(treatment, group) %>% 
+  unique() %>% 
+  arrange(group, treatment) %>% 
+  mutate(treatment_group = paste(treatment, group, sep = ':'),
+         treatment_group = factor(treatment_group, levels = treatment_group))
+treatment_groups
 ```
 
-#### Limited set
+
 ```{r}
-p <- map(pseudo$patient %>% unique() %>% sort() %>% as.character(), function(which_patient) {
-  plot_radar_patient(pseudo = pseudo,
-                     cluster = 'Trm',
-                     patient = which_patient,
-                     genes = gene_set,
-                     scale = 'within')
-}) %>% wrap_plots(ncol = 3)
+p <- celltype_input %>% 
+  filter(celltype %in% c('APC', 'Lymphocyte')) %>% 
+  bind_rows(cluster_tallies %>% 
+              filter(treatment %in% c('Pre', 'Mid')) %>% 
+              filter(str_detect(cluster, 'Trm')) %>% 
+              mutate(celltype = cluster)) %>% 
+  bind_rows(supercluster_tallies %>% 
+              filter(treatment %in% c('Pre', 'Mid')) %>% 
+              filter(str_detect(supercluster, 'Trm')) %>% 
+              mutate(celltype = 'Trm all')) %>%
+  select(sample, treatment, group, celltype, n, pct) %>% 
+  pivot_longer(cols = c(n, pct),
+               names_to = 'metric',
+               values_to = 'value') %>% 
+  left_join(treatment_groups) %>% 
+ggplot(aes(x = treatment_group,
+             y = value,
+             fill = group)) +
+  geom_boxplot() +
+  labs(x = '',
+       y = '# of Cells') +
+  facet_wrap(~metric + celltype, scales = 'free_y', nrow = 2) +
+  scale_fill_manual(values = colors_response2) +
+  theme_dwu(legend.position = 'top') +
+  scale_x_discrete(labels = c('Pre', 'Mid', 'Pre', 'Mid'))
 
 ggsave(plot = p,
-       h = 10,
-       w = 10,
        device = cairo_pdf,
+       filename = 'F2E_box_combined.pdf',
        path = output_dir,
-       filename = 'radar_cytokines.pdf')
+       h = 5,
+       w = 10)
+
+p
+```
+#### All clusters, n
+```{r}
+p <- cluster_tallies %>% 
+  filter(treatment %in% c('Pre', 'Mid')) %>% 
+  select(sample, treatment, group, cluster, n, pct) %>% 
+  pivot_longer(cols = c(n, pct),
+               names_to = 'metric',
+               values_to = 'value') %>% 
+  left_join(treatment_groups) %>% 
+  filter(metric == 'n') %>% 
+ggplot(aes(x = treatment_group,
+             y = value,
+             fill = group)) +
+  geom_boxplot() +
+  labs(x = '',
+       y = '# of Cells') +
+  facet_wrap(~cluster, scales = 'free_y') +
+  scale_fill_manual(values = colors_response2) +
+  theme_dwu(legend.position = 'top') +
+  scale_x_discrete(labels = c('Pre', 'Mid', 'Pre', 'Mid'))
+
+ggsave(plot = p,
+       device = cairo_pdf,
+       filename = 'F2E_box_all_clusters_n.pdf',
+       path = output_dir,
+       h = 8,
+       w = 8)
+
+p
+```
+#### All clusters, f
+```{r}
+p <- cluster_tallies %>% 
+  filter(treatment %in% c('Pre', 'Mid')) %>% 
+  select(sample, treatment, group, cluster, n, pct) %>% 
+  pivot_longer(cols = c(n, pct),
+               names_to = 'metric',
+               values_to = 'value') %>% 
+  left_join(treatment_groups) %>% 
+  filter(metric == 'pct') %>% 
+ggplot(aes(x = treatment_group,
+             y = value,
+             fill = group)) +
+  geom_boxplot() +
+  labs(x = '',
+       y = '% of Cells') +
+  facet_wrap(~cluster, scales = 'free_y') +
+  scale_fill_manual(values = colors_response2) +
+  theme_dwu(legend.position = 'top') +
+  scale_x_discrete(labels = c('Pre', 'Mid', 'Pre', 'Mid'))
+
+ggsave(plot = p,
+       device = cairo_pdf,
+       filename = 'F2E_box_all_clusters_f.pdf',
+       path = output_dir,
+       h = 8,
+       w = 8)
+
+p
+```
+
+#### All superclusters, n
+```{r}
+p <- supercluster_tallies %>% 
+  filter(treatment %in% c('Pre', 'Mid')) %>% 
+  select(sample, treatment, group, supercluster, n, pct) %>% 
+  pivot_longer(cols = c(n, pct),
+               names_to = 'metric',
+               values_to = 'value') %>% 
+  left_join(treatment_groups) %>% 
+  filter(metric == 'n') %>% 
+ggplot(aes(x = treatment_group,
+             y = value,
+             fill = group)) +
+  geom_boxplot() +
+  labs(x = '',
+       y = '# of Cells') +
+  facet_wrap(~supercluster, scales = 'free_y') +
+  scale_fill_manual(values = colors_response2) +
+  theme_dwu(legend.position = 'top') +
+  scale_x_discrete(labels = c('Pre', 'Mid', 'Pre', 'Mid'))
+
+ggsave(plot = p,
+       device = cairo_pdf,
+       filename = 'F2E_box_all_superclusters_n.pdf',
+       path = output_dir,
+       h = 8,
+       w = 8)
+
+p
+```
+#### All clusters, f
+```{r}
+p <- supercluster_tallies %>% 
+  filter(treatment %in% c('Pre', 'Mid')) %>% 
+  select(sample, treatment, group, supercluster, n, pct) %>% 
+  pivot_longer(cols = c(n, pct),
+               names_to = 'metric',
+               values_to = 'value') %>% 
+  left_join(treatment_groups) %>% 
+  filter(metric == 'pct') %>% 
+ggplot(aes(x = treatment_group,
+             y = value,
+             fill = group)) +
+  geom_boxplot() +
+  labs(x = '',
+       y = '% of Cells') +
+  facet_wrap(~supercluster, scales = 'free_y') +
+  scale_fill_manual(values = colors_response2) +
+  theme_dwu(legend.position = 'top') +
+  scale_x_discrete(labels = c('Pre', 'Mid', 'Pre', 'Mid'))
+
+ggsave(plot = p,
+       device = cairo_pdf,
+       filename = 'F2E_box_all_superclusters_f.pdf',
+       path = output_dir,
+       h = 8,
+       w = 8)
 
 p
 ```
 
 
-#### Loop
+### Figure 2F
+#### n
 ```{r}
-update_geom_defaults('text', list(fontface = 'italic'))
-which_cluster <- 'Trm'
-map(pseudo$cluster %>% unique() %>% as.character(), function(which_cluster) {
-  
-  #gene_core <- NULL
-  genes_all <- c(genes_core, il23_genes_all[[which_cluster]]) %>% unique()
-  genes_strict <- c(genes_core, il23_genes_strict[[which_cluster]]) %>% unique()
-  
-  map(c('across', 'within'), function(which_scale) {
-    
-    if(length(genes_all) > length(genes_core)) {
-      
-      print2(paste(which_cluster, which_scale))
-      
-      p <- map(pseudo$patient %>% unique() %>% sort() %>% as.character(), function(which_patient) {
-        
-        
-        if((pseudo %>% 
-            filter(patient == which_patient,
-                   cluster == which_cluster,
-                   gene %in% genes_all,
-                   cpm > 0) %>% 
-            nrow() > 0)) {
-          
-          plot_radar_patient(pseudo = pseudo,
-                             cluster = which_cluster,
-                             patient = which_patient,
-                             genes = genes_all,
-                             scale = which_scale)
-        } else {
-          ggplot()
-        }
-      }) %>% wrap_plots() 
-      
-      print2('Saving')
-      dir.create(here(output_dir, 'radar_all'), showWarnings = FALSE)
-      ggsave(plot = p,
-             h = 10,
-             w = 10,
-             device = cairo_pdf,
-             path = here(output_dir, 'radar_all'),
-             filename = paste0(which_scale, '_', str_remove(which_cluster, '/'), '.pdf'))
-      
-    }
-    
-    if(length(genes_strict) > length(genes_core)) {
-      
-      p <- map(pseudo$patient %>% unique() %>% sort(), function(which_patient) {
-        
-        
-        if((pseudo %>% filter(patient == which_patient,
-                              cluster == which_cluster,
-                              gene %in% genes_strict,
-                              cpm > 0) %>% 
-            nrow() > 0)) {
-          
-          plot_radar_patient(pseudo = pseudo,
-                             cluster = which_cluster,
-                             patient = which_patient,
-                             genes = genes_strict,
-                             scale = which_scale)
-        } else {
-          ggplot()
-        }
-        
-        
-      }) %>% wrap_plots()
-      
-      dir.create(here(output_dir, 'radar_strict'), showWarnings = FALSE)
-      
-      ggsave(plot = p,
-             h = 10,
-             w = 10,
-             device = cairo_pdf,
-             path = here(output_dir, 'radar_strict'),
-             filename = paste0(which_scale, '_', str_remove(which_cluster, '/'), '.pdf'))
-    }
-  }) %>% invisible()
-}) %>% invisible()
+p <- cluster_tallies %>% 
+  filter(str_detect(cluster, 'Trm')) %>% 
+  filter(!is.na(group)) %>% 
+  select(sample, treatment, group, celltype, n, pct) %>% 
+  pivot_longer(cols = c(n, pct),
+               names_to = 'metric',
+               values_to = 'value') %>% 
+  ggplot(aes(x = sample,
+             y = value,
+             fill = group)) +
+  geom_bar(stat = 'identity', color = 'black', alpha = 0.8) +
+  labs(x = '',
+       y = '') +
+  theme_dwu(legend.position = 'top') +
+  coord_flip() +
+  facet_wrap(~metric, nrow = 1, scales = 'free_x') +
+  scale_fill_manual(values = colors_response2) +
+  scale_x_discrete(limits = rev)
 
-update_geom_defaults('text', list(fontface = 1))
+ggsave(plot = p,
+       device = cairo_pdf,
+       filename = 'F2F_bar_patient_trm_combined.pdf',
+       path = output_dir,
+       h = 4,
+       w = 4)
+
+p
+```
+```{r}
+#remotes::install_github("coolbutuseless/ggpattern")
+library(ggpattern)
+patient_labels <- metadata_patient %>% 
+  filter(!is.na(group)) %>% mutate(label = ifelse(treatment == 'Pre', as.character(patient), '')) %>% 
+  pull(label)
+
+p <- cluster_tallies %>% 
+  filter(str_detect(cluster, 'Trm1')) %>% 
+  filter(!is.na(group)) %>% 
+  select(sample, treatment, group, celltype, n, pct) %>% 
+  pivot_longer(cols = c(n, pct),
+               names_to = 'metric',
+               values_to = 'value') %>% 
+  ggplot(aes(x = value,
+             y = sample,
+             fill = group,
+             pattern = treatment)) +
+  geom_bar_pattern(stat = 'identity', 
+                   color = 'black', 
+                   alpha = 0.8,
+                   pattern_density = 0.1,
+                   pattern_angle = 45,
+                   pattern_key_scale_factor = 0.6) +
+  labs(x = '',
+       y = '') +
+  theme(legend.position = 'top',
+        axis.ticks.y = element_blank(),
+        axis.text.y = element_text(vjust = 1)) +
+  facet_wrap(~metric, nrow = 1, scales = 'free_x') +
+  scale_fill_manual(values = colors_response2) +
+  scale_pattern_manual(values = c(Pre = 'stripe', Mid = 'none')) +
+  scale_y_discrete(limits = rev,
+                   labels = rev(patient_labels)) +
+  guides(pattern = guide_legend(override.aes = list(fill = 'white')),
+         fill = guide_legend(override.aes = list(pattern = 'none')))
+
+p
+```
+
+### Loop
+```{r}
+dir.create(here(output_dir, 'patient_bar_cluster'))
+
+p_cluster <- map(levels(cluster_tallies$cluster), function(i) {
+  
+  
+  p <- cluster_tallies %>% 
+    mutate(sample = factor(sample, levels = str_subset(levels(sample), '-'))) %>% 
+    filter(cluster == i) %>% 
+    filter(!is.na(group)) %>% 
+    select(sample, treatment, group, celltype, n, pct) %>% 
+    pivot_longer(cols = c(n, pct),
+                 names_to = 'metric',
+                 values_to = 'value') %>% 
+   ggplot(aes(x = value,
+             y = sample,
+             fill = group,
+             pattern = treatment)) +
+  geom_bar_pattern(stat = 'identity', 
+                   color = 'black', 
+                   alpha = 0.8,
+                   pattern_density = 0.1,
+                   pattern_angle = 45,
+                   pattern_key_scale_factor = 0.6) +
+  labs(x = '',
+       y = '') +
+  theme(legend.position = 'top',
+        axis.ticks.y = element_blank(),
+        axis.text.y = element_text(vjust = 1)) +
+  facet_wrap(~metric, nrow = 1, scales = 'free_x') +
+  scale_fill_manual(values = colors_response2) +
+  scale_pattern_manual(values = c(Pre = 'stripe', Mid = 'none')) +
+  scale_y_discrete(limits = rev,
+                   labels = rev(patient_labels)) +
+  guides(pattern = guide_legend(override.aes = list(fill = 'white')),
+         fill = guide_legend(override.aes = list(pattern = 'none')))
+  
+  
+  ggsave(plot = p,
+         device = cairo_pdf,
+         filename = paste0('F2F_bar_patient_', str_replace(i, '/','+'),'.pdf'),
+         path = here(output_dir, 'patient_bar_cluster'),
+         h = 4,
+         w = 4)
+  
+  p
+  
+}) %>% wrap_plots()
+
+p_cluster
+```
+
+```{r eval=FALSE}
+dir.create(here(output_dir, 'patient_bar_supercluster_de'))
+
+### with DE genes
+p_supercluster <- map(levels(supercluster_tallies$supercluster), function(i) {
+  
+  print2(i)
+  
+  p <- supercluster_tallies %>% 
+    filter(supercluster == i) %>% 
+    filter(!is.na(group)) %>% 
+    left_join(de_sample_tally %>% select(sample, supercluster = cluster, DEGs = n)) %>% 
+    select(sample, treatment, group, Abundance = n, Proportion = pct, DEGs) %>% 
+    pivot_longer(cols = c(Abundance, Proportion, DEGs),
+                 names_to = 'metric',
+                 values_to = 'value') %>% 
+    mutate(metric = factor(metric, levels = c('Abundance', 'Proportion', 'DEGs')),
+           sample = factor(sample, levels = metadata_patient$sample)) %>% 
+    ggplot(aes(x = sample,
+               y = value,
+               fill = group)) +
+    geom_bar(stat = 'identity', color = 'black', alpha = 0.8) +
+    labs(x = '',
+         y = '') +
+    theme_dwu(legend.position = 'top') +
+    coord_flip() +
+    facet_wrap(~metric, nrow = 1, scales = 'free_x') +
+    scale_fill_manual(values = colors_response2) +
+    scale_x_discrete(limits = rev, drop = FALSE) +
+    ggtitle(i)
+  
+  
+  ggsave(plot = p,
+         device = cairo_pdf,
+         filename = paste0(str_replace(i, '/','+'),'.pdf'),
+         path = here(output_dir, 'patient_bar_supercluster_de'),
+         h = 4,
+         w = 6)
+  
+  p
+  
+}) %>% wrap_plots()
+```
+
+
+```{r}
+### without DE genes
+dir.create(here(output_dir, 'patient_bar_supercluster'))
+
+p_supercluster <- map(levels(supercluster_tallies$supercluster), function(i) {
+  
+  print2(i)
+  
+  p <- supercluster_tallies %>% 
+    filter(supercluster == i) %>% 
+    filter(!is.na(group)) %>% 
+    select(sample, treatment, group, Abundance = n, Proportion = pct) %>% 
+    pivot_longer(cols = c(Abundance, Proportion),
+                 names_to = 'metric',
+                 values_to = 'value') %>% 
+    mutate(metric = factor(metric, levels = c('Abundance', 'Proportion')),
+           sample = factor(sample, levels = metadata_patient$sample)) %>% 
+    ggplot(aes(x = value,
+             y = sample,
+             fill = group,
+             pattern = treatment)) +
+  geom_bar_pattern(stat = 'identity', 
+                   color = 'black', 
+                   alpha = 0.8,
+                   pattern_density = 0.1,
+                   pattern_angle = 45,
+                   pattern_key_scale_factor = 0.6) +
+  labs(x = '',
+       y = '') +
+  theme(legend.position = 'top',
+        axis.ticks.y = element_blank(),
+        axis.text.y = element_text(vjust = 1)) +
+  facet_wrap(~metric, nrow = 1, scales = 'free_x') +
+  scale_fill_manual(values = colors_response2) +
+  scale_pattern_manual(values = c(Pre = 'stripe', Mid = 'none')) +
+  scale_y_discrete(limits = rev,
+                   labels = rev(patient_labels)) +
+  guides(pattern = guide_legend(override.aes = list(fill = 'white')),
+         fill = guide_legend(override.aes = list(pattern = 'none')))
+  
+  
+  ggsave(plot = p,
+         device = cairo_pdf,
+         filename = paste0(str_replace(i, '/','+'),'.pdf'),
+         path = here(output_dir, 'patient_bar_supercluster'),
+         h = 4,
+         w = 4)
+  
+  p
+  
+}) %>% wrap_plots()
+
+
+
+
+```
+
+```{r}
+dir.create(here(output_dir, 'patient_bar_ultracluster'))
+
+p_ultracluster <- map(levels(ultracluster_tallies$ultracluster), function(i) {
+  
+  print2(i)
+  
+  p <- ultracluster_tallies %>% 
+    mutate(sample = factor(sample, levels = str_subset(levels(sample), '-'))) %>% 
+    filter(ultracluster == i) %>% 
+    filter(!is.na(group)) %>% 
+    select(sample, treatment, group, celltype, n, pct) %>% 
+    pivot_longer(cols = c(n, pct),
+                 names_to = 'metric',
+                 values_to = 'value') %>% 
+    ggplot(aes(x = value,
+             y = sample,
+             fill = group,
+             pattern = treatment)) +
+  geom_bar_pattern(stat = 'identity', 
+                   color = 'black', 
+                   alpha = 0.8,
+                   pattern_density = 0.1,
+                   pattern_angle = 45,
+                   pattern_key_scale_factor = 0.6) +
+  labs(x = '',
+       y = '') +
+  theme(legend.position = 'top',
+        axis.ticks.y = element_blank(),
+        axis.text.y = element_text(vjust = 1)) +
+  facet_wrap(~metric, nrow = 1, scales = 'free_x') +
+  scale_fill_manual(values = colors_response2) +
+  scale_pattern_manual(values = c(Pre = 'stripe', Mid = 'none')) +
+  scale_y_discrete(limits = rev,
+                   labels = rev(patient_labels)) +
+  guides(pattern = guide_legend(override.aes = list(fill = 'white')),
+         fill = guide_legend(override.aes = list(pattern = 'none')))
+  
+  
+  ggsave(plot = p,
+         device = cairo_pdf,
+         filename = paste0('F2F_bar_patient_', str_replace(i, '/','+'),'.pdf'),
+         path = here(output_dir, 'patient_bar_ultracluster'),
+         h = 4,
+         w = 4)
+  
+  p
+  
+}) %>% wrap_plots()
+```
+
+### IL17 secreting cells
+```{r}
+il17 <- pseudobulk(seuratobj,
+                   genes = c('IL17A', 'IL17F', 'IL26', 'IFNG'))
+
+il17 %>% arrange(-cpm)
+```
+```{r}
+il17 %>% 
+  ggplot(aes(y = reorder(ident, cpm),
+             x = cpm )) +
+  geom_col() +
+  facet_wrap(~gene) + 
+  labs(x = 'Counts per Million',
+       y = '') 
+```
+
+```{r}
+il17 <- FetchData(seuratobj, vars = c('IL17A', 'IL17F', 'IL26', 'IFNG', 'id', 'supercluster')) %>% 
+  rownames_to_column() %>% left_join(metadata_patient)
+
+il17
+```
+```{r}
+p <- il17 %>% 
+  filter(treatment != 'Mid',
+         supercluster == 'Trm') %>% 
+  ggplot(aes(x = IL17A,
+             y = IL17F)) +
+  geom_point(alpha = 0.5) 
+
+ggExtra::ggMarginal(p)
+```
+
+```{r}
+p <- il17 %>% 
+  filter(treatment != 'Mid',
+         supercluster == 'Trm') %>% 
+  ggplot(aes(x = IL26,
+             y = IFNG)) +
+  geom_point(alpha = 0.5) 
+
+ggExtra::ggMarginal(p)
+```
+
+
+```{r}
+il17 %>% 
+  filter(treatment != 'None',
+         supercluster == 'Trm',
+         IL17A + IL17F + IL26 + IFNG > 0) 
+```
+
+```{r}
+#dir.create(here(output_dir, 'patient_bar_t17'))
+
+totals <- seuratobj@meta.data %>% group_by(sample) %>% tally(name = 'total')
+p <- il17 %>% 
+  filter(treatment != 'None',
+         supercluster == 'Trm',
+         IL17A + IL17F + IL26 + IFNG > 0)  %>% 
+  left_join(totals) %>% 
+  mutate(sample = factor(sample, levels = str_subset(levels(sample), '-'))) %>% 
+  group_by(sample, treatment, group, total) %>% 
+  tally() %>% 
+  mutate(pct = 100 * n/total) %>% 
+  select(sample, treatment, group, n, pct) %>%
+  pivot_longer(cols = c(n, pct),
+               names_to = 'metric',
+               values_to = 'value') %>% 
+ggplot(aes(x = value,
+             y = sample,
+             fill = group,
+             pattern = treatment)) +
+  geom_bar_pattern(stat = 'identity', 
+                   color = 'black', 
+                   alpha = 0.8,
+                   pattern_density = 0.1,
+                   pattern_angle = 45,
+                   pattern_key_scale_factor = 0.6) +
+  labs(x = '',
+       y = '') +
+  theme(legend.position = 'top',
+        axis.ticks.y = element_blank(),
+        axis.text.y = element_text(vjust = 1)) +
+  facet_wrap(~metric, nrow = 1, scales = 'free_x') +
+  scale_fill_manual(values = colors_response2) +
+  scale_pattern_manual(values = c(Pre = 'stripe', Mid = 'none')) +
+  scale_y_discrete(limits = rev,
+                   drop = FALSE,
+                   labels = rev(patient_labels)) +
+  guides(pattern = guide_legend(override.aes = list(fill = 'white')),
+         fill = guide_legend(override.aes = list(pattern = 'none'))) +
+    ggtitle('IL17 Secreting Cells')
+  
+  
+  ggsave(plot = p,
+         device = cairo_pdf,
+         path = here(output_dir, 'patient_bar_supercluster'),
+         filename = 'il17.pdf',
+         h = 4,
+         w = 4)
+  
+  p
+  
 
 ```
 
 ### Stats
 ```{r}
-which_cluster <- 'Trm'
-genes_all <- c(genes_core, il23_genes_all[[which_cluster]]) %>% unique()
-genes_strict <- c(genes_core, il23_genes_strict[[which_cluster]]) %>% unique()
-  
-stats_input <- pseudo %>% 
-  filter(cluster == which_cluster,
-         gene %in% genes_all) %>% 
-  select(gene, patient, treatment, group, cpm) %>% 
+which_subset <- 'Trm'
+stats_input <- supercluster_tallies %>% 
+  filter(treatment != 'None') %>% 
+  ungroup() %>% 
+  select(patient, supercluster, treatment, group, n, f) %>% 
   pivot_wider(names_from = treatment,
-              values_from = cpm) %>% 
-  mutate(ratio = (Pre - Mid)/Pre) %>% 
-  arrange(gene, patient) %>% 
-  group_by(gene, group) %>% 
-  summarize(ratio = median(ratio)) %>% 
-  pivot_wider(names_from = group,
-              values_from = ratio)
+              values_from = c(n, f))
 
 stats_input
 ```
-```{r}
-stats_input %>% 
-  ungroup() %>% 
-  drop_na() %>% 
-  summarize(across(where(is.numeric), median))
-```
 
 ```{r}
-wilcox.test(stats_input$Responder,
-            stats_input$`Non-responder`,
-            paired = TRUE)
-```
-
-
-
-```{r}
-extract_signature <- function(seuratobj,
-                              cells = NULL,
-                              genes,
-                              name = 'signature',
-                              normalize = TRUE,
-                              log = FALSE,
-                              assay = 'RNA',
-                              slot = 'counts') {
+map(stats_input$supercluster %>% unique(), function(which_subset) {
   
-  seuratobj <- seuratobj %>% add_signature(genes = genes, name = name)
+  stats_subset <- stats_input %>% filter(supercluster == which_subset)
   
-}
-
-add_signature <- function(seuratobj, 
-                          genes,
-                          name = 'signature') {
+  group1 <- stats_subset %>% filter(group == 'Responder')
+  group2 <- stats_subset %>% filter(group == 'Non-responder')
   
-  seuratobj <- seuratobj %>% PercentageFeatureSet(features = genes, col.name = name)
-  seuratobj[[name]] <- seuratobj[[name]] * seuratobj[['nCount_RNA']]/100
+  res1 <- wilcox.test(group1$f_Pre,
+                     group1$f_Mid)
   
-  seuratobj
-}
-```
-
-
-### IL23-responsive gene expression in mid-treatment samples 
-Strict
-```{r}
-p <- data_table_long_tx_summarized %>% 
-  filter(gene %in% c(il23_genes_strict, 'IL17A', 'IL17F'),
-         treatment == 'Mid',
-         cellgroup == 'Trm1') %>% 
-  ggplot(aes(x = reorder(gene, expression),
-             y = expression,
-             color = group)) +
-  #geom_boxplot(outlier.color = NA) +
-  geom_bar(stat = 'summary', position = 'dodge', fill = 'grey90') +
-  #facet_wrap(~gene, scales = 'free_x') +
-  theme_dwu(legend.position = 'top') +
-  scale_color_manual(values = c('orangered', 'dodgerblue4')) +
-  geom_jitter(alpha = 0.8, size = 2) +
-  coord_flip() +
-  labs(x = '',
-       y = 'Trm1 Average Expression')
-
-ggsave(plot = p,
-       filename = 'bar_mid_separators_strict.pdf',
-       path = output_dir,
-       h = 14,
-       w = 6)
-
-p
-
-```
-Full
-```{r}
-p <- data_table_long_tx_summarized %>% 
+  res2 <- wilcox.test(group2$f_Pre,
+                      group2$f_Mid)
   
-  filter(gene %in% c(il23_genes_all, 'IL17A', 'IL17F'),
-         treatment == 'Mid',
-         cellgroup == 'Trm1') %>% 
-  ggplot(aes(x = reorder(gene, expression),
-             y = expression,
-             color = group)) +
-  #geom_boxplot(outlier.color = NA) +
-  geom_bar(stat = 'summary', position = 'dodge', fill = 'grey90') +
-  geom_sina(alpha = 0.8, size = 2) +
-  #facet_wrap(~gene, scales = 'free_x') +
-  theme_dwu(legend.position = 'top') +
-  scale_color_manual(values = c('orangered', 'dodgerblue4')) +
-  coord_flip() +
-  labs(x = '',
-       y = 'Trm1 Average Expression')
-
-ggsave(plot = p,
-       filename = 'bar_mid_separators_full.pdf',
-       path = output_dir,
-       h = 44,
-       w = 6)
-
-p
-```
-### Facets
-```{r}
-p <- data_table_long_tx_summarized %>% 
+  tibble('cluster' = which_subset,
+         'Responder_p' = res1$p.value,
+         'Nonresponder_p' = res2$p.value)
   
-  filter(gene %in% c(il23_genes_all, 'IL17A', 'IL17F'),
-         treatment == 'Mid',
-         cellgroup == 'Trm1') %>% 
-  ggplot(aes(x = group,
-             y = expression,
-             color = group)) +
-  #geom_boxplot(outlier.color = NA) +
-  geom_bar(stat = 'summary', position = 'dodge', fill = 'grey90') +
-  geom_point(alpha = 0.8, size = 2, aes(color = patient)) +
-  facet_wrap(~gene, scales = 'free_y', ncol = 15) +
-  theme_dwu(legend.position = 'top') +
-  rcartocolor::scale_color_carto_d() +
-  #scale_color_manual(values = c('orangered', 'dodgerblue4')) +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
-  labs(x = '',
-       y = 'Trm1 Average Expression')
-
-ggsave(plot = p,
-       filename = 'bar_mid_separators_facet_full.pdf',
-       path = output_dir,
-       h = 30,
-       w = 17)
+}) %>% bind_rows() 
 ```
-
-```{r}
-p <- data_table_long_tx_summarized %>% 
-  
-  filter(gene %in% c(il23_genes_strict, 'IL17A', 'IL17F'),
-         treatment == 'Mid',
-         cellgroup == 'Trm1') %>% 
-  ggplot(aes(x = group,
-             y = expression,
-             color = group)) +
-  #geom_boxplot(outlier.color = NA) +
-  geom_bar(stat = 'summary', position = 'dodge', fill = 'grey90') +
-  geom_point(alpha = 0.8, size = 2, aes(color = patient)) +
-  facet_wrap(~gene, scales = 'free_y', ncol = 10) +
-  theme_dwu(legend.position = 'top') +
-  #scale_color_manual(values = c('orangered', 'dodgerblue4')) +
-  rcartocolor::scale_color_carto_d(palette = 'Prism') +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
-  labs(x = '',
-       y = 'Trm1 Average Expression')
-
-ggsave(plot = p,
-       filename = 'bar_mid_separators_facet_strict.pdf',
-       path = output_dir,
-       h = 14,
-       w = 12)
-```
-
-
-
-
-#### Secretion
-```{r}
-p <- data_table_long_tx_summarized %>% 
-  
-  filter(gene %in% 'Secreted',
-         treatment == 'Mid',
-         cellgroup == 'Trm1') %>% 
-  ggplot(aes(x = reorder(patient, -expression),
-             y = expression,
-             fill = group)) +
-  #geom_boxplot(outlier.color = NA) +
-  geom_bar(stat = 'summary', position = 'dodge', color = 'black') +
-  theme_dwu(legend.position = 'top') +
-  #rcartocolor::scale_color_carto_d(palette = 'Prism') +
-  scale_fill_manual(values = c('orangered', 'dodgerblue4')) +
-  labs(x = 'Patient',
-       y = 'Trm1 Average Expression',
-       title = 'Secreted Gene Signature')
-
-p
-```
-
-#### Peripheral Th17 IL23
-```{r}
-
-
-p <- data_table_long_tx_summarized %>% 
-  
-  filter(gene == 'IL23_peripheral',
-         treatment == 'Mid',
-         cellgroup == 'Trm1') %>% 
-  ggplot(aes(x = reorder(patient, -expression),
-             y = expression,
-             fill = group)) +
-  #geom_boxplot(outlier.color = NA) +
-  geom_bar(stat = 'summary', position = 'dodge', color = 'black', fun = sum) +
-  theme_dwu(legend.position = 'top') +
-  #rcartocolor::scale_color_carto_d(palette = 'Prism') +
-  scale_fill_manual(values = c('orangered', 'dodgerblue4')) +
-  labs(x = 'Patient',
-       y = 'Trm1 Average Expression',
-       title = 'Peripheral IL23 Gene Signature')
-
-p
-```
-
-### Statistics
-```{r}
-
-```
-### T vs APC
-```{r}
-p <- data_table_long %>% 
-  filter(treatment != 'None',
-         gene %in% c('IL17A', 'IL17F'),
-         group %in% c('APC', 'Trm1', 'Tcell')) %>% 
-  group_by(patient, treatment, group, group, gene) %>% 
-  summarize(expression = mean(expression)) %>% 
-  ggplot(aes(x = patient,
-             y = expression,
-             fill = group)) +
-  geom_bar(stat = 'identity') +
-  facet_wrap(~group + treatment + gene) +
-  theme_dwu(legend.position = 'top')
-  
-p
-```
-
-
-### PV, AD, HC
-```{r fig.height=6, fig.width=12}
-display_features <- c('APC IL23A',
-                      'Trm1 IL23R',
-                      paste('Trm1', il23_genes_all),
-                      'Trm1 IL17A',
-                      'Trm1 IL17F',
-                      'APC IL17A',
-                      'APC IL17F',
-                      'Trm1 ZFP36',
-                      'Trm1 ZFP36L2') %>% 
-  unique()
-
-plot_input <- data_table_long_tx_summarized %>% 
-  mutate(feature = paste(cellgroup, group)) %>% 
-  filter(feature %in% display_features) %>% 
-  mutate(feature = factor(feature, levels = display_features))
-
-p <- plot_input %>% 
-  ggplot(aes(x = feature,
-             y = normalized,
-             fill = condition)) +
-  geom_boxplot()+
-  theme_dwu(legend.position = 'top') +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-  labs(y = 'Normalized Expression',
-       x = '') +
-  ggthemes::scale_fill_few()
-
-p
-```
-
-```{r}
-
-metadata_combined %>% 
-  filter(cluster %in% clusters_apc,
-         treatment != 'None') %>% 
-  group_by(group, cluster, treatment) %>% 
-  tally() %>% 
-  pivot_wider(names_from = c(group, treatment),
-              values_from = n) %>% 
-  View()
-
-```
-
-## Session Info
-```{r}
-sessionInfo()
-```
-
-
 

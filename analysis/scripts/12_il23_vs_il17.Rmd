@@ -37,6 +37,7 @@ library(tictoc)
 library(rcartocolor)
 library(ggrepel)
 library(DESeq2)
+library(edgeR)
 theme_set(theme_dwu()) # set default theme
 ```
 
@@ -50,9 +51,38 @@ aggregate_matrix <- function(input_matrix,
 
 de_function <- function(counts,
                         metadata,
-                        design,
-                        reference,
+                        design = c('SubjectId', 'treatment'),
+                        reference = 'Mid',
                         ens2symbol = NULL) {
+  
+  metadata_table <- metadata %>% 
+    filter(sample %in% colnames(counts)) %>% 
+    droplevels() %>% 
+    arrange(sample, colnames(counts))
+  
+  design <- model.matrix(data = metadata_table, reformulate(design))  
+  
+  dge <- DGEList(counts = counts,
+                 group = metadata_table$treatment)
+  
+  dge <- dge %>% calcNormFactors(method = 'TMM')
+  dge <- dge %>% estimateDisp(design = design)
+  fit <- dge %>% glmFit(design = design)
+  res <- fit %>% glmLRT()
+  
+  de_table <- topTags(res, n = Inf) %>% 
+    as.data.frame() %>% 
+    rownames_to_column('gene') %>% 
+    as_tibble() %>% 
+    #mutate(logFC = -1 * logFC, # reverse sign such that group 1 is higher
+    select(gene, avg_log2FC = logFC, p_val = PValue, padj = FDR, everything())
+}
+
+de_function_deseq <- function(counts,
+                              metadata,
+                              design,
+                              reference,
+                              ens2symbol = NULL) {
   
   deseq <- DESeqDataSetFromMatrix(countData = counts,
                                   colData = metadata, 
@@ -76,6 +106,8 @@ de_function <- function(counts,
   deseq_res
   
 }
+
+
 
 ```
 
@@ -237,15 +269,14 @@ de_il23 <- map(c('Teff', 'CD8'), function(i) {
     filter(CellType == i,
            group == 'Responder')
   
-  de <- de_function(counts = as.matrix(counts_il23)[, sample_subset$sample],
+  de <- de_function_deseq(counts = as.matrix(counts_il23)[, sample_subset$sample],
                     metadata = sample_subset,
                     design = c('patient', 'treatment'), 
                     reference = 'Mid') %>% 
     mutate(CellType = i)
   
 }) %>% 
-  bind_rows() %>% 
-  select(CellType, gene = row, baseMean, log2FoldChange, pvalue, padj) 
+  bind_rows() 
 
 de_il23
 ```
@@ -353,15 +384,14 @@ de_il17 <- map(c('Teff', 'CD8'), function(i) {
            CellType == i,
            group == 'Responder')
   
-  de <- de_function(counts = counts_il17[, sample_subset$sample],
+  de <- de_function_deseq(counts = counts_il17[, sample_subset$sample],
                     metadata = sample_subset,
                     design = c('SubjectId', 'treatment'),
                     reference = 'Mid') %>% 
     mutate(CellType = i)
   
 }) %>% 
-  bind_rows() %>% 
-  select(CellType, gene = row, baseMean, log2FoldChange, pvalue, padj) 
+  bind_rows() 
 
 de_il17
 ```
@@ -393,8 +423,8 @@ expression_table_il17
 ```
 ### Compare DE genes
 ```{r}
-de_compare <- inner_join(de_il17 %>% select(gene, CellType, log2FoldChange, padj),
-                         de_il23 %>% select(gene, CellType, log2FoldChange, padj),
+de_compare <- inner_join(de_il17 %>% select(gene = row, CellType, log2FoldChange, padj),
+                         de_il23 %>% select(gene = row, CellType, log2FoldChange, padj),
                          by = c('gene', 'CellType'),
                          suffix = c('_il17', '_il23'))
 
@@ -404,7 +434,7 @@ de_compare
 
 ```{r}
 genes_of_interest <- de_compare %>% 
-  filter(padj_il23 < 0.05 & padj_il17 > 0.05 & log2FoldChange_il23 > 0) %>% 
+  filter(padj_il23 < 0.05, padj_il17 < 0.05, log2FoldChange_il23 > 0) %>% 
   mutate(combination = paste(CellType, gene, sep = ':')) %>% 
   arrange(gene)
 
@@ -739,13 +769,13 @@ sessionInfo()
 
 de_il23_group_prepare <- de_pre_vs_mid_response %>% 
                                filter(cluster == 'Trm1') %>% 
-                               select(gene, avg_log2FC_Trm1 = avg_log2FC, p_val_adj_Trm1 = p_val_adj)
+                               select(gene, avg_log2FC_Trm1 = avg_log2FC, padj_Trm1 = padj)
 
 de_il23_patient_prepare <- de_pre_vs_mid_patients %>% 
   filter(cluster == 'Trm1') %>% 
-  select(gene, patient, avg_log2FC, p_val_adj) %>% 
+  select(gene, patient, avg_log2FC, padj) %>% 
   pivot_wider(names_from = 'patient',
-              values_from = c('avg_log2FC', 'p_val_adj'))
+              values_from = c('avg_log2FC', 'padj'))
 ```
 
 

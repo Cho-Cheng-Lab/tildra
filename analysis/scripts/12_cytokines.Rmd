@@ -284,7 +284,7 @@ cytokine_source_combined
 
 ```{r}
 heatmap_input <- cytokine_source_combined %>% 
-  select(supercluster, gene, condition, treatment, group, cytokine_pct) %>% 
+  select(supercluster, gene, condition, treatment, group, counts, total, cytokine_pct) %>% 
   unique() %>% 
   mutate(description = paste(condition, group, treatment)) %>% 
   mutate(description = description %>% str_remove(' NA None') %>% str_remove('PV ')) %>% 
@@ -312,7 +312,7 @@ p <- heatmap_input %>%
              fill = cytokine_pct,
              label = cytokine_pct)) +
   geom_tile(color = 'black') +
-  geom_text(aes(color = cytokine_pct), size = 4) +
+  geom_text(aes(color = cytokine_pct), size = 3) +
   scale_color_gradient(low = 'dodgerblue4',
                        high = 'white',
                        guide = NULL) +
@@ -342,9 +342,143 @@ ggsave(plot = p,
        device = cairo_pdf,
        path = output_dir,
        h = 6,
-        w = 8,
+        w = 9,
 	filename = 'F4B_cytokine_source.pdf')
 
+p
+```
+```{r}
+color_scale <- c(0, 2500, 5000)
+cluster_order <- heatmap_input %>% filter(description == 'PV', gene == 'IL17A') %>% arrange(cytokine_pct) %>% pull(supercluster) %>% unique()
+  
+p <- heatmap_input %>% 
+  filter(gene %in% c('IL17A', 'IL17F', 'IL26', 'IFNG')) %>% 
+  mutate(gene = factor(gene, levels = c('IL17A', 'IL17F', 'IL26', 'IFNG'))) %>% 
+  ggplot(aes(x = description,
+             y = factor(supercluster, levels = cluster_order),
+             fill = counts,
+             label = counts)) +
+  geom_tile(color = 'black') +
+  geom_text(aes(color = counts), size = 3) +
+  scale_color_gradient(low = 'dodgerblue4',
+                       high = 'white',
+                       guide = NULL) +
+  scale_fill_gradientn(colors = colorRampPalette(RColorBrewer::brewer.pal(n = 7, name = "Blues"))(100),
+                         limits = range(color_scale),
+                         breaks = color_scale,
+                         oob = scales::squish,
+                         na.value = 'grey90',
+                         guide = guide_colorbar(frame.colour = 'black', 
+                                                ticks = FALSE, 
+                                                nbin = 100,
+                                                barwidth = 0.5,
+                                                title = '%',
+                                                barheight = 5)) +
+  theme(legend.position = 'right',
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+        axis.ticks = element_blank(),
+        axis.line = element_blank(),
+        panel.border = element_blank(),
+        legend.title = element_text(hjust = 0.5)) +
+  facet_wrap(~gene, nrow = 1) +
+  labs(x = NULL,
+       y = NULL,
+       title = 'Cytokine Source')
+
+ggsave(plot = p,
+       device = cairo_pdf,
+       path = output_dir,
+       h = 6,
+        w = 9,
+	filename = 'F4B_cytokine_source_abs.pdf')
+
+p
+```
+
+### Per cell normalized
+```{r}
+cells_per_sample <- seuratobj@meta.data %>% 
+  select(patient, treatment, group, supercluster) %>% 
+  group_by_all() %>% 
+  tally()
+
+cells_per_sample
+```
+```{r}
+per_cell_input <- pseudo %>% 
+  filter(gene %in% c('IL17A', 'IL17F', 'IL26', 'IFNG')) %>% 
+  filter(supercluster == 'Trm') %>% 
+  left_join(cells_per_sample) %>% 
+    mutate(description = paste(condition, group, treatment)) %>% 
+  mutate(description = description %>% str_remove(' NA None') %>% str_remove('PV ')) %>% 
+  mutate(description = factor(description, levels =
+                                c('PV', 
+                                'Non-responder Pre',
+                                'Non-responder Mid',
+                                'Responder Pre',
+                                'Responder Mid',
+                                'HC'))) %>% 
+  mutate(counts_per_cell = counts/n,
+         cpm_per_cell = cpm/n) %>% 
+  unique()
+
+per_cell_input
+  
+```
+```{r}
+p <- per_cell_input %>% 
+  ggplot(aes(x = n,
+             y = counts,
+             color = description)) +
+  geom_point() +
+  facet_wrap(~gene,  scales = 'free', nrow = 1) +
+  scale_x_log10() + 
+  scale_y_log10() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = 'right') +
+  labs(x = '# Trm Cells',
+       y = 'Cytokine UMIs')
+p
+```
+```{r}
+p <- per_cell_input %>% 
+  ggplot(aes(x = description,
+             y = counts_per_cell,
+             fill = description)) +
+  geom_boxplot() +
+  facet_wrap(~gene,  scales = 'free_y', nrow = 1) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = NULL,
+       y = 'Cytokine UMIs per Trm cell')
+
+ggsave(plot = p,
+	device = cairo_pdf,
+	path = output_dir,
+        h = 3.5,
+        w = 7,
+	filename = 'F4B_cytokines_per_cell.pdf')
+p
+```
+
+### stats
+
+```{r}
+per_cell_input
+```
+
+```{r}
+p <- per_cell_input %>% 
+  ggplot(aes(x = n,
+             y = counts,
+             color = description)) +
+  geom_point() +
+  facet_wrap(~gene,  scales = 'free', nrow = 1) +
+  scale_x_log10() + 
+  scale_y_log10() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = 'right') +
+  labs(x = '# Trm Cells',
+       y = 'Cytokine UMIs')
 p
 ```
 
