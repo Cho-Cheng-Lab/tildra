@@ -448,7 +448,8 @@ p_cluster <- map(levels(cluster_tallies$cluster), function(i) {
                    pattern_angle = 45,
                    pattern_key_scale_factor = 0.6) +
   labs(x = '',
-       y = '') +
+       y = '',
+       title = i) +
   theme(legend.position = 'top',
         axis.ticks.y = element_blank(),
         axis.text.y = element_text(vjust = 1)) +
@@ -548,7 +549,8 @@ p_supercluster <- map(levels(supercluster_tallies$supercluster), function(i) {
                    pattern_angle = 45,
                    pattern_key_scale_factor = 0.6) +
   labs(x = '',
-       y = '') +
+       y = '',
+       title = i) +
   theme(legend.position = 'top',
         axis.ticks.y = element_blank(),
         axis.text.y = element_text(vjust = 1)) +
@@ -603,7 +605,8 @@ p_ultracluster <- map(levels(ultracluster_tallies$ultracluster), function(i) {
                    pattern_angle = 45,
                    pattern_key_scale_factor = 0.6) +
   labs(x = '',
-       y = '') +
+       y = '',
+       title = i) +
   theme(legend.position = 'top',
         axis.ticks.y = element_blank(),
         axis.text.y = element_text(vjust = 1)) +
@@ -694,10 +697,12 @@ p <- il17 %>%
   group_by(sample, treatment, group, total) %>% 
   tally() %>% 
   mutate(pct = 100 * n/total) %>% 
-  select(sample, treatment, group, n, pct) %>%
-  pivot_longer(cols = c(n, pct),
-               names_to = 'metric',
-               values_to = 'value') %>% 
+  select(sample, treatment, group, Abundance = n, Proportion = pct) %>% 
+    pivot_longer(cols = c(Abundance, Proportion),
+                 names_to = 'metric',
+                 values_to = 'value') %>% 
+    mutate(metric = factor(metric, levels = c('Abundance', 'Proportion')),
+           sample = factor(sample, levels = metadata_patient$sample)) %>% 
 ggplot(aes(x = value,
              y = sample,
              fill = group,
@@ -721,7 +726,7 @@ ggplot(aes(x = value,
                    labels = rev(patient_labels)) +
   guides(pattern = guide_legend(override.aes = list(fill = 'white')),
          fill = guide_legend(override.aes = list(pattern = 'none'))) +
-    ggtitle('IL17 Secreting Cells')
+    ggtitle('IL17 Secreting Trm Cells')
   
   
   ggsave(plot = p,
