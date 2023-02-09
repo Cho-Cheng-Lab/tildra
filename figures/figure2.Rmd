@@ -597,8 +597,11 @@ top_genes_nonsig <- de_combined_supercluster %>%
   filter(gene %in% top_genes_pv_vs_hc$gene) %>% 
   slice_min(abs(avg_log2FC), n = 200)
 
+pv50 <- readxl::read_excel(here('analysis/input/PV50.xlsx'))
+pv50_genes <- pv50$...1 %>% intersect(rownames(seuratobj))
+
 pseudo_data <- pseudobulk(seuratobj,
-                          genes = union(top_genes_sig$gene, top_genes_nonsig$gene),
+                          genes = c(top_genes_sig$gene, top_genes_nonsig$gene, pv50_genes) %>% unique(),
                           group_by = c('id', 'supercluster')) %>% 
   left_join(patient_meta)
 
@@ -607,7 +610,8 @@ pseudo_data <- pseudobulk(seuratobj,
 ```{r}
 patient_level_fc <- pseudo_data %>% 
   filter(treatment != 'None') %>% 
-  inner_join(bind_rows(top_genes_sig, top_genes_nonsig) %>% group_by(cluster) %>% select(supercluster = cluster, gene)) %>% 
+  left_join(bind_rows(top_genes_sig, top_genes_nonsig) %>% 
+               group_by(cluster) %>% select(supercluster = cluster, gene)) %>% 
   select(gene, supercluster, cpm, log10cpm, patient, treatment) 
 
 patient_level_fc
@@ -664,7 +668,7 @@ ggsave(plot = p,
        path = output_dir,
        h = 16,
        w = 32,
-       filename = 'F3D/Trm_sig.pdf')
+       filename = 'F2D/Trm_sig.pdf')
 ```
 #### Select
 ```{r}
@@ -783,7 +787,75 @@ ggsave(plot = p,
        path = output_dir,
        h = 16,
        w = 32,
-       filename = 'F3D/Trm_nonsig.pdf')
+       filename = 'F2D/Trm_nonsig.pdf')
+
+p
+```
+
+```{r}
+
+```
+
+#### PV50
+```{r}
+which_subset <- 'Trm'
+which_genes <- de_combined_supercluster %>% 
+  filter(cluster == 'Trm') %>% 
+  filter(comparison %in% c('Responder Pre vs Responder Mid')) %>% 
+  filter(p_val_adj > p_adj_cutoff) %>% 
+  filter(gene %in% pv50_genes) %>% 
+  pull(gene)
+
+boxplot_input <- patient_level_fc %>% 
+  filter(supercluster == which_subset) %>% 
+  filter(gene %in% which_genes) %>% 
+  filter(patient %in% (metadata_patient %>% filter(group == 'Responder') %>% pull(patient)))
+
+median_input <- boxplot_input %>% 
+  group_by(gene, treatment) %>% 
+  summarize(cpm = median(cpm))
+
+gene_order <- median_input %>% 
+  pivot_wider(names_from = treatment,
+              values_from = cpm) %>% 
+  rowwise() %>% 
+  mutate(difference = Pre - Mid,
+         normalized = difference/max(c(Pre, Mid))) %>% 
+  arrange(-normalized, -difference)
+
+boxplot_input <- boxplot_input %>% mutate(gene = factor(gene, levels = gene_order$gene))
+median_input <- median_input %>% mutate(gene = factor(gene, levels = gene_order$gene))
+
+p <- boxplot_input %>% 
+  ggplot(aes(x = treatment,
+             y = cpm + 1)) +
+  geom_point(aes(color = patient)) +
+  geom_path(aes(color = patient,
+                group = patient)) +
+  geom_path(data = median_input,
+            aes(group = gene),
+            color = 'grey50',
+            alpha = 0.5,
+            linewidth = 3) +
+  # geom_point(data = median_input,
+  #            color = 'black',
+  #            fill = 'grey80',
+  #            shape = 21,
+  #            stroke = 1,
+  #            size = 3) +
+  facet_wrap(~gene, scales = 'free_y', nrow = 6) +
+  scale_y_log10() +
+  scale_color_tableau() +
+  theme(strip.text.x = element_text(face = 'italic')) +
+  labs(y = 'Counts per Million',
+       x = NULL)
+
+ggsave(plot = p,
+       device = cairo_pdf,
+       path = output_dir,
+       h = 8,
+       w = 14,
+       filename = 'F2D/Trm_pv50_nonsig.pdf')
 
 p
 ```
