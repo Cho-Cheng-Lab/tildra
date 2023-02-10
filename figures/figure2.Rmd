@@ -379,6 +379,7 @@ top_genes <- de_combined %>%
          comparison %in% c('Responder Pre vs Responder Mid'),
          !str_detect(gene, '^MT-|^RP[SL]|^MRP[SL]'), # exclude mito and ribo genes
          !str_detect(gene, '\\.'),
+         !str_detect(gene, 'orf'),
          gene %in% coding_genes) %>% 
   filter(p_val_adj < p_adj_cutoff,
          avg_log2FC > 0) %>% 
@@ -513,11 +514,11 @@ ggsave(plot = p,
        w = 12,
        filename = 'F2A_heatmap_sig.pdf')
 
-ggsave(plot = p[[2]] + p[[15]] + p[[9]] + p[[1]] + p[[14]] + p[[10]],
+ggsave(plot = p[[2]] + p[[15]] + p[[14]] + p[[9]] + p[[1]] + p[[10]] + plot_layout(nrow = 1),
        device = cairo_pdf,
        path = output_dir,
-       h = 7,
-       w = 4.5,
+       h = 4,
+       w = 9,
        filename = 'F2A_heatmap_select.pdf')
 
 ggsave(plot = p[[1]] + theme(legend.position = 'right'),
@@ -558,7 +559,7 @@ p <- tally_input %>%
   geom_col(color = 'black',
            position = 'dodge') +
   theme(legend.position = 'top') +
-  scale_fill_few(palette = 1, drop = FALSE) +
+  scale_fill_manual()
   scale_y_discrete(drop = FALSE) +
   labs(x = '# DEGs shared with IL23 Response',
        y = NULL)
@@ -566,7 +567,7 @@ p <- tally_input %>%
 ggsave(plot = p,
        device = cairo_pdf,
        path = output_dir,
-       h = 6,
+       h = 4,
        w = 4,
        filename = 'F2B_tally_bar.pdf')
 
@@ -600,8 +601,12 @@ top_genes_nonsig <- de_combined_supercluster %>%
 pv50 <- readxl::read_excel(here('analysis/input/PV50.xlsx'))
 pv50_genes <- pv50$...1 %>% intersect(rownames(seuratobj))
 
+select_genes <- c('IL17A', 'IL26', 'GNLY', 'GZMB', 'CPM', 'SLA2', 'SOX4',
+                  'IL2RA', 'IL1RL1', 'IKZF4', 'TNFRSF4', 'ZEB2', 'TSPAN5', 'TNIP3',
+                  'LAYN', 'TNFAIP3', 'CEBPD', 'GBP5', 'METRNL', 'MAP3K4', 'F2R')
+
 pseudo_data <- pseudobulk(seuratobj,
-                          genes = c(top_genes_sig$gene, top_genes_nonsig$gene, pv50_genes) %>% unique(),
+                          genes = c(top_genes_sig$gene, top_genes_nonsig$gene, pv50_genes, select_genes) %>% unique(),
                           group_by = c('id', 'supercluster')) %>% 
   left_join(patient_meta)
 
@@ -673,45 +678,48 @@ ggsave(plot = p,
 #### Select
 ```{r}
 which_subset <- 'Trm'
-which_genes <- c('IL17A', 'IL26', 'GNLY', 'GZMB', 'CPM', 'SLA2', 'SOX4',
-                 'IL2RA', 'IL1RL1', 'KDZF4', 'TNFRSF4', 'ZEB2', 'AREG', 'S100A8')
+which_genes <- select_genes
 
 boxplot_input <- patient_level_fc %>% 
+  filter(patient %in% (metadata_patient %>% filter(group == 'Responder') %>% pull(patient))) %>% 
   filter(supercluster == which_subset) %>% 
   filter(gene %in% which_genes) %>% 
-  filter(patient %in% (metadata_patient %>% filter(group == 'Responder') %>% pull(patient))) %>% 
-  mutate(cpm = log10cpm)
+  mutate(cpm = log10cpm) %>% 
+  mutate(display = ifelse(gene %in% top_genes_sig$gene, paste0(gene, '*'), gene))
 
 median_input <- boxplot_input %>% 
-  group_by(gene, treatment) %>% 
+  group_by(gene, display, treatment) %>% 
   summarize(cpm = median(cpm))
 
 gene_order <- which_genes
-
 boxplot_input <- boxplot_input %>% mutate(gene = factor(gene, levels = gene_order))
-median_input <- median_input %>% mutate(gene = factor(gene, levels = gene_order))
+display_order <- boxplot_input %>% arrange(gene) %>% pull(display) %>% unique()
+
+scale_values <- c(2, 5, 10, 30, 50, 80, 100, 160, 200, 400, 500, 1000)
 
 p <- boxplot_input %>% 
   ggplot(aes(x = treatment,
              y = cpm)) +
-  geom_point(aes(color = patient), alpha = 0.5) +
+  geom_point(aes(color = patient), alpha = 1) +
   geom_path(aes(color = patient,
                 group = patient),
             alpha = 0.5) +
   geom_path(data = median_input,
             aes(group = gene),
-            color = 'black') +
-  geom_point(data = median_input,
-             color = 'black',
-             fill = 'grey80',
-             shape = 21,
-             stroke = 1,
-             size = 3) +
-  facet_wrap(~gene, scales = 'free_y', nrow = 2) +
+            color = 'grey50',
+            linewidth = 2,
+            alpha = 0.5) +
+  # geom_point(data = median_input,
+  #            color = 'black',
+  #            fill = 'grey80',
+  #            shape = 21,
+  #            stroke = 1,
+  #            size = 3) +
+  facet_wrap(~factor(display, levels = display_order), scales = 'free_y', nrow = 3) +
   scale_color_tableau() +
   theme(strip.text.x = element_text(face = 'italic')) +
-  scale_y_continuous(breaks = c(0, 0.7, 1, 1.7, 2, 3),
-                     labels = c(0, 5, 10, 50, 100, 1000)) +
+  scale_y_continuous(breaks = c(0, log10(scale_values)),
+                     labels = c(0, scale_values)) +
   labs(y = 'Counts per Million',
        x = NULL)
 
