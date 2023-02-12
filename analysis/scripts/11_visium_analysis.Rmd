@@ -856,6 +856,17 @@ stat_input %>% drop_na() %>%
 ### Radial analysis
 
 ```{r}
+lymphoid_distance_to_spots <- lymphoid_spots %>% 
+  map(function(i) {
+    spatial_neighbors(seuratobj = seuratobj,
+                      distance = 10,
+                      barcode = i) 
+  }) %>% bind_rows()
+
+lymphoid_distance_to_spots
+```
+
+```{r}
 
 ```
 
