@@ -557,9 +557,10 @@ p <- tally_input %>%
              y = factor(cluster, levels = cluster_order),
              fill = comparison)) +
   geom_col(color = 'black',
-           position = 'dodge') +
+           position = 'dodge',
+           alpha = 0.8) +
   theme(legend.position = 'top') +
-  scale_fill_manual()
+  scale_fill_manual(values = colors_carto[c(3, 8)]) +
   scale_y_discrete(drop = FALSE) +
   labs(x = '# DEGs shared with IL23 Response',
        y = NULL)

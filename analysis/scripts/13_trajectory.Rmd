@@ -121,11 +121,11 @@ subsetobj$description <- paste0(subsetobj$condition, subsetobj$group, subsetobj$
   str_remove('PV') %>% 
   str_replace('NANone', 'PV') %>% 
   factor(levels = c('PV',
+                    'HC',
                     # 'Non-responderPre',
                     # 'Non-responderMid',
                     'ResponderPre',
-                    'ResponderMid',
-                    'HC'))
+                    'ResponderMid'))
   
 metadata <- subsetobj@meta.data %>% rownames_to_column()
 
@@ -190,7 +190,8 @@ p <- subsetobj %>% seurat_feature(features = 'description',
                                   nrow = 1,
                                   alpha = 0.2, 
                                   size = 0.5,
-                                  reduction = 'pca') +
+                                  reduction = 'pca',
+                                  dims = 2:1) +
   geom_hline(yintercept = 0, linetype = 'dashed') +
   geom_vline(xintercept = 0, linetype = 'dashed')
 
@@ -199,9 +200,52 @@ ggsave(plot = p,
        path = output_dir,
        h = 2.5,
        w = 8,
-	filename = 'trajectory_facets.pdf')
+	filename = 'trajectory_facets_pca.pdf')
 p
 ```
+```{r}
+p <- subsetobj %>% seurat_feature(features = 'description', 
+                                  facets = 'description',
+                                  label = FALSE,
+                                  legend_position = 'none',
+                                  nrow = 1,
+                                  alpha = 0.2, 
+                                  size = 0.5,
+                                  reduction = 'harmony',
+                                  dims = 2:1) +
+  geom_hline(yintercept = 0, linetype = 'dashed') +
+  geom_vline(xintercept = 0, linetype = 'dashed')
+
+ggsave(plot = p,
+       device = cairo_pdf,
+       path = output_dir,
+       h = 2.5,
+       w = 8,
+	filename = 'trajectory_facets_harmony.pdf')
+p
+```
+```{r}
+p <- subsetobj %>% seurat_feature(features = 'description', 
+                                  facets = 'description',
+                                  label = FALSE,
+                                  legend_position = 'none',
+                                  nrow = 1,
+                                  alpha = 0.2, 
+                                  size = 0.5,
+                                  reduction = 'harmony',
+                                  dims = 1:2) +
+  geom_hline(yintercept = 0, linetype = 'dashed') +
+  geom_vline(xintercept = 0, linetype = 'dashed')
+
+ggsave(plot = p,
+       device = cairo_pdf,
+       path = output_dir,
+       h = 2,
+       w = 10,
+	filename = 'trajectory_facets_harmony.pdf')
+p
+```
+
 ```{r}
 p <- subsetobj %>% seurat_feature(features = 'description', 
                                   label = TRUE,

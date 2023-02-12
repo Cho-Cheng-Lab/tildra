@@ -775,3 +775,87 @@ map(stats_input$supercluster %>% unique(), function(which_subset) {
 }) %>% bind_rows() 
 ```
 
+```{r}
+p <- seuratobj %>% seurat_feature(features = c('IL17A', 'IL17F', 'IFNG', 'IL26'), nrow = 1)
+p
+```
+
+```{r}
+p <- seuratobj %>% 
+  seurat_feature(features = 'IL17A',
+                 facets = 'group')
+p
+```
+
+### UMAP facets
+```{r}
+cytokines <- c('IL17A', 'IL17F', 'IFNG', 'IL26')
+facet_input <- FetchData(seuratobj,
+                         vars = c('UMAP_1', 'UMAP_2', 'id', cytokines), 
+                         slot = 'data') %>% 
+  inner_join(metadata_patient) %>% 
+  mutate(group = ifelse(patient == 'P9', 'T Cell Responder', as.character(group))) %>% 
+  mutate(description = paste(group, treatment)) 
+  
+
+facet_input
+```
+```{r}
+which_gene <- 'IL17A'
+tallies <- facet_input %>% group_by(group) %>% tally() %>% pull(n) %>% min()
+
+library(ggrastr)
+
+p <- map(cytokines, function(which_gene) {
+  
+  plot_input <- facet_input %>% sample_n(size = tallies)
+  plot_input$expression <- plot_input[[which_gene]]
+  zero_input <- plot_input %>% filter(expression == 0)
+  nonzero_input <- plot_input %>% filter(expression > 0) %>% mutate(expression = log10(2^expression))
+  
+  p <- nonzero_input %>% 
+    ggplot(aes(x = UMAP_1,
+               y = UMAP_2,
+               color = expression)) +
+    rasterize(geom_point(data = zero_input,
+               color = 'grey90',
+               size = 1), dpi = 300) +
+    rasterize(geom_point(alpha = 0.5,
+               size = 1), dpi = 300) +
+    facet_wrap(~group + treatment, nrow = 1) +
+    labs(x = 'UMAP1',
+         y = 'UMAP2',
+         title = which_gene) +
+    theme(axis.text = element_blank(),
+          axis.ticks = element_blank(),
+          legend.title = element_text(),
+          legend.position = 'right',
+          plot.title = element_text(face = 'italic'),
+          axis.title.x = element_text(hjust = 0),
+          axis.title.y = element_text(hjust = 0)) +
+    scale_color_gradientn(colors = colorRampPalette(rev(RColorBrewer::brewer.pal(n = 7, name = "OrRd")))(100),
+                          limits = c(0, 2),
+                          breaks = seq(0, 2, length.out = 3),
+                          labels = c(1, 10, 100),
+                          oob = scales::squish,
+                          guide = guide_colorbar(frame.colour = 'black', 
+                                                 ticks = FALSE, 
+                                                 nbin = 100,
+                                                 barwidth = 0.75,
+                                                 title = 'CPM',
+                                                 barheight = 3))
+  
+  p
+  
+}) %>% wrap_plots(ncol = 1)
+
+ggsave(plot = p,
+	device = cairo_pdf,
+	path = output_dir,
+        h = 10,
+        w = 8,
+	filename = 'F4B_umap.pdf')
+p
+
+```
+

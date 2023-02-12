@@ -614,6 +614,57 @@ ggsave(plot = p,
        filename = paste0('keratinocyte_genes_adjacent', distance, '.pdf'))
 p
 ```
+
+### Pattern
+```{r}
+library(ggpattern)
+patient_labels <- patient_metadata %>% 
+  filter(!is.na(group)) %>% 
+  mutate(label = ifelse(treatment == 'Pre', as.character(patient), '')) %>% 
+  pull(label)
+
+p <- total_long_adjacent %>% 
+  filter(gene %in% setdiff(genes_keratinocyte, 'CXCL1')) %>% 
+  filter(cluster %in% c('Keratinocyte')) %>% 
+  ggplot(aes(x = sample,
+             y = counts,
+             fill = group,
+             pattern = treatment)) +
+  geom_bar_pattern(stat = 'identity', 
+                   color = 'black', 
+                   alpha = 0.8,
+                   pattern_density = 0.1,
+                   pattern_angle = 45,
+                   pattern_key_scale_factor = 0.6) +
+  facet_wrap(~gene, scales = 'free_y', nrow = 4) +
+  scale_pattern_manual(values = c(Pre = 'stripe', Mid = 'none')) +
+  scale_x_discrete(labels = patient_labels,
+                   drop = FALSE) +
+  guides(pattern = guide_legend(override.aes = list(fill = 'white')),
+         fill = guide_legend(override.aes = list(pattern = 'none'))) +
+  scale_fill_few() +
+  theme(axis.ticks.x = element_blank(),
+        axis.text.x = element_text(hjust = 0),
+        legend.position = 'top') +
+  labs(y = 'Total UMI / biopsy',
+       x = '')
+
+ggsave(plot = p,
+       path = output_dir,
+       device = cairo_pdf,
+       h = 6,
+       w = 10,
+       filename = paste0('keratinocyte_genes_adjacent_pattern', distance, '.pdf'))
+p
+```
+
+```{r}
+
+
+```
+
+
+#### Residual
 ```{r}
 p <-  total_long_adjacent %>% 
   filter(gene %in% genes_keratinocyte) %>% 
@@ -802,7 +853,9 @@ stat_input %>% drop_na() %>%
   summarize(median = median(ratio))
 ```
 
+### Pattern bar plot
 
 ```{r}
+
 ```
 
