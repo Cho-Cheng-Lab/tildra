@@ -853,7 +853,7 @@ stat_input %>% drop_na() %>%
   summarize(median = median(ratio))
 ```
 
-### Pattern bar plot
+### Radial analysis
 
 ```{r}
 

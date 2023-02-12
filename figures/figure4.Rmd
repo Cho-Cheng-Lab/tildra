@@ -525,13 +525,21 @@ p_supercluster <- map(levels(supercluster_tallies$supercluster), function(i) {
 ### without DE genes
 dir.create(here(output_dir, 'patient_bar_supercluster'))
 
-p_supercluster <- map(levels(supercluster_tallies$supercluster), function(i) {
+
+patient_labels_minus_p6 <- metadata_patient %>% 
+  filter(!is.na(group)) %>% 
+  filter(patient != 'P6') %>% 
+  mutate(label = ifelse(treatment == 'Pre', as.character(patient), '')) %>% 
+  pull(label)
+
+p <- map(levels(supercluster_tallies$supercluster), function(i) {
   
   print2(i)
   
   p <- supercluster_tallies %>% 
     filter(supercluster == i) %>% 
     filter(!is.na(group)) %>% 
+    filter(patient != 'P6') %>% # exclude due to Mast cell issue
     select(sample, treatment, group, Abundance = n, Proportion = pct) %>% 
     pivot_longer(cols = c(Abundance, Proportion),
                  names_to = 'metric',
@@ -558,7 +566,7 @@ p_supercluster <- map(levels(supercluster_tallies$supercluster), function(i) {
   scale_fill_manual(values = colors_response2) +
   scale_pattern_manual(values = c(Pre = 'stripe', Mid = 'none')) +
   scale_y_discrete(limits = rev,
-                   labels = rev(patient_labels)) +
+                   labels = rev(patient_labels_minus_p6)) +
   guides(pattern = guide_legend(override.aes = list(fill = 'white')),
          fill = guide_legend(override.aes = list(pattern = 'none')))
   
@@ -572,8 +580,17 @@ p_supercluster <- map(levels(supercluster_tallies$supercluster), function(i) {
   
   p
   
-}) %>% wrap_plots()
+}) 
 
+
+p_subset <- p[[2]] + p[[3]] + p[[8]] + p[[13]] + p[[18]] + p[[19]] 
+  
+ggsave(plot = p_subset,
+         device = cairo_pdf,
+         filename = 'F4A_patient_bar_supercluster_combined.pdf',
+         path = here(output_dir),
+         h = 7,
+         w = 12)
 
 
 
@@ -795,6 +812,7 @@ facet_input <- FetchData(seuratobj,
                          slot = 'data') %>% 
   inner_join(metadata_patient) %>% 
   mutate(group = ifelse(patient == 'P9', 'T Cell Responder', as.character(group))) %>% 
+  mutate(group = factor(group, levels = c('Responder', 'T Cell Responder', 'Non-responder'))) %>% 
   mutate(description = paste(group, treatment)) 
   
 
@@ -803,6 +821,8 @@ facet_input
 ```{r}
 which_gene <- 'IL17A'
 tallies <- facet_input %>% group_by(group) %>% tally() %>% pull(n) %>% min()
+
+set.seed(1234)
 
 library(ggrastr)
 
@@ -852,8 +872,8 @@ p <- map(cytokines, function(which_gene) {
 ggsave(plot = p,
 	device = cairo_pdf,
 	path = output_dir,
-        h = 10,
-        w = 8,
+        h = 12,
+        w = 12,
 	filename = 'F4B_umap.pdf')
 p
 
