@@ -836,6 +836,12 @@ seuratobj$ultracluster <- seuratobj[[which_ultracluster]]
 seuratobj$annotation <- seuratobj$cluster # set cluster as main annotation
 Idents(seuratobj) <- 'annotation'
 ```
+
+### Misc updates to metadata
+```{r}
+
+```
+
 ### Export
 ```{r}
 seuratobj@meta.data %>% rownames_to_column() %>% write_rds(here(output_dir, 'metadata.rds'), compress = 'gz')
