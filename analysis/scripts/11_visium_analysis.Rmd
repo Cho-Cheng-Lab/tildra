@@ -202,7 +202,7 @@ counts_table <- FetchData(seuratobj,
     ident == 2 ~ 'Vascular',
     ident == 1 ~ 'Fibroblast',
     ident == 0 ~ 'Stromal'
-  ))
+  )) %>% mutate(cluster == ifelse(cluster == 'Lymphoid' & (spatial_IL17A + spatial_IL17F)  > 0, 'T17', 'Lymphoid'))
 
 
 counts_table
@@ -892,8 +892,9 @@ counts_distance_summarized <-  counts_distance %>%
     summarize(count = sum(count)) %>% 
   drop_na() 
 
-p <- map(c('IL17A', 'IL17F', 'IFNG', 'IL26'), function(i) {
+p <- map(counts_distance_summarized$gene %>% unique(), function(i) {
   
+  print2(i)
   counts_distance_summarized %>% 
     filter(gene == i) %>% 
     ggplot(aes(x = distance,
@@ -915,6 +916,38 @@ p <- map(c('IL17A', 'IL17F', 'IFNG', 'IL26'), function(i) {
 p
 
 ```
+```{r}
+counts_distance_summarized <-  counts_distance %>% 
+    filter(distance != 0) %>% 
+  
+    group_by(gene, group, treatment, distance) %>% 
+    summarize(count = sum(count)) %>% 
+  drop_na() 
+
+p <- map(counts_distance_summarized$gene %>% unique(), function(i) {
+  
+  print2(i)
+  counts_distance_summarized %>% 
+    filter(gene == i) %>% 
+    ggplot(aes(x = distance,
+               y = count,
+               color = factor(treatment, levels = c('Pre', 'Mid')),
+               group = treatment)) +
+    geom_point(size = 2, 
+               alpha = 0.8) +
+    geom_path() +
+    facet_wrap(~factor(group, levels = c('Responder', 'Non-responder')), ncol = 2) +
+    labs(title = i,
+         x = 'Distance to immune infiltrate (# spots)',
+         y = 'Total UMI') +
+    scale_color_manual(values = c('orangered', 'dodgerblue4')) +
+    theme(legend.position = 'top') +
+    scale_x_continuous(breaks = 1:10)
+}) %>% wrap_plots()
+
+p
+```
+
 ### Spatial diagram
 ```{r}
 test_spatial %>% group_by(id) %>% tally()
