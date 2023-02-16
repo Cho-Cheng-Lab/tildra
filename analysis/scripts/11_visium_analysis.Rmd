@@ -158,6 +158,8 @@ p
 ```{r}
 gene_set <- c('IL13', 'IL17A', 'IL17F', 'IL26', 'IL21', 'IL22', 'IL23A', 'IL23R', 'IL36A', 'CXCL13', 'TNF', 'IFNG')
 genes_of_interest <- c('CD3D', 'CD4', 'CD8A', 'CD8B', 'PTPRC')
+genes_control <- c('ACTB', 'COL1A1', 'KRT10', 'COL1A2', 'S100A9', 'UBC', 'FABP5', 'B2M', 'SPARC', 'COL6A1', 'COL6A2', 'DCN', 'MYH9')
+gene_counts <- rowSums(seuratobj@assays$Spatial@counts) %>% sort(decreasing = TRUE)
 
 genes_keratinocyte <- c('DEFB4A',
                         'CXCL1',
@@ -191,7 +193,7 @@ Fibroblasts = cluster 0
 ```{r}
 
 counts_table <- FetchData(seuratobj,
-                          vars = c('id', 'sample', 'ident', paste0('spatial_', c(gene_set, genes_of_interest, genes_keratinocyte, genes_il17)) %>% unique), 
+                          vars = c('id', 'sample', 'ident', paste0('spatial_', c(gene_set, genes_of_interest, genes_keratinocyte, genes_il17, genes_control)) %>% unique), 
                           slot = 'counts') %>% 
   rownames_to_column() %>% 
   as_tibble() %>% 
@@ -202,7 +204,7 @@ counts_table <- FetchData(seuratobj,
     ident == 2 ~ 'Vascular',
     ident == 1 ~ 'Fibroblast',
     ident == 0 ~ 'Stromal'
-  )) %>% mutate(cluster == ifelse(cluster == 'Lymphoid' & (spatial_IL17A + spatial_IL17F)  > 0, 'T17', 'Lymphoid'))
+  )) #%>% mutate(cluster == ifelse(cluster == 'Lymphoid' & (spatial_IL17A + spatial_IL17F)  > 0, 'T17', 'Lymphoid'))
 
 
 counts_table
@@ -859,7 +861,7 @@ stat_input %>% drop_na() %>%
 lymphoid_distance_to_spots <- lymphoid_spots %>% 
   map(function(i) {
     spatial_neighbors(seuratobj = seuratobj,
-                      distance = 10,
+                      distance = 5,
                       barcode = i) 
   }) %>% bind_rows() %>% 
   group_by(rowname, id, sample, patient, treatment, group) %>% 
@@ -892,7 +894,8 @@ counts_distance_summarized <-  counts_distance %>%
     summarize(count = sum(count)) %>% 
   drop_na() 
 
-p <- map(counts_distance_summarized$gene %>% unique(), function(i) {
+#p <- map(counts_distance_summarized$gene %>% unique() %>% intersect(c(genes_keratinocyte)), function(i) {
+p <- map(counts_distance_summarized$gene %>% unique() %>% intersect(genes_control), function(i) {
   
   print2(i)
   counts_distance_summarized %>% 
@@ -924,7 +927,7 @@ counts_distance_summarized <-  counts_distance %>%
     summarize(count = sum(count)) %>% 
   drop_na() 
 
-p <- map(counts_distance_summarized$gene %>% unique(), function(i) {
+p <- map(counts_distance_summarized$gene %>% unique() %>% intersect(genes_keratinocyte), function(i) {
   
   print2(i)
   counts_distance_summarized %>% 
@@ -1023,3 +1026,95 @@ p
 
 ```
 
+### loop for all genes
+```{r}
+spots_per_gene <- rowSums(seuratobj@assays$Spatial@counts > 0) %>% 
+  sort(decreasing = TRUE) %>% 
+  as.data.frame() %>% 
+  set_names('spots') %>% 
+  rownames_to_column('gene') %>% 
+  as_tibble()
+
+spots_per_gene %>% 
+  ggplot(aes(x = spots)) +
+  geom_histogram(bins = 100) +
+  scale_x_log10() +
+  geom_vline(xintercept = 500)
+```
+```{r}
+spots_per_gene %>% filter(spots > 0) %>% summarize(mean = mean(spots),
+                                                   sd = sd(spots),
+                                                   median = median(spots))
+```
+```{r}
+genes_to_check <- spots_per_gene %>% filter(spots > median(spots)) %>% pull(gene)
+```
+
+
+```{r}
+distance_cor <- map(genes_to_check, function(i) {
+  
+  print2(i)
+  
+  counts_table <- FetchData(seuratobj,
+                          vars = c('id', 'sample', 'ident', paste0('spatial_', i) %>% unique), 
+                          slot = 'counts') %>% 
+  rownames_to_column() %>% 
+  as_tibble()
+
+  counts_distance <- counts_table %>% 
+    left_join(lymphoid_distance_to_spots %>% 
+                select(rowname, distance, treatment, group) %>% unique()) %>% 
+    pivot_longer(cols = starts_with('spatial'),
+                 names_to = 'gene',
+                 values_to = 'count') %>% 
+    mutate(gene = str_remove(gene, 'spatial_'))
+  
+  counts_distance_summarized <- counts_distance %>% 
+    filter(distance != 0) %>% 
+    group_by(group, treatment, distance) %>% 
+    summarize(count = sum(count)) %>% 
+    drop_na() 
+  
+  rho <- cor(counts_distance_summarized$distance, counts_distance_summarized$count, method = 'spearman')
+  
+  # p <- counts_distance_summarized %>% 
+  #   ggplot(aes(x = distance,
+  #              y = count,
+  #              color = factor(treatment, levels = c('Pre', 'Mid')),
+  #              group = treatment)) +
+  #   geom_point(size = 2, 
+  #              alpha = 0.8) +
+  #   geom_path() +
+  #   facet_wrap(~factor(group, levels = c('Responder', 'Non-responder')), ncol = 2) +
+  #   labs(title = i,
+  #        x = 'Distance to immune infiltrate (# spots)',
+  #        y = 'Total UMI') +
+  #   scale_color_manual(values = c('orangered', 'dodgerblue4')) +
+  #   theme(legend.position = 'top') +
+  #   scale_x_continuous(breaks = 1:5)
+  
+  
+  
+  tibble('gene' = i,
+         'rho' = round(rho, 3))
+  
+}) %>% bind_rows()
+
+```
+
+```{r}
+
+```
+```{r}
+
+
+
+p <- map(counts_distance_summarized$gene %>% unique() %>% intersect(genes_control), function(i) {
+  
+  
+}) %>% wrap_plots()
+
+p
+
+```
