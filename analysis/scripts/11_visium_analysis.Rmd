@@ -191,9 +191,8 @@ Keratinocytes = cluster 3
 Fibroblasts = cluster 0
 
 ```{r}
-
 counts_table <- FetchData(seuratobj,
-                          vars = c('id', 'sample', 'ident', paste0('spatial_', c(gene_set, genes_of_interest, genes_keratinocyte, genes_il17, genes_control)) %>% unique), 
+                          vars = c('id', 'sample', 'ident', 'nCount_Spatial', paste0('spatial_', c(gene_set, genes_of_interest, genes_keratinocyte, genes_il17, genes_control)) %>% unique), 
                           slot = 'counts') %>% 
   rownames_to_column() %>% 
   as_tibble() %>% 
@@ -858,7 +857,15 @@ stat_input %>% drop_na() %>%
 ### Radial analysis
 
 ```{r}
-lymphoid_distance_to_spots <- lymphoid_spots %>% 
+th17_spots <- counts_table %>% filter(spatial_CD3D + spatial_CD4 + spatial_CD8A + spatial_CD8B > 0, 
+                                      spatial_IL17A + spatial_IL17F > 0) %>% 
+  pull(rowname)
+th17_spots
+```
+
+
+```{r}
+distance_to_th17 <- th17_spots %>% 
   map(function(i) {
     spatial_neighbors(seuratobj = seuratobj,
                       distance = 5,
@@ -868,16 +875,13 @@ lymphoid_distance_to_spots <- lymphoid_spots %>%
   slice_min(distance, n = 1) %>% 
   ungroup() 
 
-lymphoid_distance_to_spots
-```
-
-```{r}
-lymphoid_distance_to_spots
+distance_to_th17
 ```
 
 ```{r}
 counts_distance <- counts_table %>% 
-  left_join(lymphoid_distance_to_spots %>% 
+  filter(cluster %in% c('Keratinocyte')) %>% 
+  left_join(distance_to_th17 %>% 
               select(rowname, distance, treatment, group) %>% unique()) %>% 
   pivot_longer(cols = starts_with('spatial'),
                names_to = 'gene',
@@ -887,15 +891,43 @@ counts_distance <- counts_table %>%
 counts_distance
 ```
 ```{r}
-
 counts_distance_summarized <-  counts_distance %>% 
     filter(distance != 0) %>% 
     group_by(gene, group, treatment, distance) %>% 
-    summarize(count = sum(count)) %>% 
+    summarize(count = sum(count),
+              nCount_Spatial = sum(nCount_Spatial)) %>% 
+  mutate(cpm = count / nCount_Spatial * 1e6) %>% 
   drop_na() 
 
-#p <- map(counts_distance_summarized$gene %>% unique() %>% intersect(c(genes_keratinocyte)), function(i) {
-p <- map(counts_distance_summarized$gene %>% unique() %>% intersect(genes_control), function(i) {
+p <- map(counts_distance_summarized$gene %>% unique() %>% intersect(c(genes_keratinocyte) %>% setdiff('CXCL1')), function(i) {
+#p <- map(counts_distance_summarized$gene %>% unique() %>% intersect(genes_control), function(i) {
+  
+  print2(i)
+  counts_distance_summarized %>% 
+    filter(gene == i) %>% 
+    ggplot(aes(x = distance,
+               y = cpm,
+               color = factor(treatment, levels = c('Pre', 'Mid')),
+               group = treatment)) +
+    geom_point(size = 2, 
+               alpha = 0.8) +
+    geom_path() +
+    facet_wrap(~factor(group, levels = c('Responder', 'Non-responder')), ncol = 2) +
+    labs(title = i,
+         x = 'Distance to T17 infiltrate (# spots)',
+         y = 'Counts per million') +
+    scale_color_manual(values = c('orangered', 'dodgerblue4')) +
+    theme(legend.position = 'top',
+          plot.background = element_rect(color = 'black')) +
+    scale_x_continuous(breaks = 1:10)
+}) %>% wrap_plots()
+
+p
+
+```
+```{r}
+p <- map(counts_distance_summarized$gene %>% unique() %>% intersect(c(genes_keratinocyte) %>% setdiff('CXCL1')), function(i) {
+#p <- map(counts_distance_summarized$gene %>% unique() %>% intersect(genes_control), function(i) {
   
   print2(i)
   counts_distance_summarized %>% 
@@ -909,16 +941,17 @@ p <- map(counts_distance_summarized$gene %>% unique() %>% intersect(genes_contro
     geom_path() +
     facet_wrap(~factor(group, levels = c('Responder', 'Non-responder')), ncol = 2) +
     labs(title = i,
-         x = 'Distance to immune infiltrate (# spots)',
+         x = 'Distance to T17 infiltrate (# spots)',
          y = 'Total UMI') +
     scale_color_manual(values = c('orangered', 'dodgerblue4')) +
-    theme(legend.position = 'top') +
+    theme(legend.position = 'top',
+          plot.background = element_rect(color = 'black')) +
     scale_x_continuous(breaks = 1:10)
 }) %>% wrap_plots()
 
 p
-
 ```
+
 ```{r}
 counts_distance_summarized <-  counts_distance %>% 
     filter(distance != 0) %>% 
@@ -1057,13 +1090,13 @@ distance_cor <- map(genes_to_check, function(i) {
   print2(i)
   
   counts_table <- FetchData(seuratobj,
-                          vars = c('id', 'sample', 'ident', paste0('spatial_', i) %>% unique), 
+                          vars = c('id', 'sample', 'ident', 'nCount_Spatial', paste0('spatial_', i) %>% unique), 
                           slot = 'counts') %>% 
   rownames_to_column() %>% 
   as_tibble()
 
   counts_distance <- counts_table %>% 
-    left_join(lymphoid_distance_to_spots %>% 
+    left_join(distance_to_th17 %>% 
                 select(rowname, distance, treatment, group) %>% unique()) %>% 
     pivot_longer(cols = starts_with('spatial'),
                  names_to = 'gene',
