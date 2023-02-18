@@ -951,7 +951,7 @@ p <- map(counts_distance_summarized$gene %>% unique() %>% intersect(c(genes_kera
 
 p
 ```
-
+#### Line plots
 ```{r}
 counts_distance_summarized <-  counts_distance %>% 
     filter(distance != 0) %>% 
@@ -983,8 +983,70 @@ p <- map(counts_distance_summarized$gene %>% unique() %>% intersect(genes_kerati
 
 p
 ```
+#### Line plots subset
+```{r}
+gene_subset <- c('DEFB4A', 
+                 'IL36G',
+                 'LCN2',
+                 'PI3',
+                 'RHCG',
+                 'S100A7A',
+                 'SERPINB3',
+                 'SLC6A14',
+                 'SPRR2A')
 
+counts_distance_summarized <-  counts_distance %>% 
+    filter(distance != 0) %>% 
+    group_by(gene, distance) %>% 
+    summarize(count = sum(count),
+              nCount_Spatial = sum(nCount_Spatial)) %>% 
+  mutate(cpm = count / nCount_Spatial * 1e6) %>% 
+  drop_na() 
+
+p <- map(counts_distance_summarized$gene %>% intersect(gene_subset), function(i) {
+  
+  print2(i)
+  counts_distance_summarized %>% 
+    filter(gene == i) %>% 
+    ggplot(aes(x = distance,
+               y = cpm)) +
+    geom_point(size = 2, 
+               alpha = 0.8) +
+    geom_path() +
+    labs(title = i,
+         x = 'Distance to T17 infiltrate (# spots)',
+         y = 'Counts per million') +
+    scale_color_manual(values = c('orangered', 'dodgerblue4')) +
+    theme(legend.position = 'top',
+          plot.background = element_rect(color = 'black')) +
+    scale_x_continuous(breaks = 1:10)
+}) %>% wrap_plots()
+
+p
+```
 ### Spatial diagram
+#### Combined
+```{r}
+counts_distance_summarized %>% 
+  group_by(gene) %>% 
+  mutate(max = max(cpm),
+         pct = cpm / max * 100) %>% 
+  filter(gene %in% gene_subset) %>% 
+  ggplot(aes(x = gene,
+             y = distance,
+             fill = pct)) + 
+  geom_point(shape = 21, size = 4) +
+  ylim(c(0, 5)) +
+  theme_void() +
+  theme(legend.position = 'right',
+        axis.text.x = element_text()) + 
+  scale_fill_gradientn(colors = colorRampPalette(RColorBrewer::brewer.pal(n = 7, name = "OrRd"))(100),
+                        guide = guide_colorbar(title = '% of max', ticks = FALSE, frame.colour = 'black')) +
+  coord_polar(theta = 'x')
+```
+
+
+### Old
 ```{r}
 test_spatial %>% group_by(id) %>% tally()
 ```
