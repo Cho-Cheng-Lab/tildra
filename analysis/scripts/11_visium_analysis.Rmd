@@ -868,7 +868,7 @@ th17_spots
 distance_to_th17 <- th17_spots %>% 
   map(function(i) {
     spatial_neighbors(seuratobj = seuratobj,
-                      distance = 5,
+                      distance = 10,
                       barcode = i) 
   }) %>% bind_rows() %>% 
   group_by(rowname, id, sample, patient, treatment, group) %>% 
@@ -1027,7 +1027,7 @@ p
 ### Spatial diagram
 #### Combined
 ```{r}
-counts_distance_summarized %>% 
+p <- counts_distance_summarized %>% 
   group_by(gene) %>% 
   mutate(max = max(cpm),
          pct = cpm / max * 100) %>% 
@@ -1035,14 +1035,26 @@ counts_distance_summarized %>%
   ggplot(aes(x = gene,
              y = distance,
              fill = pct)) + 
-  geom_point(shape = 21, size = 4) +
+  geom_point(shape = 21, aes(size = distance)) +
   ylim(c(0, 5)) +
   theme_void() +
   theme(legend.position = 'right',
         axis.text.x = element_text()) + 
+  scale_size_continuous(range = c(8, 16), guide = NULL) +
   scale_fill_gradientn(colors = colorRampPalette(RColorBrewer::brewer.pal(n = 7, name = "OrRd"))(100),
-                        guide = guide_colorbar(title = '% of max', ticks = FALSE, frame.colour = 'black')) +
+                       limits = c(0, 100),
+                       breaks = seq(0, 100, length.out = 5),
+                       guide = guide_colorbar(title = '% of max', ticks = FALSE, frame.colour = 'black')) +
   coord_polar(theta = 'x')
+
+ggsave(plot = p,
+       device = cairo_pdf,
+       path = output_dir,
+       h = 5,
+       w = 6,
+       filename = 'polar_expression.pdf')
+
+p
 ```
 
 
