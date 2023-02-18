@@ -808,17 +808,12 @@ seuratobj <- AddMetaData(seuratobj, new_annotations)
 sample_order <- seuratobj@meta.data %>% 
   select(patient, sample, sample_order) %>% 
   unique() %>% 
+  as_tibble() %>% 
   arrange(sample_order)
 sample_order
 ```
 
-```{r}
-seuratobj$condition <- factor(seuratobj$condition, levels = c('HC', 'AD', 'PV'))
-seuratobj$treatment <- factor(seuratobj$treatment, levels = c('None', 'Pre', 'Mid'))
-seuratobj$group <- factor(seuratobj$group, levels = c('Responder', 'Non-responder'))
-seuratobj$patient <- factor(seuratobj$patient, levels = unique(sample_order$patient))
-seuratobj$sample <- factor(seuratobj$sample, levels = sample_order$sample)
-```
+
 
 ### Use global or local identities and set as cluster/supercluster in the object
 Use this code to select between global or local identities as the default for a given analysis
@@ -839,7 +834,30 @@ Idents(seuratobj) <- 'annotation'
 
 ### Misc updates to metadata
 ```{r}
+#seuratobj <- read_rds(here(data_dir, 'seuratobj_annotated.rds'))
 
+new_metadata <- read_tsv(here('analysis/input/metadata20230217.tsv')) %>% 
+  filter(tildra == 'Yes') %>% 
+  select(id, sample, patient, sample_label, patient_label) %>% 
+  mutate(id = paste0('S', id))
+
+merged_metadata <- seuratobj@meta.data %>% rownames_to_column() %>% select(rowname, id) %>% left_join(new_metadata)
+
+which_columns <- c('sample', 'patient', 'sample_label', 'patient_label')
+
+for(i in which_columns) {
+  
+  seuratobj[[i]] <- merged_metadata[[i]]
+  
+}
+
+```
+```{r}
+seuratobj$condition <- factor(seuratobj$condition, levels = c('HC', 'AD', 'PV'))
+seuratobj$treatment <- factor(seuratobj$treatment, levels = c('None', 'Pre', 'Mid'))
+seuratobj$group <- factor(seuratobj$group, levels = c('Responder', 'Non-responder'))
+seuratobj$patient <- factor(seuratobj$patient, levels = unique(sample_order$patient))
+seuratobj$sample <- factor(seuratobj$sample, levels = sample_order$sample)
 ```
 
 ### Export
