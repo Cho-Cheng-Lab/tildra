@@ -692,7 +692,7 @@ p <-  total_long_adjacent %>%
   # geom_col() +
   
   theme_dwu(legend.position = 'top') +
-  ggthemes::scale_fill_few() +
+  scale_fill_manual(values = colors_response3) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
   scale_x_discrete(drop = FALSE) +
   labs(y = 'Average Residual Expression %',
@@ -701,7 +701,7 @@ p <-  total_long_adjacent %>%
 ggsave(plot = p,
        path = output_dir,
        device = cairo_pdf,
-       h = 4,
+       h = 5,
        w = 2.5,
        filename = paste0('keratinocyte_genes_adjacent', distance, '_mean.pdf'))
 p
@@ -822,11 +822,12 @@ p
 ### Stats
 ```{r}
 stat_input <- total_long_adjacent %>% 
+  left_join(patient_metadata %>% select(id, category)) %>% 
   filter(gene %in% genes_keratinocyte) %>% 
   filter(cluster %in% c('Keratinocyte')) %>% 
   filter(treatment == 'Mid') %>% 
   arrange(gene) %>% 
-  group_by(gene, group) %>% 
+  group_by(gene, category) %>% 
   summarize(counts = mean(counts))
 
 stat_input
@@ -838,8 +839,8 @@ stat_input
 ```
 
 ```{r}
-group1 <- stat_input %>% filter(group == 'Responder') %>% pull(counts)
-group2 <- stat_input %>% filter(group == 'Non-responder') %>% pull(counts)
+group1 <- stat_input %>% filter(category == 'Responder') %>% pull(counts)
+group2 <- stat_input %>% filter(category == 'Non-responder (Trm-insensitive)') %>% pull(counts)
 wilcox.test(group1, group2, paired = TRUE)
 ```
 ```{r}
