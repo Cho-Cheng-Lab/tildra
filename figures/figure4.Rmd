@@ -99,6 +99,12 @@ dir.create(output_dir)
 metadata_patient <- metadata %>% 
   select(id, sample, patient, treatment, group) %>% 
   filter(treatment != 'None') %>% 
+  mutate(category = case_when(
+    patient == 'P7' ~ 'Non-responder (Trm-sensitive)',
+    group == 'Responder' ~ 'Responder',
+    group == 'Non-responder' ~ 'Non-responder (Trm-insensitive)')) %>% 
+  mutate(category = factor(category, 
+                           levels = c('Responder', 'Non-responder (Trm-sensitive)', 'Non-responder (Trm-insensitive)'))) %>% 
   arrange(sample) %>% 
   unique() %>% 
   droplevels()
@@ -118,13 +124,14 @@ de_patient_vs_hc <- read_tsv(here('analysis/output/08_de', which_annotation, 'de
 ### Cluster size and % 
 ```{r}
 analyze <- metadata %>% 
-  select(rowname, id, patient, sample, condition, treatment, cluster, supercluster, ultracluster, group, celltype) 
+  select(rowname, id, patient, sample, condition, treatment, cluster, supercluster, ultracluster, group, celltype) %>% 
+  left_join(metadata_patient %>% select(id, category))
 
 analyze %>% head()
 ```
 ```{r}
 cluster_tallies <- analyze %>% 
-  group_by(sample, patient, condition, cluster, celltype, treatment, group) %>% 
+  group_by(sample, patient, condition, cluster, celltype, treatment, group, category) %>% 
   tally() %>% 
   group_by(sample) %>% 
   mutate(total = sum(n),
@@ -132,7 +139,7 @@ cluster_tallies <- analyze %>%
          pct = round(100 * f, 2))
 
 supercluster_tallies <- analyze %>% 
-  group_by(sample, patient, condition, supercluster, celltype, treatment, group) %>% 
+  group_by(sample, patient, condition, supercluster, celltype, treatment, group, category) %>% 
   tally() %>% 
   group_by(sample) %>% 
   mutate(total = sum(n),
@@ -140,7 +147,7 @@ supercluster_tallies <- analyze %>%
          pct = round(100 * f, 2))
 
 ultracluster_tallies <- analyze %>% 
-  group_by(sample, patient, condition, ultracluster, celltype, treatment, group) %>% 
+  group_by(sample, patient, condition, ultracluster, celltype, treatment, group, category) %>% 
   tally() %>% 
   group_by(sample) %>% 
   mutate(total = sum(n),
@@ -541,7 +548,7 @@ p <- map(levels(supercluster_tallies$supercluster), function(i) {
     filter(supercluster == i) %>% 
     filter(!is.na(group)) %>% 
     filter(patient != 'P6') %>% # exclude due to Mast cell issue
-    select(sample, treatment, group, Abundance = n, Proportion = pct) %>% 
+    select(sample, treatment, category, Abundance = n, Proportion = pct) %>% 
     pivot_longer(cols = c(Abundance, Proportion),
                  names_to = 'metric',
                  values_to = 'value') %>% 
@@ -550,7 +557,7 @@ p <- map(levels(supercluster_tallies$supercluster), function(i) {
     drop_na() %>% 
     ggplot(aes(x = value,
              y = sample,
-             fill = group,
+             fill = category,
              pattern = treatment)) +
   geom_bar_pattern(stat = 'identity', 
                    color = 'black', 
@@ -565,7 +572,7 @@ p <- map(levels(supercluster_tallies$supercluster), function(i) {
         axis.ticks.y = element_blank(),
         axis.text.y = element_text(vjust = 1)) +
   facet_wrap(~metric, nrow = 1, scales = 'free_x') +
-  scale_fill_manual(values = colors_response2) +
+  scale_fill_manual(values = colors_response3) +
   scale_pattern_manual(values = c(Pre = 'stripe', Mid = 'none')) +
   scale_y_discrete(limits = rev,
                    drop = FALSE,
@@ -814,8 +821,8 @@ facet_input <- FetchData(seuratobj,
                          vars = c('UMAP_1', 'UMAP_2', 'id', cytokines), 
                          slot = 'data') %>% 
   inner_join(metadata_patient) %>% 
-  mutate(group = ifelse(patient == 'P9', 'T Cell Responder', as.character(group))) %>% 
-  mutate(group = factor(group, levels = c('Responder', 'T Cell Responder', 'Non-responder'))) %>% 
+  #mutate(group = ifelse(patient == 'P9', 'T Cell Responder', as.character(group))) %>% 
+  #mutate(group = factor(group, levels = c('Responder', 'T Cell Responder', 'Non-responder'))) %>% 
   mutate(description = paste(group, treatment)) 
   
 
@@ -824,7 +831,7 @@ facet_input
 
 ```{r}
 which_gene <- 'IL17A'
-tallies <- facet_input %>% group_by(group) %>% tally() %>% pull(n) %>% min()
+tallies <- facet_input %>% group_by(category) %>% tally() %>% pull(n) %>% min()
 
 set.seed(1234)
 
@@ -846,7 +853,7 @@ p <- map(cytokines, function(which_gene) {
                size = 1), dpi = 300) +
     rasterize(geom_point(alpha = 0.5,
                size = 1), dpi = 300) +
-    facet_wrap(~group + treatment, nrow = 1) +
+    facet_wrap(~category + treatment, nrow = 1) +
     labs(x = 'UMAP1',
          y = 'UMAP2',
          title = which_gene) +

@@ -40,6 +40,7 @@ library(ggExtra)
 library(tictoc)
 library(wutilities) # devtools::install_github('symbiologist/wutilities')
 theme_set(theme_dwu())
+source(here('figures/colors.R')) # consistent color palettes
 ```
 
 ### Import Visium object and add metadata
@@ -57,7 +58,13 @@ DefaultAssay(seuratobj)
 patient_metadata <- seuratobj@meta.data %>% 
   select(id, sample, patient, treatment, response, group, ends_with('label')) %>% unique() %>% as_tibble() %>% 
   mutate(treatment = factor(treatment, levels = c('Pre', 'Mid'))) %>% 
-  arrange(patient, treatment)
+  mutate(category = case_when(
+    patient == 'P7' ~ 'Non-responder (Trm-sensitive)',
+    group == 'Responder' ~ 'Responder',
+    group == 'Non-responder' ~ 'Non-responder (Trm-insensitive)')) %>% 
+  mutate(category = factor(category, 
+                           levels = c('Responder', 'Non-responder (Trm-sensitive)', 'Non-responder (Trm-insensitive)'))) %>% 
+  arrange(patient, treatment) 
 
 seuratobj$sample <- factor(seuratobj$sample, 
                            levels = patient_metadata$sample)
@@ -625,11 +632,12 @@ patient_labels <- patient_metadata %>%
   pull(label)
 
 p <- total_long_adjacent %>% 
+  left_join(patient_metadata %>% select(id, category)) %>% 
   filter(gene %in% setdiff(genes_keratinocyte, 'CXCL1')) %>% 
   filter(cluster %in% c('Keratinocyte')) %>% 
   ggplot(aes(x = sample,
              y = counts,
-             fill = group,
+             fill = category,
              pattern = treatment)) +
   geom_bar_pattern(stat = 'identity', 
                    color = 'black', 
@@ -643,7 +651,7 @@ p <- total_long_adjacent %>%
                    drop = FALSE) +
   guides(pattern = guide_legend(override.aes = list(fill = 'white')),
          fill = guide_legend(override.aes = list(pattern = 'none'))) +
-  scale_fill_few() +
+  scale_fill_manual(values = colors_response3) +
   theme(axis.ticks.x = element_blank(),
         axis.text.x = element_text(hjust = 0),
         legend.position = 'top') +
@@ -668,17 +676,18 @@ p
 #### Residual
 ```{r}
 p <-  total_long_adjacent %>% 
+  left_join(patient_metadata %>% select(id, category)) %>% 
   filter(gene %in% genes_keratinocyte) %>% 
   filter(cluster %in% c('Keratinocyte')) %>% 
   arrange(gene) %>% 
-  group_by(gene, group, treatment) %>% 
+  group_by(gene, category, treatment) %>% 
   summarize(counts = mean(counts)) %>% 
   pivot_wider(names_from = treatment,
               values_from = counts) %>% 
   mutate(ratio = 100 * Mid/Pre) %>% 
-  ggplot(aes(x = group,
+  ggplot(aes(x = category,
              y = ratio,
-             fill = group)) +
+             fill = category)) +
   geom_boxplot() +
   # geom_col() +
   
