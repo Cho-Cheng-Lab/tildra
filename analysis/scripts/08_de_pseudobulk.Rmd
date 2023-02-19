@@ -195,7 +195,7 @@ seuratobj
 ```
 ### Set identity
 ```{r}
-which_annotation <- 'local_supercluster'
+which_annotation <- 'local_ultracluster'
 seuratobj$annotation <- seuratobj[[which_annotation]]
 Idents(seuratobj) <- 'annotation'
 

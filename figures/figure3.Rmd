@@ -1,5 +1,5 @@
 ---
-title: "Figure 4"
+title: "Figure 3"
 author: "David Wu"
 ---
 
@@ -19,7 +19,7 @@ file.edit(output_file)
 
 ### Directories
 ```{r, message=FALSE}
-figures_dir <- here('figures/figure4') # analysis file output directory
+figures_dir <- here('figures/figure3') # analysis file output directory
 data_dir <- here('data/derived/tildra') # data file output directory
 
 dir.create(figures_dir, showWarnings = FALSE)
@@ -428,7 +428,7 @@ plot_radar_patient <- function(pseudo,
                                test = TRUE,
                                significance_colors = c('orangered', 'red4'),
                                significance_cutoff = 0.01,
-                               title = 'patient_label') {
+                               title = 'patient') {
   
   plot_title <- pseudo %>% filter(patient == {{patient}}) %>% pull({{title}}) %>% unique()
   
@@ -447,7 +447,12 @@ plot_radar_patient <- function(pseudo,
                            genes = {{genes}},
                            patient = {{patient}})
     
-    subtitle <- paste0('p = ', round(res$wilcox$p.value, 3))
+    if(res$wilcox$p.value < 0.001) {
+      subtitle <- paste0('p < 0.001')
+    } else {
+      subtitle <- paste0('p = ', round(res$wilcox$p.value, 3))  
+    }
+    
     
     # if(res$t$p.value < significance_cutoff) {
     #   plot_title <- paste0(plot_title, '*')

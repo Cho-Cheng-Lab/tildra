@@ -624,6 +624,7 @@ patient_level_fc
 ```
 ### Sig
 ```{r}
+dir.create(here(output_dir, 'F2D'))
 which_subset <- 'Trm'
 which_genes <- top_genes_sig$gene
 

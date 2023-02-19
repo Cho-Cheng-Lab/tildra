@@ -99,6 +99,7 @@ dir.create(output_dir)
 metadata_patient <- metadata %>% 
   select(id, sample, patient, treatment, group) %>% 
   filter(treatment != 'None') %>% 
+  arrange(sample) %>% 
   unique() %>% 
   droplevels()
 

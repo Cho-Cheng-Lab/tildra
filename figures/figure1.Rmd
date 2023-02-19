@@ -775,7 +775,3 @@ metadata %>% filter(treatment %in% c('Pre', 'Mid')) %>% select(cluster, patient,
   pivot_wider(names_from = treatment, values_from = n)
 ```
 
-```{r}
-p6
-```
-

@@ -39,14 +39,16 @@ dir.create(data_dir, showWarnings = FALSE)
 ```
 ### Main metadata
 ```{r}
-patient_metadata <- read_tsv(here('analysis/output/00_process/metadata_subset.tsv'))
+seuratobj <- read_rds(here(data_dir, 'seuratobj_annotated.rds'))
+patient_metadata <- seuratobj@meta.data %>% 
+  select(sample, patient, id, condition, treatment, response, group, sample_label, patient_label) %>% unique() %>% as_tibble()
 patient_metadata
 ```
 ### Visium metadata
 ```{r}
 visium_metadata <- read_tsv(here('analysis/input/visium_sample_data.tsv')) %>% 
   drop_na() %>% 
-  mutate(id = ifelse(id == 'skin234', 'skin277', id)) %>% 
+  mutate(id = ifelse(id == 'skin234', 'skin277', id)) %>% # biopsies for the same patient; match id number from main dataset
   dplyr::rename(dir = id) %>% 
   mutate(id = dir %>% str_replace('skin', 'S'))
 visium_metadata
