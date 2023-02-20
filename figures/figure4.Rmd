@@ -605,6 +605,72 @@ ggsave(plot = p_subset,
 
 
 ```
+### Truncated
+```{r}
+p <- map(levels(supercluster_tallies$supercluster), function(i) {
+  
+  print2(i)
+  
+  plot_input <- supercluster_tallies %>% 
+    filter(supercluster == i) %>% 
+    filter(!is.na(group)) %>% 
+    filter(patient != 'P6') %>% # exclude due to Mast cell issue
+    select(sample, treatment, category, Abundance = n, Proportion = pct) %>% 
+    pivot_longer(cols = c(Abundance, Proportion),
+                 names_to = 'metric',
+                 values_to = 'value') %>% 
+    mutate(metric = factor(metric, levels = c('Abundance', 'Proportion')),
+           sample = factor(sample, levels = (metadata_patient %>% filter(patient != 'P6') %>% pull(sample)))) %>% 
+    drop_na() 
+  
+  cutoff <- plot_input %>% 
+    group_by(metric) %>% 
+    summarize(cutoff = quantile(value, probs = 0.9))
+  
+  p <- plot_input %>% 
+    left_join(cutoff) %>% 
+    mutate(value = ifelse(value >= cutoff, 0, value)) %>% 
+    ggplot(aes(x = value,
+               y = sample,
+               fill = category,
+               pattern = treatment)) +
+    geom_bar_pattern(stat = 'identity', 
+                     color = 'black', 
+                     alpha = 0.8,
+                     pattern_density = 0.1,
+                     pattern_angle = 45,
+                     pattern_key_scale_factor = 0.6) +
+    labs(x = '',
+         y = '',
+         title = i) +
+    theme(legend.position = 'top',
+          axis.ticks.y = element_blank(),
+          axis.text.y = element_text(vjust = 1)) +
+    facet_wrap(~metric, nrow = 1, scales = 'free_x') +
+    scale_fill_manual(values = colors_response3) +
+    scale_pattern_manual(values = c(Pre = 'stripe', Mid = 'none')) +
+    scale_y_discrete(limits = rev,
+                     drop = FALSE,
+                     labels = rev(patient_labels_minus_p6)) +
+    guides(pattern = guide_legend(override.aes = list(fill = 'white')),
+           fill = guide_legend(override.aes = list(pattern = 'none')))
+  
+  
+  p
+  
+}) 
+
+
+p_subset <- p[[2]] + p[[3]] + p[[8]] + p[[13]] + p[[18]] + p[[19]] 
+  
+ggsave(plot = p_subset,
+         device = cairo_pdf,
+         filename = 'F4A_patient_bar_supercluster_combined_truncated.pdf',
+         path = here(output_dir),
+         h = 7,
+         w = 12)
+
+```
 
 ```{r}
 dir.create(here(output_dir, 'patient_bar_ultracluster'))
