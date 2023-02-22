@@ -100,11 +100,11 @@ metadata_patient <- metadata %>%
   select(id, sample, patient, treatment, group) %>% 
   filter(treatment != 'None') %>% 
   mutate(category = case_when(
-    patient == 'P7' ~ 'Non-responder (Trm-sensitive)',
+    patient == 'P7' ~ 'Non-responder (IL-23i-sensitive)',
     group == 'Responder' ~ 'Responder',
-    group == 'Non-responder' ~ 'Non-responder (Trm-insensitive)')) %>% 
+    group == 'Non-responder' ~ 'Non-responder (IL-23i-insensitive)')) %>% 
   mutate(category = factor(category, 
-                           levels = c('Responder', 'Non-responder (Trm-sensitive)', 'Non-responder (Trm-insensitive)'))) %>% 
+                           levels = c('Responder', 'Non-responder (IL-23i-sensitive)', 'Non-responder (IL-23i-insensitive)'))) %>% 
   arrange(sample) %>% 
   unique() %>% 
   droplevels()
@@ -910,6 +910,8 @@ p <- map(cytokines, function(which_gene) {
   zero_input <- plot_input %>% filter(expression == 0)
   nonzero_input <- plot_input %>% filter(expression > 0) %>% mutate(expression = log10(2^expression))
   
+  total_cpm <- nonzero_input %>% group_by(category, treatment) %>% summarize(total = round(sum(10^expression), 2))
+  
   p <- nonzero_input %>% 
     ggplot(aes(x = UMAP_1,
                y = UMAP_2,
@@ -930,6 +932,13 @@ p <- map(cytokines, function(which_gene) {
           plot.title = element_text(face = 'italic'),
           axis.title.x = element_text(hjust = 0),
           axis.title.y = element_text(hjust = 0)) +
+    geom_text(data = total_cpm,
+              x = 0,
+              y = 8, 
+              inherit.aes = FALSE,
+              size = 3,
+              color = 'black',
+              aes(label = paste0('Total CPM = ', total))) +
     scale_color_gradientn(colors = colorRampPalette(rev(RColorBrewer::brewer.pal(n = 7, name = "OrRd")))(100),
                           limits = c(0, 2),
                           breaks = seq(0, 2, length.out = 3),

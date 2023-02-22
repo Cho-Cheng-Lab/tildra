@@ -666,9 +666,6 @@ ggsave(plot = p,
        filename = paste0('keratinocyte_genes_adjacent_pattern', distance, '.pdf'))
 p
 ```
-```{r}
-pre_values %>% add_count(patient, gene) %>% arrange(patient,gene)
-```
 
 ### Percentages
 ```{r}
@@ -1111,6 +1108,39 @@ ggsave(plot = p,
        filename = 'polar_expression.pdf')
 
 p
+```
+### Sector plot
+```{r}
+p <- counts_distance_summarized %>% 
+  filter(distance %in% 1:5) %>% 
+  group_by(gene) %>% 
+  mutate(max = max(cpm),
+         pct = cpm / max * 100) %>% 
+  filter(gene %in% gene_subset) %>% 
+  ggplot(aes(x = gene,
+             y = distance/distance,
+             fill = pct)) + 
+  geom_bar(stat = 'identity',
+           color = 'black',
+           position = 'stack') +
+  theme_void() +
+  theme(legend.position = 'right',
+        axis.text.x = element_text()) + 
+  scale_fill_gradientn(colors = colorRampPalette(RColorBrewer::brewer.pal(n = 7, name = "OrRd"))(100),
+                       limits = c(0, 100),
+                       breaks = seq(0, 100, length.out = 5),
+                       guide = guide_colorbar(title = '% of max', ticks = FALSE, frame.colour = 'black')) +
+  coord_polar(theta = 'x')
+
+ggsave(plot = p,
+       device = cairo_pdf,
+       path = output_dir,
+       h = 5,
+       w = 6,
+       filename = 'polar_sectors.pdf')
+
+p
+
 ```
 
 

@@ -274,6 +274,27 @@ ggsave(plot = p,
 
 p
 ```
+### Labels without shadowtext
+```{r}
+p <- seurat_feature(seuratobj, 
+                    features = 'supercluster', 
+                    facet_hide = TRUE, 
+                    legend_position = 'none', 
+                    label = TRUE, 
+                    color_package = 'custom', label_color = 'black',
+                    color_palette = colors_supercluster, 
+                    rasterize_dpi = dpi) 
+
+ggsave(plot = p,
+       device = cairo_pdf,
+       path = output_dir,
+       height = h,
+       width = w,
+       dpi = dpi,
+       filename = 'F1B_supercluster_custom_black.pdf') 
+
+p
+```
 
 ### Figure 1C, Marker Dot Plot
 #### Reynolds et al markers
