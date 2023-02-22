@@ -1093,7 +1093,7 @@ p <- counts_distance_summarized %>%
   theme_void() +
   theme(legend.position = 'right',
         axis.text.x = element_text()) + 
-  scale_size_continuous(range = c(8, 16), guide = NULL) +
+  scale_size_continuous(range = c(10, 10), guide = NULL) +
   scale_fill_gradientn(colors = colorRampPalette(RColorBrewer::brewer.pal(n = 7, name = "OrRd"))(100),
                        limits = c(0, 100),
                        breaks = seq(0, 100, length.out = 5),
@@ -1104,7 +1104,7 @@ ggsave(plot = p,
        device = cairo_pdf,
        path = output_dir,
        h = 5,
-       w = 6,
+       w = 5,
        filename = 'polar_expression.pdf')
 
 p
