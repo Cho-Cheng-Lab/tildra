@@ -629,6 +629,9 @@ ggsave(plot = p,
 
 p
 ```
+```{r}
+il23_genes_all$Trm %>% sort() %>% as_tibble() %>% View()
+```
 
 
 #### Loop
