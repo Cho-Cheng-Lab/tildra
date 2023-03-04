@@ -754,6 +754,31 @@ wilcox.test(stats_input$Responder,
             paired = TRUE)
 ```
 
+### patient-specific
+```{r}
+pseudo %>% 
+  filter(cluster == which_cluster,
+         gene %in% genes_all) %>% 
+  select(gene, patient, treatment, group, cpm) %>% 
+  pivot_wider(names_from = treatment,
+              values_from = cpm) %>% 
+  mutate(ratio = (Pre - Mid)/Pre) %>% 
+  arrange(gene, patient) %>% 
+  group_by(patient) %>% 
+  summarize(mean = round(mean(ratio, na.rm = T), 3),
+            median = round(median(ratio, na.rm = T), 3))
+```
+```{r}
+pseudo %>% 
+  filter(cluster == which_cluster,
+         gene %in% genes_all) %>% 
+  select(gene, patient, treatment, group, cpm) %>% 
+  pivot_wider(names_from = treatment,
+              values_from = cpm) %>% 
+  mutate(ratio = (Pre - Mid)/Pre) %>% 
+  filter(patient == 'P9') %>% 
+  filter(Mid > Pre)
+```
 
 
 ```{r}

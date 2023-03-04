@@ -869,6 +869,15 @@ ggsave(plot = p,
 
 p
 ```
+#### Stats
+Enrichment of PV50 genes in downregulated set
+```{r}
+enrich <- enrichment_test(list1 = pv50$...1,
+                list2 = top_genes_sig$gene,
+                background = rownames(seuratobj))
+
+enrich$fisher
+```
 
 ### CD4 CD8 Trm
 #### CD4 vs CD8 status based on ADT and RNA data

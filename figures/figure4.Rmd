@@ -897,7 +897,7 @@ facet_input
 
 ```{r}
 which_gene <- 'IL17A'
-tallies <- facet_input %>% group_by(category) %>% tally() %>% pull(n) %>% min()
+tallies <- facet_input %>% group_by(group) %>% tally() %>% pull(n) %>% min()
 
 set.seed(1234)
 
@@ -910,7 +910,7 @@ p <- map(cytokines, function(which_gene) {
   zero_input <- plot_input %>% filter(expression == 0)
   nonzero_input <- plot_input %>% filter(expression > 0) %>% mutate(expression = log10(2^expression))
   
-  total_cpm <- nonzero_input %>% group_by(category, treatment) %>% summarize(total = round(sum(10^expression), 2))
+  total_cpm <- nonzero_input %>% group_by(group, treatment) %>% summarize(total = round(sum(10^expression), 2))
   
   p <- nonzero_input %>% 
     ggplot(aes(x = UMAP_1,
@@ -921,7 +921,7 @@ p <- map(cytokines, function(which_gene) {
                size = 1), dpi = 300) +
     rasterize(geom_point(alpha = 0.5,
                size = 1), dpi = 300) +
-    facet_wrap(~category + treatment, nrow = 1) +
+    facet_wrap(~group + treatment, nrow = 1) +
     labs(x = 'UMAP1',
          y = 'UMAP2',
          title = which_gene) +
@@ -931,7 +931,8 @@ p <- map(cytokines, function(which_gene) {
           legend.position = 'right',
           plot.title = element_text(face = 'italic'),
           axis.title.x = element_text(hjust = 0),
-          axis.title.y = element_text(hjust = 0)) +
+          axis.title.y = element_text(hjust = 0),
+          strip.background = element_rect(color = 'black', fill = 'grey50')) +
     geom_text(data = total_cpm,
               x = 0,
               y = 8, 
@@ -959,7 +960,7 @@ ggsave(plot = p,
 	device = cairo_pdf,
 	path = output_dir,
         h = 12,
-        w = 12,
+        w = 8,
 	filename = 'F4B_umap.pdf')
 p
 
