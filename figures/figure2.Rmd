@@ -388,6 +388,14 @@ top_genes <- de_combined %>%
 
 top_genes
 ```
+```{r}
+de_combined_supercluster %>% 
+  filter(cluster == 'Trm',
+         str_detect(comparison, 'esponder Pre')) %>% 
+  filter(gene %in% c('IL26', 'IL17A', 'IL17F', 'IFNG')) %>% 
+  select(comparison, gene, avg_log2FC, p_val) %>% 
+  mutate(p_val = round(p_val, 4))
+```
 
 ```{r}
 heatmap_cells <- seuratobj@meta.data %>% rownames()

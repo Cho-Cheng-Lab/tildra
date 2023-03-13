@@ -847,6 +847,28 @@ stats_input <- supercluster_tallies %>%
 stats_input
 ```
 
+### Abundance
+```{r}
+map(stats_input$supercluster %>% unique(), function(which_subset) {
+  
+  stats_subset <- stats_input %>% filter(supercluster == which_subset)
+  
+  group1 <- stats_subset %>% filter(group == 'Responder')
+  group2 <- stats_subset %>% filter(group == 'Non-responder')
+  
+  res1 <- wilcox.test(group1$n_Pre,
+                     group1$n_Mid)
+  
+  res2 <- wilcox.test(group2$n_Pre,
+                      group2$n_Mid)
+  
+  tibble('cluster' = which_subset,
+         'Responder_p' = res1$p.value,
+         'Nonresponder_p' = res2$p.value)
+  
+}) %>% bind_rows() 
+```
+
 ```{r}
 map(stats_input$supercluster %>% unique(), function(which_subset) {
   

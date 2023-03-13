@@ -1,5 +1,5 @@
 ---
-title: "Figrue 2"
+title: "Figure"
 author: "David Wu"
 ---
 
