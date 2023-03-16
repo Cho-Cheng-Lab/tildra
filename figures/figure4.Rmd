@@ -723,6 +723,8 @@ p_ultracluster <- map(levels(ultracluster_tallies$ultracluster), function(i) {
   
 }) %>% wrap_plots()
 ```
+### Numbers
+
 
 ### IL17 secreting cells
 ```{r}
@@ -890,6 +892,51 @@ map(stats_input$supercluster %>% unique(), function(which_subset) {
 }) %>% bind_rows() 
 ```
 
+#### Summary stats
+```{r}
+stats_input %>% 
+  mutate(n_drop = 100 * (n_Mid - n_Pre) / (n_Pre)) %>% 
+  group_by(supercluster, group) %>% 
+  summarize(mean = mean(n_drop),
+            median = median(n_drop),
+            range_min = min(n_drop),
+            range_max = max(n_drop))
+```
+```{r}
+stats_input %>% 
+  mutate(n_drop = 100 * (f_Mid - f_Pre) / (f_Pre)) %>% 
+  group_by(supercluster, group) %>% 
+  summarize(mean = mean(n_drop),
+            median = median(n_drop),
+            range_min = min(n_drop),
+            range_max = max(n_drop))
+```
+
+```{r}
+
+
+map(stats_input$supercluster %>% unique(), function(which_subset) {
+  
+  stats_subset <- stats_input %>% filter(supercluster == which_subset)
+  
+  group1 <- stats_subset %>% filter(group == 'Responder')
+  group2 <- stats_subset %>% filter(group == 'Non-responder')
+  
+  res1 <- wilcox.test(group1$f_Pre,
+                     group1$f_Mid)
+  
+  res2 <- wilcox.test(group2$f_Pre,
+                      group2$f_Mid)
+  
+  tibble('cluster' = which_subset,
+         'Responder_p' = res1$p.value,
+         'Nonresponder_p' = res2$p.value)
+  
+}) %>% bind_rows() 
+```
+
+
+### UMAP
 ```{r}
 p <- seuratobj %>% seurat_feature(features = c('IL17A', 'IL17F', 'IFNG', 'IL26'), nrow = 1)
 p
