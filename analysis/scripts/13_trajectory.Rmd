@@ -203,6 +203,61 @@ ggsave(plot = p,
 	filename = 'trajectory_facets_pca.pdf')
 p
 ```
+
+```{r}
+subsetobj <- subsetobj %>% 
+  FindNeighbors() %>% 
+  FindClusters(resolutio = c(0.2, 0.4, 0.8))
+
+
+```
+
+```{r}
+subsetobj %>% seurat_feature(features = 'seurat_clusters', 
+                                  facets = 'description',
+                                  label = TRUE,
+                                  legend_position = 'none',
+                                  nrow = 1,
+                                  alpha = 0.2, 
+                                  size = 0.5,
+                                  reduction = 'pca',
+                                  dims = 2:1) +
+  geom_hline(yintercept = 0, linetype = 'dashed') +
+  geom_vline(xintercept = 0, linetype = 'dashed')
+```
+```{r}
+subsetobj %>% seurat_feature(features = 'RNA_snn_res.0.8', 
+                                  label = TRUE,
+                                  legend_position = 'none',
+                                  nrow = 1,
+                                  alpha = 0.2, 
+                                  size = 0.5,
+                                  reduction = 'pca',
+                                  dims = 2:1) +
+  geom_hline(yintercept = 0, linetype = 'dashed') +
+  geom_vline(xintercept = 0, linetype = 'dashed')
+```
+```{r}
+markers_hc <- FindMarkers(subsetobj, ident.1 = 0) %>% 
+  rownames_to_column('gene') %>% 
+  mutate(pct.diff = pct.1 - pct.2) %>%
+  arrange(-pct.diff)
+```
+
+```{r}
+markers_hc 
+```
+
+```{r}
+markers_hc %>% write_tsv(here(output_dir, 'markers_hc.tsv'))
+```
+
+```{r}
+seurat_feature(subsetobj, features = c('TXNIP', 'PRDM1', 'CCR4', 'LUZP1'), reduction = 'pca', dims = 2:1, size = 0.5)
+```
+
+
+### Resume
 ```{r}
 p <- subsetobj %>% seurat_feature(features = 'description', 
                                   facets = 'description',
