@@ -199,7 +199,7 @@ Fibroblasts = cluster 0
 
 ```{r}
 counts_table <- FetchData(seuratobj,
-                          vars = c('id', 'sample', 'ident', 'nCount_Spatial', paste0('spatial_', c(gene_set, genes_of_interest, genes_keratinocyte, genes_il17, genes_control)) %>% unique), 
+                          vars = c('id', 'sample', 'ident', 'nCount_Spatial', paste0('spatial_', c(gene_set, genes_of_interest, genes_keratinocyte, genes_il17)) %>% unique), 
                           slot = 'counts') %>% 
   rownames_to_column() %>% 
   as_tibble() %>% 
@@ -1392,3 +1392,10 @@ p <- map(counts_distance_summarized$gene %>% unique() %>% intersect(genes_contro
 p
 
 ```
+
+```{r}
+counts_distance_summarized %>% 
+  write_tsv(here(output_dir, 'counts_by_distance.tsv'))
+  
+```
+

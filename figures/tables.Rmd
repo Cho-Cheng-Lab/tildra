@@ -1,0 +1,91 @@
+---
+title: "Tables"
+author: "David Wu"
+---
+
+### Use the here package for robust relative paths
+```{r}
+library(here)
+```
+
+### Optionally convert this Rmd to R script 
+```{r eval=FALSE, message=FALSE}
+current_file <- rstudioapi::getActiveDocumentContext()$path
+output_file <- stringr::str_replace(current_file, '.Rmd', '.R')
+knitr::purl(current_file, output = output_file)
+file.edit(output_file)
+```
+
+### Directories
+```{r, message=FALSE}
+output_dir <- here('figures/tables') # analysis file output directory
+data_dir <- here('data/derived/tildra') # data file output directory
+
+dir.create(output_dir, showWarnings = FALSE)
+dir.create(data_dir, showWarnings = FALSE)
+```
+
+### Loading the libraries
+```{r, message=FALSE}
+library(Seurat) 
+library(SeuratWrappers) #remotes::install_github('satijalab/seurat-wrappers')
+library(tidyverse)
+library(ggExtra)
+library(ggthemes)
+library(ggforce)
+library(patchwork)
+library(wutilities) # devtools::install_github('symbiologist/wutilities')
+library(tictoc)
+library(rcartocolor)
+library(ggrepel)
+library(extrafont)
+loadfonts()
+theme_set(theme_dwu()) # set default theme
+source(here('figures/colors.R')) # consistent color palettes
+
+```
+
+### Table S1: Cluster markers
+
+#### Set identity
+```{r}
+seuratobj <- read_rds(here(data_dir, 'seuratobj_annotated.rds'))
+seuratobj
+
+which_annotation <- 'local_supercluster'
+seuratobj$annotation <- seuratobj[[which_annotation]]
+Idents(seuratobj) <- 'annotation'
+
+metadata <- seuratobj@meta.data %>% rownames_to_column()
+```
+
+#### Markers
+```{r}
+markers <- seuratobj %>% RunPrestoAll() %>% as_tibble()
+```
+```{r}
+markers %>% as_tibble() %>% write_csv(here(output_dir, 'TableS1.csv'))
+```
+
+### Table S2: Radar chart table
+```{r}
+pseudobulk_table <- read_tsv(here('figures/figure3/local/pseudobulk_table.tsv.gz'))
+
+table_s2 <- pseudobulk_table %>% 
+  select(gene, patient, treatment, cpm, log10cpm) %>% 
+  arrange(gene, patient, desc(treatment)) 
+
+table_s2
+```
+```{r}
+table_s2 %>% write_csv(here(output_dir, 'TableS2.csv'))
+```
+
+
+### Table S3: Spatial transcriptomics distance table
+```{r}
+table_s3 <- read_tsv(here('analysis/output/11_visium_analysis/counts_by_distance.tsv'))
+
+table_s3 %>% select(gene, distance, cpm) %>% write_csv(here(output_dir, 'TableS3.csv'))
+```
+

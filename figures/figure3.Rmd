@@ -1201,7 +1201,7 @@ reduction_summary %>%
 ```
 
 ```{r}
-reduction_summary %>% 
+p <- reduction_summary %>% 
   ggplot(aes(x = -median,
              y = factor(patient, levels = rev(levels(patient))),
              fill = cluster)) +
@@ -1212,7 +1212,20 @@ reduction_summary %>%
   labs(x = 'Median % Change Pre to Mid',
        y = NULL)
   
+ggsave(plot = p,
+       device = cairo_pdf,
+       path = output_dir,
+       h = 4,
+       w = 4,
+	filename = 'S3A_cd4_cd8.pdf')
+  
 ```
+
+```{r}
+pseudo %>% filter(cluster == 'Trm') %>% select(-cluster) %>% 
+  write_tsv(here(output_dir,'pseudobulk_table.tsv.gz'))
+```
+
 
 ## Session Info
 ```{r}
