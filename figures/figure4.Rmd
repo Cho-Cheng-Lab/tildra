@@ -953,7 +953,7 @@ p
 ```{r}
 cytokines <- c('IL17A', 'IL17F', 'IFNG', 'IL26')
 facet_input <- FetchData(seuratobj,
-                         vars = c('UMAP_1', 'UMAP_2', 'id', cytokines), 
+                         vars = c('UMAP_1', 'UMAP_2', 'id',cytokines), 
                          slot = 'data') %>% 
   inner_join(metadata_patient) %>% 
   #mutate(group = ifelse(patient == 'P9', 'T Cell Responder', as.character(group))) %>% 
@@ -963,7 +963,7 @@ facet_input <- FetchData(seuratobj,
 
 facet_input
 ```
-
+  
 ```{r}
 which_gene <- 'IL17A'
 tallies <- facet_input %>% group_by(group) %>% tally() %>% pull(n) %>% min()
@@ -1034,4 +1034,28 @@ ggsave(plot = p,
 p
 
 ```
+### Per cell level analysis
+```{r}
+set.seed(1234)
+
+per_cell_df <- map(cytokines, function(which_gene) {
+  
+  plot_input <- facet_input %>% sample_n(size = tallies)
+  plot_input$expression <- plot_input[[which_gene]]
+  zero_input <- plot_input %>% filter(expression == 0)
+  
+  nonzero_input <- plot_input %>% filter(expression > 0) %>% mutate(expression = log10(2^expression))
+  total_cpm <- nonzero_input %>% group_by(group, treatment) %>% summarize(total_expression = round(sum(10^expression), 2),
+                                                                          cells = n(),
+                                                                          per_cell_expression = round(mean(10^expression), 2)) 
+  total_cpm %>% mutate(gene = which_gene)
+  
+  
+
+  }) %>% bind_rows()
+
+per_cell_df %>% write_tsv(here(output_dir, 'per_cell_table.tsv'))
+per_cell_df
+```
+
 

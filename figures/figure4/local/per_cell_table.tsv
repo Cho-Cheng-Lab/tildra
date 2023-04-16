@@ -1,0 +1,17 @@
+group	treatment	total_expression	cells	per_cell_expression	gene
+Responder	Pre	360.09	95	3.79	IL17A
+Responder	Mid	30.05	7	4.29	IL17A
+Non-responder	Pre	360.26	112	3.22	IL17A
+Non-responder	Mid	118.62	36	3.3	IL17A
+Responder	Pre	758.65	175	4.34	IL17F
+Responder	Mid	76.96	18	4.28	IL17F
+Non-responder	Pre	1391.12	297	4.68	IL17F
+Non-responder	Mid	400.23	117	3.42	IL17F
+Responder	Pre	476.06	158	3.01	IFNG
+Responder	Mid	115.8	38	3.05	IFNG
+Non-responder	Pre	508.62	176	2.89	IFNG
+Non-responder	Mid	465.05	158	2.94	IFNG
+Responder	Pre	1448.96	492	2.95	IL26
+Responder	Mid	160.7	63	2.55	IL26
+Non-responder	Pre	1440.06	522	2.76	IL26
+Non-responder	Mid	803.19	283	2.84	IL26
