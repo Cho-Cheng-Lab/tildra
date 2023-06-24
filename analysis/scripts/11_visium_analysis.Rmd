@@ -190,6 +190,44 @@ genes_keratinocyte <- c('DEFB4A',
                         'SPRR2F',
                         'SPRR2D')
 
+#biocarta Th1 TH2 genes
+genes_th1th2 <- c("IL4R",
+                  "CD40LG",
+                  "IFNGR1",
+                  "IL2RA",
+                  "IL4R",
+                  "IL2",
+                  "IL4",
+                  "IFNG",
+                  "IL12A",
+                  "CD86",
+                  "CD28",
+                  "IL18",
+                  "HLA-DRB1",
+                  "CD40",
+                  "IL4R",
+                  "IL12RB2",
+                  "IL18",
+                  "HLA-DRB1",
+                  "HLA-DRB5",
+                  "IL12B",
+                  "IL18R1",
+                  "NR1I2",
+                  "IFNGR2",
+                  "IL12RB1",
+                  "CD28",
+                  "CD86",
+                  "HLA-DRA",
+                  "HLA-DRB4",
+                  "NR1I2",
+                  "HLA-DRB3",
+                  "NR1I2",
+                  "CD40",
+                  "IL12RB1",
+                  "IL4",
+                  "CD86")
+
+
 genes_il17 <- rownames(seuratobj) %>% str_subset('IL17')
 ```
 
@@ -199,7 +237,7 @@ Fibroblasts = cluster 0
 
 ```{r}
 counts_table <- FetchData(seuratobj,
-                          vars = c('id', 'sample', 'ident', 'nCount_Spatial', paste0('spatial_', c(gene_set, genes_of_interest, genes_keratinocyte, genes_il17)) %>% unique), 
+                          vars = c('id', 'sample', 'ident', 'nCount_Spatial', paste0('spatial_', c(gene_set, genes_of_interest, genes_keratinocyte, genes_il17, genes_th1th2)) %>% unique), 
                           slot = 'counts') %>% 
   rownames_to_column() %>% 
   as_tibble() %>% 
@@ -243,9 +281,7 @@ counts_table %>%
   rowwise() %>% 
   mutate(total = sum(across(where(is.numeric))))
 ```
-```{r}
 
-```
 
 ```{r}
 counts_table %>% 
@@ -943,6 +979,34 @@ ggsave(plot = p,
        filename = paste0('keratinocytes_il17_genes_pct_adjacent', distance, '.png'))
 p
 ```
+### Stromal 
+```{r}
+p <- total_long_adjacent %>% 
+  filter(gene %in% genes_keratinocyte) %>% 
+  filter(cluster %in% c('Stromal', 'Fibroblast')) %>% 
+  ggplot(aes(x = sample,
+             y = pct_spots,
+             fill = group)) +
+  geom_bar(stat = 'summary',
+           color = 'black',
+           fun = 'sum') +
+ # geom_col() +
+  facet_wrap(~gene, scales = 'free_y', nrow = 2) +
+  theme_dwu(legend.position = 'top') +
+  ggthemes::scale_fill_few() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_x_discrete(drop = FALSE) +
+  labs(y = '% Positive Spots',
+       x = '')
+
+ggsave(plot = p,
+       path = output_dir,
+       h = 5,
+       w = 18,
+       filename = paste0('keratinocyte_genes_pct_adjacent_stromal', distance, '.png'))
+p
+```
+
 ### Stats
 ```{r}
 stat_input <- total_long_adjacent %>% 
@@ -1015,6 +1079,7 @@ distance_to_th17
 ```{r}
 counts_distance <- counts_table %>% 
   filter(cluster %in% c('Keratinocyte')) %>% 
+  #filter(cluster %in% c('Stromal', 'Fibroblast')) %>% 
   left_join(distance_to_th17 %>% 
               select(rowname, distance, treatment, group) %>% unique()) %>% 
   pivot_longer(cols = starts_with('spatial'),
@@ -1190,6 +1255,33 @@ ggsave(plot = p,
 
 p
 ```
+#### Th1 and Th2 genes
+```{r}
+gene_subset <- genes_th1th2
+
+p <- map(counts_distance_summarized$gene %>% intersect(gene_subset), function(i) {
+  
+  print2(i)
+  counts_distance_summarized %>% 
+    filter(gene == i) %>% 
+    ggplot(aes(x = distance,
+               y = cpm)) +
+    geom_point(size = 2, 
+               alpha = 0.8) +
+    geom_path() +
+    labs(title = i,
+         x = 'Distance to T17 infiltrate (# spots)',
+         y = 'Counts per million') +
+    scale_color_manual(values = c('orangered', 'dodgerblue4')) +
+    theme(legend.position = 'top',
+          plot.background = element_rect(color = 'black')) +
+    scale_x_continuous(breaks = 1:10)
+}) %>% wrap_plots()
+
+p
+```
+
+
 ### Sector plot
 ```{r}
 p <- counts_distance_summarized %>% 
