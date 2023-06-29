@@ -4,9 +4,9 @@ author: "David Wu"
 ---
 
 Set working directory to project directory
-```{r setup}
-require(knitr)
-opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+```{r}
+library(here)
+here()
 ```
 
 ### Optionally convert this Rmd to R script 
@@ -19,8 +19,8 @@ file.edit(output_file)
 
 ### Directories
 ```{r, message=FALSE}
-output_dir <- 'analysis/output/10_il23_profile' # analysis file output directory
-data_dir <- 'data/derived/seurat' # data file output directory
+output_dir <- here('analysis/output/export') # analysis file output directory
+data_dir <- here('data/derived/tildra') # data file output directory
 
 dir.create(output_dir, showWarnings = FALSE)
 dir.create(data_dir, showWarnings = FALSE)
@@ -48,16 +48,17 @@ seuratobj
 ```
 ```{r}
 patient_meta <- seurat_meta %>% 
-  select(id, patient, sample, condition, treatment, response, response_group) %>% 
+  select(id, patient, sample, condition, treatment, response, group) %>% 
   unique() %>% 
   as_tibble()
 
 patient_meta
 ```
+
 ### Trm dataset for Elizabeth Purdom
 ```{r}
 metadata_subset <- seurat_meta %>% 
-  filter(merged_label == 'Trm_merge',
+  filter(cluster == 'Trm',
          treatment != 'None') %>% 
   select(barcode = rowname, id, patient, treatment, response_group)
 
@@ -98,6 +99,29 @@ test
 test <- read_tsv('data/derived/seurat/trm_metadata.tsv.gz')
 test
 ```
+
+### Pre Mid dataset for Alex Ol
+```{r}
+metadata_subset <- seurat_meta %>% 
+  filter(treatment != 'None') %>% 
+  select(barcode = rowname, id, patient, treatment, group, celltype = local_supercluster)
+
+metadata_subset
+```
+
+
+```{r}
+data_matrix <- seuratobj@assays$RNA@counts[, metadata_subset$barcode]
+```
+
+### Export
+```{r}
+metadata_subset %>% write_tsv(here('data/derived/tildra/pre_mid_metadata.tsv.gz'))
+data_matrix %>% 
+  as.matrix() %>% 
+  write.table(here('data/derived/tildra/pre_mid_matrix.tsv')) # gzip on system
+```
+
 
 
 ## Session Info
