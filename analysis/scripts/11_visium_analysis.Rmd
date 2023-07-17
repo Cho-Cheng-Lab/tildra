@@ -668,7 +668,7 @@ patient_labels <- patient_metadata %>%
   pull(label)
 
 p <- total_long_adjacent %>% 
-  left_join(patient_metadata %>% select(id, category)) %>% 
+  left_join(patient_metadata %>% select(id, category = group)) %>% 
   filter(gene %in% setdiff(genes_keratinocyte, 'CXCL1')) %>% 
   filter(cluster %in% c('Keratinocyte')) %>% 
   ggplot(aes(x = sample,
@@ -687,7 +687,7 @@ p <- total_long_adjacent %>%
                    drop = FALSE) +
   guides(pattern = guide_legend(override.aes = list(fill = 'white')),
          fill = guide_legend(override.aes = list(pattern = 'none'))) +
-  scale_fill_manual(values = colors_response3) +
+  scale_fill_manual(values = rev(colors_response2)) +
   theme(axis.ticks.x = element_blank(),
         axis.text.x = element_text(hjust = 0),
         legend.position = 'top') +
@@ -702,6 +702,74 @@ ggsave(plot = p,
        filename = paste0('keratinocyte_genes_adjacent_pattern', distance, '.pdf'))
 p
 ```
+```{r}
+p <- total_long_adjacent %>% 
+  left_join(patient_metadata %>% select(id, category = group)) %>% 
+  filter(gene %in% setdiff(genes_keratinocyte, 'CXCL1')) %>% 
+  filter(cluster %in% c('Keratinocyte')) %>% 
+  group_by(group, treatment, gene) %>% 
+  mutate(label = factor(paste(group, treatment),
+                        levels = c(
+                          'Responder Pre',
+                          'Responder Mid',
+                          'Non-responder Pre',
+                          'Non-responder Mid')
+                        )) %>% 
+  ggplot(aes(x = label,
+             y = counts,
+             fill = group)) +
+  geom_boxplot() +
+  facet_wrap(~gene, nrow = 4, scales = 'free_y') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_manual(values = rev(colors_response2)) +
+  labs(x = NULL,
+       y = 'Total UMI / biopsy')
+
+ggsave(plot = p,
+       path = output_dir,
+       device = cairo_pdf,
+       h = 6,
+       w = 10,
+       filename = paste0('keratinocyte_genes_adjacent_avg', distance, '.pdf'))
+p
+```
+```{r}
+p <- total_long_adjacent %>% 
+  left_join(patient_metadata %>% select(id, category = group)) %>% 
+  filter(gene %in% setdiff(genes_keratinocyte, 'CXCL1')) %>% 
+  filter(cluster %in% c('Fibroblast')) %>% 
+  group_by(group, treatment, gene) %>% 
+  mutate(label = factor(paste(group, treatment),
+                        levels = c(
+                          'Responder Pre',
+                          'Responder Mid',
+                          'Non-responder Pre',
+                          'Non-responder Mid')
+                        )) %>% 
+  ggplot(aes(x = label,
+             y = counts,
+             fill = group)) +
+  geom_boxplot() +
+  facet_wrap(~gene, nrow = 4, scales = 'free_y') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_manual(values = rev(colors_response2)) +
+  labs(x = NULL,
+       y = 'Total UMI / biopsy')
+
+ggsave(plot = p,
+       path = output_dir,
+       device = cairo_pdf,
+       h = 6,
+       w = 10,
+       filename = paste0('stromal_genes_adjacent_avg', distance, '.pdf'))
+p
+```
+
+
+```{r}
+
+```
+
 ### Mid only
 ```{r}
 patient_labels <- patient_metadata %>% 
@@ -836,7 +904,7 @@ p
 #### Residual
 ```{r}
 p <-  total_long_adjacent %>% 
-  left_join(patient_metadata %>% select(id, category)) %>% 
+  left_join(patient_metadata %>% select(id, category = group)) %>% 
   filter(gene %in% genes_keratinocyte) %>% 
   filter(cluster %in% c('Keratinocyte')) %>% 
   arrange(gene) %>% 
@@ -864,6 +932,38 @@ ggsave(plot = p,
        h = 5,
        w = 2.5,
        filename = paste0('keratinocyte_genes_adjacent', distance, '_mean.pdf'))
+p
+```
+```{r}
+p <-  total_long_adjacent %>% 
+  left_join(patient_metadata %>% select(id, category = group)) %>% 
+  filter(gene %in% genes_keratinocyte) %>% 
+  filter(cluster %in% c('Keratinocyte')) %>% 
+  arrange(gene) %>% 
+  group_by(gene, category, treatment) %>% 
+  summarize(counts = mean(counts)) %>% 
+  pivot_wider(names_from = treatment,
+              values_from = counts) %>% 
+  mutate(ratio = 100 * Mid/Pre) %>% 
+  ggplot(aes(x = category,
+             y = ratio,
+             fill = category)) +
+  geom_boxplot() +
+  # geom_col() +
+  
+  theme_dwu(legend.position = 'top') +
+  scale_fill_manual(values = colors_response3) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_x_discrete(drop = FALSE) +
+  labs(y = 'Average Residual Expression %',
+       x = '')
+
+ggsave(plot = p,
+       path = output_dir,
+       device = cairo_pdf,
+       h = 5,
+       w = 8,
+       filename = paste0('keratinocyte_genes_adjacent', distance, '_mean_by_gene.pdf'))
 p
 ```
 
@@ -1003,7 +1103,7 @@ ggsave(plot = p,
        path = output_dir,
        h = 5,
        w = 18,
-       filename = paste0('keratinocyte_genes_pct_adjacent_stromal', distance, '.png'))
+       filename = paste0('keratinocyte_genes_pct_adjacent_stromal', distance, '.pdf'))
 p
 ```
 
