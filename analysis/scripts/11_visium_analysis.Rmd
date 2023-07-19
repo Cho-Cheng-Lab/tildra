@@ -1374,10 +1374,49 @@ p <- map(counts_distance_summarized$gene %>% intersect(gene_subset), function(i)
          y = 'Counts per million') +
     scale_color_manual(values = c('orangered', 'dodgerblue4')) +
     theme(legend.position = 'top',
-          plot.background = element_rect(color = 'black')) +
+          plot.background = element_rect(color = 'black'),
+          plot.title = element_text(face = 'italic')) +
     scale_x_continuous(breaks = 1:10)
 }) %>% wrap_plots()
 
+ggsave(plot = p,
+       device = cairo_pdf,
+       path = output_dir,
+       h = 8,
+       w = 12,
+       filename = 'distance_th1th2.pdf')
+
+p
+```
+```{r}
+gene_subset <- genes_keratinocyte
+
+p <- map(counts_distance_summarized$gene %>% intersect(gene_subset), function(i) {
+  
+  print2(i)
+  counts_distance_summarized %>% 
+    filter(gene == i) %>% 
+    ggplot(aes(x = distance,
+               y = cpm)) +
+    geom_point(size = 2, 
+               alpha = 0.8) +
+    geom_path() +
+    labs(title = i,
+         x = 'Distance to T17 infiltrate (# spots)',
+         y = 'Counts per million') +
+    scale_color_manual(values = c('orangered', 'dodgerblue4')) +
+    theme(legend.position = 'top',
+          plot.background = element_rect(color = 'black'),
+          plot.title = element_text(face = 'italic')) +
+    scale_x_continuous(breaks = 1:10)
+}) %>% wrap_plots()
+
+ggsave(plot = p,
+       device = cairo_pdf,
+       path = output_dir,
+       h = 8,
+       w = 12,
+       filename = 'distance_keratinocyte_il17.pdf')
 p
 ```
 
