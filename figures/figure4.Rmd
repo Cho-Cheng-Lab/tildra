@@ -357,7 +357,96 @@ ggsave(plot = p,
 
 p
 ```
+## ECLIPSE IL10 and IFNG
+```{r}
+genes_of_interest <- c('IL17F', 'IL10', 'IFNG')
+expression <- FetchData(seuratobj, vars = genes_of_interest) %>% rownames_to_column()
 
+eclipse <- analyze %>% left_join(expression) %>% filter(treatment %in% c('Pre', 'Mid'), supercluster %in% c('Trm'))
+```
+
+```{r}
+eclipse_tallies <- eclipse %>% 
+  mutate(IL17F = as.numeric(IL17F > 0),
+         IL10 = as.numeric(IL10 > 0),
+         IFNG = as.numeric(IFNG > 0)) %>% 
+  select(patient, treatment, IL17F, IL10, IFNG) 
+
+eclipse_tallies
+```
+How many Trm express IL17F
+```{r}
+eclipse_il17f <- eclipse_tallies %>% 
+  add_count(patient, treatment) %>% 
+  group_by(patient, treatment, n, IL17F) %>% 
+  tally() %>% 
+  mutate(pct = nn/n * 100) %>% 
+  filter(IL17F > 0)
+
+eclipse_il17f
+```
+How many express IL10 (within IL17)
+```{r}
+eclipse_il10 <- eclipse_tallies %>% 
+  filter(IL17F > 0) %>% 
+  add_count(patient, treatment) %>% 
+  group_by(patient, treatment, n, IL10) %>% 
+  tally() %>% 
+  mutate(pct = nn/n * 100) %>% 
+  filter(IL10 > 0)
+
+eclipse_il10
+```
+```{r}
+eclipse_ifng <- eclipse_tallies %>% 
+  filter(IL17F > 0) %>% 
+  add_count(patient, treatment) %>% 
+  group_by(patient, treatment, n, IFNG) %>% 
+  tally() %>% 
+  mutate(pct = nn/n * 100) %>% 
+  filter(IFNG > 0)
+
+eclipse_ifng
+```
+eclipse
+```{r}
+eclipse_grouped <- bind_rows(eclipse_il17f %>% 
+                               ungroup() %>% 
+                               select(patient, treatment, pct) %>% 
+                               mutate(gene = 'IL17F'),
+                             eclipse_il10 %>% 
+                               ungroup() %>% 
+                               select(patient, treatment, pct) %>% 
+                               mutate(gene = 'IL10'),
+                             eclipse_ifng %>% 
+                               ungroup() %>% 
+                               select(patient, treatment, pct) %>% 
+                               mutate(gene = 'IFNG'))
+
+eclipse_grouped
+```
+
+```{r}
+p <- eclipse_grouped %>% 
+  mutate(gene = factor(gene, levels = c('IL17F', 'IL10', 'IFNG'))) %>% 
+  ggplot(aes(x = gene, 
+             y = pct, 
+             fill = treatment)) +
+  geom_col(position = 'dodge', color = 'black') +
+  facet_wrap(~patient) +
+  scale_x_discrete(drop = FALSE) +
+  scale_fill_few() +
+  theme(legend.position = 'top')
+
+ggsave(plot = p,
+       device = cairo_pdf,
+       filename = 'eclipse.pdf',
+       path = output_dir,
+       h = 4,
+       w = 4)
+
+p
+```
 
 ### Figure 2F
 #### n
@@ -961,7 +1050,7 @@ facet_input <- FetchData(seuratobj,
 
 facet_input
 ```
-  
+
 ```{r}
 which_gene <- 'IL17A'
 tallies <- facet_input %>% group_by(group) %>% tally() %>% pull(n) %>% min()
@@ -1062,41 +1151,15 @@ per_cell_df
 
 ### Th2
 ```{r}
-genes_th1th2 <- c("IL4R",
-                  "CD40LG",
-                  "IFNGR1",
-                  "IL2RA",
-                  "IL4R",
-                  "IL2",
-                  "IL4",
-                  "IFNG",
-                  "IL12A",
-                  "CD86",
-                  "CD28",
-                  "IL18",
-                  "HLA-DRB1",
-                  "CD40",
-                  "IL4R",
-                  "IL12RB2",
-                  "IL18",
-                  "HLA-DRB1",
-                  "HLA-DRB5",
-                  "IL12B",
-                  "IL18R1",
-                  "NR1I2",
-                  "IFNGR2",
-                  "IL12RB1",
-                  "CD28",
-                  "CD86",
-                  "HLA-DRA",
-                  "HLA-DRB4",
-                  "NR1I2",
-                  "HLA-DRB3",
-                  "NR1I2",
-                  "CD40",
-                  "IL12RB1",
-                  "IL4",
-                  "CD86")
+# ray th1 th2 genes
+genes_th1 <- c('CXCL9', 'CXCL10', 'CXCL11', 'ICAM1')
+genes_th2 <- c('CXCL1', 'OASL', 'KRT16', #'CLDN8', 
+'TSLP', 
+#'IL25', 
+'IL33', 
+'IL1RL1')
+genes_th1th2 <- c(genes_th1, genes_th2)
+
 ```
 
 ### UMAP facets
@@ -1120,7 +1183,7 @@ set.seed(1234)
 
 library(ggrastr)
 
-p <- map(cytokines %>% intersect(colnames(facet_input)), function(which_gene) {
+p <- map(cytokines %>% intersect(colnames(facet_input) %>% intersect(genes_th1)), function(which_gene) {
   
   print2(which_gene)
   plot_input <- facet_input %>% sample_n(size = tallies)
@@ -1176,11 +1239,71 @@ p <- map(cytokines %>% intersect(colnames(facet_input)), function(which_gene) {
          path = output_dir,
          h = 4,
          w = 8,
-         filename = paste0('F4B_umap_th1th2_', which_gene, '.pdf'))
+         filename = paste0('F4B_umap_th1_', which_gene, '.pdf'))
   
   p
 }) %>% wrap_plots(ncol = 1)
 
+p <- map(cytokines %>% intersect(colnames(facet_input) %>% intersect(genes_th2)), function(which_gene) {
+  
+  print2(which_gene)
+  plot_input <- facet_input %>% sample_n(size = tallies)
+  plot_input$expression <- plot_input[[which_gene]]
+  zero_input <- plot_input %>% filter(expression == 0)
+  nonzero_input <- plot_input %>% filter(expression > 0) %>% mutate(expression = log10(2^expression))
+  
+  total_cpm <- nonzero_input %>% group_by(group, treatment) %>% summarize(total = round(sum(10^expression), 2))
+  
+  p <- nonzero_input %>% 
+    ggplot(aes(x = UMAP_1,
+               y = UMAP_2,
+               color = expression)) +
+    rasterize(geom_point(data = zero_input,
+               color = 'grey90',
+               size = 1), dpi = 300) +
+    rasterize(geom_point(alpha = 0.5,
+               size = 1), dpi = 300) +
+    facet_wrap(~group + treatment, nrow = 1) +
+    labs(x = 'UMAP1',
+         y = 'UMAP2',
+         title = which_gene) +
+    theme(axis.text = element_blank(),
+          axis.ticks = element_blank(),
+          legend.title = element_text(),
+          legend.position = 'right',
+          plot.title = element_text(face = 'italic'),
+          axis.title.x = element_text(hjust = 0),
+          axis.title.y = element_text(hjust = 0),
+          strip.background = element_rect(color = 'black', fill = 'grey50')) +
+    geom_text(data = total_cpm,
+              x = 0,
+              y = 8, 
+              inherit.aes = FALSE,
+              size = 3,
+              color = 'black',
+              aes(label = paste0('Total CPM = ', total))) +
+    scale_color_gradientn(colors = colorRampPalette(rev(RColorBrewer::brewer.pal(n = 7, name = "OrRd")))(100),
+                          limits = c(0, 2),
+                          breaks = seq(0, 2, length.out = 3),
+                          labels = c(1, 10, 100),
+                          oob = scales::squish,
+                          guide = guide_colorbar(frame.colour = 'black', 
+                                                 ticks = FALSE, 
+                                                 nbin = 100,
+                                                 barwidth = 0.75,
+                                                 title = 'CPM',
+                                                 barheight = 3))
+  
+  
+  ggsave(plot = p,
+         device = cairo_pdf,
+         path = output_dir,
+         h = 4,
+         w = 8,
+         filename = paste0('F4B_umap_th2_', which_gene, '.pdf'))
+  
+  p
+}) %>% wrap_plots(ncol = 1)
 # ggsave(plot = p,
 # 	device = cairo_pdf,
 # 	path = output_dir,

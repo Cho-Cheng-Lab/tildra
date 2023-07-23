@@ -227,6 +227,10 @@ genes_th1th2 <- c("IL4R",
                   "IL4",
                   "CD86")
 
+# ray th1 th2 genes
+genes_th1 <- c('CXCL9', 'CXCL10', 'CXCL11', 'ICAM1', 'TNF', 'CXCL8', 'CCL5')
+genes_th2 <- c('CXCL1', 'OASL', 'KRT16', 'CLDN8', 'TSLP', 'IL25', 'IL33', 'IL1RL1')
+genes_th1th2 <- c(genes_th1, genes_th2)
 
 genes_il17 <- rownames(seuratobj) %>% str_subset('IL17')
 ```
@@ -1100,6 +1104,7 @@ p <- total_long_adjacent %>%
        x = '')
 
 ggsave(plot = p,
+       device = cairo_pdf,
        path = output_dir,
        h = 5,
        w = 18,
@@ -1357,7 +1362,7 @@ p
 ```
 #### Th1 and Th2 genes
 ```{r}
-gene_subset <- genes_th1th2
+gene_subset <- genes_th1
 
 p <- map(counts_distance_summarized$gene %>% intersect(gene_subset), function(i) {
   
@@ -1384,7 +1389,40 @@ ggsave(plot = p,
        path = output_dir,
        h = 8,
        w = 12,
-       filename = 'distance_th1th2.pdf')
+       filename = 'distance_th1.pdf')
+
+p
+```
+#### Th1 and Th2 genes
+```{r}
+gene_subset <- genes_th2
+
+p <- map(counts_distance_summarized$gene %>% intersect(gene_subset), function(i) {
+  
+  print2(i)
+  counts_distance_summarized %>% 
+    filter(gene == i) %>% 
+    ggplot(aes(x = distance,
+               y = cpm)) +
+    geom_point(size = 2, 
+               alpha = 0.8) +
+    geom_path() +
+    labs(title = i,
+         x = 'Distance to T17 infiltrate (# spots)',
+         y = 'Counts per million') +
+    scale_color_manual(values = c('orangered', 'dodgerblue4')) +
+    theme(legend.position = 'top',
+          plot.background = element_rect(color = 'black'),
+          plot.title = element_text(face = 'italic')) +
+    scale_x_continuous(breaks = 1:10)
+}) %>% wrap_plots()
+
+ggsave(plot = p,
+       device = cairo_pdf,
+       path = output_dir,
+       h = 8,
+       w = 12,
+       filename = 'distance_th2.pdf')
 
 p
 ```
