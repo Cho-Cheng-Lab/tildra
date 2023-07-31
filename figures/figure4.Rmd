@@ -359,7 +359,7 @@ p
 ```
 ## ECLIPSE IL10 and IFNG
 ```{r}
-genes_of_interest <- c('IL17F', 'IL10', 'IFNG')
+genes_of_interest <- c('IL17A', 'IL17F', 'IL10', 'IFNG')
 expression <- FetchData(seuratobj, vars = genes_of_interest) %>% rownames_to_column()
 
 eclipse <- analyze %>% left_join(expression) %>% filter(treatment %in% c('Pre', 'Mid'), supercluster %in% c('Trm'))
@@ -367,10 +367,14 @@ eclipse <- analyze %>% left_join(expression) %>% filter(treatment %in% c('Pre', 
 
 ```{r}
 eclipse_tallies <- eclipse %>% 
-  mutate(IL17F = as.numeric(IL17F > 0),
+  rowwise() %>% 
+  mutate(IL17A = as.numeric(IL17A > 0),
+         IL17F = as.numeric(IL17F > 0),
+         IL17 = max(IL17A, IL17F),
          IL10 = as.numeric(IL10 > 0),
          IFNG = as.numeric(IFNG > 0)) %>% 
-  select(patient, treatment, IL17F, IL10, IFNG) 
+  select(patient, treatment, IL17A, IL17F, IL17, IL10, IFNG) %>% 
+  ungroup()
 
 eclipse_tallies
 ```
@@ -378,17 +382,17 @@ How many Trm express IL17F
 ```{r}
 eclipse_il17f <- eclipse_tallies %>% 
   add_count(patient, treatment) %>% 
-  group_by(patient, treatment, n, IL17F) %>% 
+  group_by(patient, treatment, n, IL17) %>% 
   tally() %>% 
   mutate(pct = nn/n * 100) %>% 
-  filter(IL17F > 0)
+  filter(IL17 > 0)
 
 eclipse_il17f
 ```
 How many express IL10 (within IL17)
 ```{r}
 eclipse_il10 <- eclipse_tallies %>% 
-  filter(IL17F > 0) %>% 
+  filter(IL17 > 0) %>% 
   add_count(patient, treatment) %>% 
   group_by(patient, treatment, n, IL10) %>% 
   tally() %>% 
@@ -399,7 +403,7 @@ eclipse_il10
 ```
 ```{r}
 eclipse_ifng <- eclipse_tallies %>% 
-  filter(IL17F > 0) %>% 
+  filter(IL17 > 0) %>% 
   add_count(patient, treatment) %>% 
   group_by(patient, treatment, n, IFNG) %>% 
   tally() %>% 
@@ -413,7 +417,7 @@ eclipse
 eclipse_grouped <- bind_rows(eclipse_il17f %>% 
                                ungroup() %>% 
                                select(patient, treatment, pct) %>% 
-                               mutate(gene = 'IL17F'),
+                               mutate(gene = 'IL17A/F'),
                              eclipse_il10 %>% 
                                ungroup() %>% 
                                select(patient, treatment, pct) %>% 
@@ -428,7 +432,7 @@ eclipse_grouped
 
 ```{r}
 p <- eclipse_grouped %>% 
-  mutate(gene = factor(gene, levels = c('IL17F', 'IL10', 'IFNG'))) %>% 
+  mutate(gene = factor(gene, levels = c('IL17A/F', 'IL10', 'IFNG'))) %>% 
   ggplot(aes(x = gene, 
              y = pct, 
              fill = treatment)) +
@@ -1152,7 +1156,7 @@ per_cell_df
 ### Th2
 ```{r}
 # ray th1 th2 genes
-genes_th1 <- c('CXCL9', 'CXCL10', 'CXCL11', 'ICAM1')
+genes_th1 <- c('CXCL9', 'CXCL10', 'CXCL11', 'ICAM1', 'TNF', 'CXCL8', 'CCL5')
 genes_th2 <- c('CXCL1', 'OASL', 'KRT16', #'CLDN8', 
 'TSLP', 
 #'IL25', 

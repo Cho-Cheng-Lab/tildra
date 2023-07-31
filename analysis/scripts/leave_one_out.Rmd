@@ -592,7 +592,8 @@ plot_radar_patient <- function(pseudo,
                                test = TRUE,
                                significance_colors = c('orangered', 'red4'),
                                significance_cutoff = 0.01,
-                               title = 'patient') {
+                               title = 'patient',
+                               data_only = FALSE) {
   
   plot_title <- pseudo %>% filter(patient == {{patient}}) %>% pull({{title}}) %>% unique()
   
@@ -663,7 +664,16 @@ plot_radar_patient <- function(pseudo,
     pivot_wider(names_from = feature,
                 values_from = normalized)
   
-  p_radar <- radar_input %>% 
+  if(data_only) {
+    
+    radar_input %>% 
+      pivot_longer(cols = -1, 
+                   names_to = 'gene',
+                   values_to = 'norm') %>%
+      mutate('p' = res$wilcox$p.value) 
+
+  } else {
+    p_radar <- radar_input %>% 
     ggradar(legend.text.size = 8,
             grid.label.size = 0,
             axis.label.size = 2,
@@ -683,6 +693,8 @@ plot_radar_patient <- function(pseudo,
          subtitle = subtitle)
   
   p_radar
+  }
+  
   
   
 }
@@ -883,6 +895,67 @@ map(patients, function(i) {
 }) %>% invisible()
 
 update_geom_defaults('text', list(fontface = 1))
+
+```
+#### Leave one out stats only
+```{r}
+
+which_cluster <- 'Trm'
+df <- map(patients, function(i) {
+  
+  genes_all <- il23_group_response %>% filter(comparison == i) %>% pull(gene) %>% unique()
+  
+  res <- map(pseudo$patient %>% unique() %>% sort() %>% as.character(), function(which_patient) {
+    
+    df <- plot_radar_patient(pseudo = pseudo,
+                       cluster = which_cluster,
+                       patient = which_patient,
+                       genes = genes_all,
+                       scale = 'within',
+                       data_only = TRUE) %>% 
+      mutate(patient = which_patient,
+             leave_out = i) %>% 
+      pivot_wider(names_from = treatment,
+                  values_from = norm)
+    
+    df
+  }) %>% bind_rows()
+}) %>% bind_rows()
+
+df
+
+```
+
+```{r}
+stats_summary <- df %>% 
+  group_by(leave_out, patient, p) %>% 
+  summarize(mean = mean(Mid),
+            median = median(Mid)) %>% 
+  mutate(significant = ifelse(p < 0.05, ' Significant', 'Non-significant'))
+
+stats_summary %>% write_tsv(here(output_dir, 'leave_out_summary_stats.tsv'))
+stats_summary
+```
+```{r}
+p <- stats_summary %>% 
+  mutate(label = paste('Leave out', leave_out)) %>% 
+  ggplot(aes(x = patient,
+             y = median,
+             fill = significant)) +
+  geom_col(col = 'black') +
+  facet_wrap(~label) +
+  labs(x = 'Patient',
+       y = 'Median attenutation') +
+  theme(legend.position = 'top')
+
+ggsave(plot = p,
+             h = 5,
+             w = 8,
+             device = cairo_pdf,
+             path = here(output_dir),
+             filename = paste0('leave_out_summary', '.pdf'))
+
+p
 
 ```
 

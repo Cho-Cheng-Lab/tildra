@@ -190,6 +190,22 @@ genes_keratinocyte <- c('DEFB4A',
                         'SPRR2F',
                         'SPRR2D')
 
+genes_stromal <- c('CCL8',
+                   'CXCL1',
+                   'CXCL2',
+                   'CXCL3',
+                   'CXCL8',
+                   'CCL20',
+                   'CXCL6',
+                   'CCL7',
+                   'CCL2',
+                   'AREG',
+                   'NAMPT',
+                   'BMP2',
+                   'NDP',
+                   'CSF2',
+                   'IL6')
+
 #biocarta Th1 TH2 genes
 genes_th1th2 <- c("IL4R",
                   "CD40LG",
@@ -241,7 +257,7 @@ Fibroblasts = cluster 0
 
 ```{r}
 counts_table <- FetchData(seuratobj,
-                          vars = c('id', 'sample', 'ident', 'nCount_Spatial', paste0('spatial_', c(gene_set, genes_of_interest, genes_keratinocyte, genes_il17, genes_th1th2)) %>% unique), 
+                          vars = c('id', 'sample', 'ident', 'nCount_Spatial', paste0('spatial_', c(gene_set, genes_of_interest, genes_keratinocyte, genes_il17, genes_th1th2, genes_stromal)) %>% unique), 
                           slot = 'counts') %>% 
   rownames_to_column() %>% 
   as_tibble() %>% 
@@ -740,8 +756,8 @@ p
 ```{r}
 p <- total_long_adjacent %>% 
   left_join(patient_metadata %>% select(id, category = group)) %>% 
-  filter(gene %in% setdiff(genes_keratinocyte, 'CXCL1')) %>% 
-  filter(cluster %in% c('Fibroblast')) %>% 
+  filter(gene %in% genes_stromal) %>% 
+  filter(cluster %in% c('Fibroblast', 'Stromal')) %>% 
   group_by(group, treatment, gene) %>% 
   mutate(label = factor(paste(group, treatment),
                         levels = c(
@@ -1086,7 +1102,7 @@ p
 ### Stromal 
 ```{r}
 p <- total_long_adjacent %>% 
-  filter(gene %in% genes_keratinocyte) %>% 
+  filter(gene %in% genes_stromal) %>% 
   filter(cluster %in% c('Stromal', 'Fibroblast')) %>% 
   ggplot(aes(x = sample,
              y = pct_spots,
@@ -1108,7 +1124,7 @@ ggsave(plot = p,
        path = output_dir,
        h = 5,
        w = 18,
-       filename = paste0('keratinocyte_genes_pct_adjacent_stromal', distance, '.pdf'))
+       filename = paste0('stromal_genes_pct_adjacent_stromal', distance, '.pdf'))
 p
 ```
 
