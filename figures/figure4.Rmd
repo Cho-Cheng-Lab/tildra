@@ -1241,7 +1241,7 @@ p <- map(cytokines %>% intersect(colnames(facet_input) %>% intersect(genes_th1))
   ggsave(plot = p,
          device = cairo_pdf,
          path = output_dir,
-         h = 4,
+         h = 3,
          w = 8,
          filename = paste0('F4B_umap_th1_', which_gene, '.pdf'))
   
@@ -1302,7 +1302,7 @@ p <- map(cytokines %>% intersect(colnames(facet_input) %>% intersect(genes_th2))
   ggsave(plot = p,
          device = cairo_pdf,
          path = output_dir,
-         h = 4,
+         h = 3,
          w = 8,
          filename = paste0('F4B_umap_th2_', which_gene, '.pdf'))
   

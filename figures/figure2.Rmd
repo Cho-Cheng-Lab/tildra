@@ -625,7 +625,16 @@ ggsave(plot = p,
 p
   
 ```
+### Stats
+```{r}
+stats_input <- tally_input %>% pivot_wider(names_from = comparison,
+                                           values_from = n)
 
+stats_input
+
+wilcox.test(stats_input$`AD vs HC`,
+            stats_input$`PV vs HC`, paired = TRUE)
+```
 
 
 ### F2D boxplots
